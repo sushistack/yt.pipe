@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/plugin/imagegen"
-	"github.com/jay/youtube-pipeline/internal/retry"
-	"github.com/jay/youtube-pipeline/internal/store"
-	"github.com/jay/youtube-pipeline/internal/workspace"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
+	"github.com/sushistack/yt.pipe/internal/retry"
+	"github.com/sushistack/yt.pipe/internal/store"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
 // ImageGenService handles image generation for scenes.
@@ -209,4 +209,27 @@ func (s *ImageGenService) markSceneFailed(projectID string, sceneNum int, genErr
 func hashBytes(data []byte) string {
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])
+}
+
+// BackupSceneImage backs up an existing scene image before regeneration.
+// The backup is saved as image.prev.{ext} in the same directory.
+func BackupSceneImage(projectPath string, sceneNum int) {
+	sceneDir := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", sceneNum))
+
+	// Find existing image file
+	for _, ext := range []string{"png", "jpg", "webp"} {
+		src := filepath.Join(sceneDir, "image."+ext)
+		if _, err := os.Stat(src); err == nil {
+			dst := filepath.Join(sceneDir, "image.prev."+ext)
+			data, readErr := os.ReadFile(src)
+			if readErr == nil {
+				_ = os.WriteFile(dst, data, 0o644)
+				slog.Info("scene image backed up",
+					"scene_num", sceneNum,
+					"backup", dst,
+				)
+			}
+			return
+		}
+	}
 }
