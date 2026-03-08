@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/domain"
 )
 
 // ExpectedSchemaVersion is the expected schema version for SCP data files.

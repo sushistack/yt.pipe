@@ -9,7 +9,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/domain"
 )
 
 // DefaultSafetyModifiers are appended to image prompts to avoid NSFW filter triggers.

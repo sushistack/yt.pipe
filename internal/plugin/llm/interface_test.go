@@ -3,7 +3,7 @@ package llm_test
 import (
 	"testing"
 
-	llmplugin "github.com/jay/youtube-pipeline/internal/plugin/llm"
+	llmplugin "github.com/sushistack/yt.pipe/internal/plugin/llm"
 )
 
 // Compile-time interface check: ensure the interface is well-defined and importable.

@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/jay/youtube-pipeline/internal/cli"
+	"github.com/sushistack/yt.pipe/internal/cli"
 )
 
 func main() {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jay/youtube-pipeline/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/domain"
 )
 
 type generateRequest struct {

@@ -4,7 +4,7 @@ package tts
 import (
 	"context"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/domain"
 )
 
 //go:generate go run github.com/vektra/mockery/v2@latest --name=TTS --output=../../../internal/mocks --outpkg=mocks

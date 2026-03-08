@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jay/youtube-pipeline/internal/config"
+	"github.com/sushistack/yt.pipe/internal/config"
 )
 
 // WebhookEvent represents a webhook notification payload.

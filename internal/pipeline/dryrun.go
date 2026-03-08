@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/jay/youtube-pipeline/internal/config"
+	"github.com/sushistack/yt.pipe/internal/config"
 )
 
 // StageResult captures the outcome of a single pipeline stage during dry-run.

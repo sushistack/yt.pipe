@@ -3,7 +3,7 @@ package imagegen_test
 import (
 	"testing"
 
-	imagegenp "github.com/jay/youtube-pipeline/internal/plugin/imagegen"
+	imagegenp "github.com/sushistack/yt.pipe/internal/plugin/imagegen"
 )
 
 // Compile-time interface check

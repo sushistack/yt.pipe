@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/jay/youtube-pipeline/internal/service"
+	"github.com/sushistack/yt.pipe/internal/service"
 )
 
 // CheckpointManager handles saving and loading pipeline checkpoints.

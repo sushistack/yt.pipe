@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/glossary"
-	"github.com/jay/youtube-pipeline/internal/store"
-	"github.com/jay/youtube-pipeline/internal/workspace"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/glossary"
+	"github.com/sushistack/yt.pipe/internal/store"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
 // SubtitleEntry represents a single subtitle cue.

@@ -1,7 +1,7 @@
 package service
 
 import (
-	"github.com/jay/youtube-pipeline/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/domain"
 )
 
 // ExecutionSummary aggregates execution log entries into a summary.

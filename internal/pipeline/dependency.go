@@ -3,9 +3,9 @@ package pipeline
 import (
 	"log/slog"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/service"
-	"github.com/jay/youtube-pipeline/internal/store"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/service"
+	"github.com/sushistack/yt.pipe/internal/store"
 )
 
 // AssetType represents a type of scene asset in the dependency chain.

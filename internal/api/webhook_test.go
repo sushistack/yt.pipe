@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jay/youtube-pipeline/internal/api"
-	"github.com/jay/youtube-pipeline/internal/config"
+	"github.com/sushistack/yt.pipe/internal/api"
+	"github.com/sushistack/yt.pipe/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

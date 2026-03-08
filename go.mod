@@ -1,4 +1,4 @@
-module github.com/jay/youtube-pipeline
+module github.com/sushistack/yt.pipe
 
 go 1.25.7
 

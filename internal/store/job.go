@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/domain"
 )
 
 // CreateJob inserts a new job

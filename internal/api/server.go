@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jay/youtube-pipeline/internal/config"
-	"github.com/jay/youtube-pipeline/internal/plugin"
-	"github.com/jay/youtube-pipeline/internal/service"
-	"github.com/jay/youtube-pipeline/internal/store"
+	"github.com/sushistack/yt.pipe/internal/config"
+	"github.com/sushistack/yt.pipe/internal/plugin"
+	"github.com/sushistack/yt.pipe/internal/service"
+	"github.com/sushistack/yt.pipe/internal/store"
 )
 
 // Version can be set at build time via ldflags.

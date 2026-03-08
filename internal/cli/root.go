@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jay/youtube-pipeline/internal/config"
-	"github.com/jay/youtube-pipeline/internal/logging"
+	"github.com/sushistack/yt.pipe/internal/config"
+	"github.com/sushistack/yt.pipe/internal/logging"
 	"github.com/spf13/cobra"
 )
 

@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jay/youtube-pipeline/internal/api"
-	"github.com/jay/youtube-pipeline/internal/store"
+	"github.com/sushistack/yt.pipe/internal/api"
+	"github.com/sushistack/yt.pipe/internal/store"
 	"github.com/spf13/cobra"
 )
 

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/plugin/llm"
-	"github.com/jay/youtube-pipeline/internal/store"
-	"github.com/jay/youtube-pipeline/internal/workspace"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/plugin/llm"
+	"github.com/sushistack/yt.pipe/internal/store"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
 // ScenarioService handles scenario generation and management.

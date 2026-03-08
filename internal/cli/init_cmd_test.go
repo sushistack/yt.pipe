@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jay/youtube-pipeline/internal/config"
+	"github.com/sushistack/yt.pipe/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

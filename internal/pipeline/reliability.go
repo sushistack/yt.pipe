@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/jay/youtube-pipeline/internal/service"
+	"github.com/sushistack/yt.pipe/internal/service"
 )
 
 // GracefulRunner wraps a pipeline Runner with signal handling for graceful shutdown.

@@ -3,7 +3,7 @@ package output_test
 import (
 	"testing"
 
-	outputp "github.com/jay/youtube-pipeline/internal/plugin/output"
+	outputp "github.com/sushistack/yt.pipe/internal/plugin/output"
 )
 
 // Compile-time interface check

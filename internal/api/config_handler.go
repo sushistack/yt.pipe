@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jay/youtube-pipeline/internal/config"
-	"github.com/jay/youtube-pipeline/internal/plugin"
+	"github.com/sushistack/yt.pipe/internal/config"
+	"github.com/sushistack/yt.pipe/internal/plugin"
 )
 
 type configResponse struct {
