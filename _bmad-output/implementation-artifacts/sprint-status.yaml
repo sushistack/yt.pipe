@@ -1,0 +1,107 @@
+# generated: 2026-03-08
+# project: youtube.pipeline
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-03-08
+project: youtube.pipeline
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Project Foundation & Configuration
+  epic-1: in-progress
+  1-1-project-scaffolding-development-environment: done
+  1-2-configuration-management-system: backlog
+  1-3-plugin-interface-framework: backlog
+  1-4-initial-setup-wizard: backlog
+  1-5-dry-run-mode-configuration-verification: backlog
+  1-6-docker-packaging-deployment: backlog
+  1-7-project-state-machine-transitions: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: SCP Data & Scenario Generation
+  epic-2: backlog
+  2-1-scp-data-loading-schema-validation: backlog
+  2-2-project-workspace-initialization: backlog
+  2-3-scp-glossary-system: backlog
+  2-4-scenario-generation-with-fact-tagging: backlog
+  2-5-fact-coverage-verification: backlog
+  2-6-scenario-review-edit-approval: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Visual & Audio Asset Generation
+  epic-3: backlog
+  3-1-image-prompt-generation-sanitization: backlog
+  3-2-image-generation-scene-control: backlog
+  3-3-tts-narration-pronunciation: backlog
+  3-4-timing-resolver: backlog
+  3-5-subtitle-generation: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: CapCut Project Assembly
+  epic-4: backlog
+  4-1-capcut-format-poc-validation: backlog
+  4-2-capcut-project-assembly: backlog
+  4-3-copyright-licensing-automation: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Pipeline Orchestration & Reliability
+  epic-5: backlog
+  5-1-full-pipeline-orchestration: backlog
+  5-2-real-time-progress-status-display: backlog
+  5-3-incremental-build-with-hash-based-skip: backlog
+  5-4-scene-dependency-chain-stale-invalidation: backlog
+  5-5-checkpoint-resume-error-recovery: backlog
+  5-6-retry-reliability-hardening: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Observability, Quality & Operational Excellence
+  epic-6: backlog
+  6-1-structured-logging-execution-history: backlog
+  6-2-prompt-template-management-versioning: backlog
+  6-3-quality-feedback-pipeline-metrics: backlog
+  6-4-project-cleanup-disk-management: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: REST API & External Integration
+  epic-7: backlog
+  7-1-rest-api-server-health-endpoint: backlog
+  7-2-project-crud-api: backlog
+  7-3-pipeline-control-api: backlog
+  7-4-asset-management-api: backlog
+  7-5-configuration-plugin-management-api: backlog
+  7-6-webhook-notifications: backlog
+  7-7-api-authentication-middleware: backlog
+  epic-7-retrospective: optional
