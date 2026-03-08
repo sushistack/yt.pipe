@@ -81,6 +81,70 @@ func (s *Store) ListProjects() ([]*domain.Project, error) {
 	return projects, rows.Err()
 }
 
+// DeleteProject deletes a project by ID.
+func (s *Store) DeleteProject(id string) error {
+	result, err := s.db.Exec(`DELETE FROM projects WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete project: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return &domain.NotFoundError{Resource: "project", ID: id}
+	}
+	return nil
+}
+
+// ListProjectsFiltered returns projects matching optional filters with pagination.
+func (s *Store) ListProjectsFiltered(state, scpID string, limit, offset int) ([]*domain.Project, int, error) {
+	where := ""
+	var args []interface{}
+
+	if state != "" {
+		where += " AND status = ?"
+		args = append(args, state)
+	}
+	if scpID != "" {
+		where += " AND scp_id = ?"
+		args = append(args, scpID)
+	}
+
+	// Count total
+	var total int
+	countQuery := "SELECT COUNT(*) FROM projects WHERE 1=1" + where
+	if err := s.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count projects: %w", err)
+	}
+
+	// Query with pagination
+	query := "SELECT id, scp_id, status, scene_count, workspace_path, created_at, updated_at FROM projects WHERE 1=1" + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list projects filtered: %w", err)
+	}
+	defer rows.Close()
+
+	var projects []*domain.Project
+	for rows.Next() {
+		p := &domain.Project{}
+		var createdAt, updatedAt string
+		if err := rows.Scan(&p.ID, &p.SCPID, &p.Status, &p.SceneCount, &p.WorkspacePath, &createdAt, &updatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan project: %w", err)
+		}
+		p.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+		if err != nil {
+			return nil, 0, fmt.Errorf("parse project created_at: %w", err)
+		}
+		p.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+		if err != nil {
+			return nil, 0, fmt.Errorf("parse project updated_at: %w", err)
+		}
+		projects = append(projects, p)
+	}
+	return projects, total, rows.Err()
+}
+
 // UpdateProject updates an existing project
 func (s *Store) UpdateProject(p *domain.Project) error {
 	now := time.Now().UTC()
