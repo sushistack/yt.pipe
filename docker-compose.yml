@@ -1,0 +1,14 @@
+services:
+  yt-pipe:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - /data/raw:/data/raw:ro
+      - /data/projects:/data/projects
+      - /data/db:/data/db
+      - ./config.yaml:/config/config.yaml
+    environment:
+      - YTP_LLM_API_KEY=${YTP_LLM_API_KEY}
+      - YTP_SILICONFLOW_KEY=${YTP_SILICONFLOW_KEY}
+    command: ["serve"]

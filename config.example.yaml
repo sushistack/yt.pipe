@@ -1,0 +1,40 @@
+# youtube.pipeline configuration
+# Full configuration is implemented in Story 1.2 — this is the placeholder structure
+
+# SCP data source directory (read-only)
+scp_data_path: "/data/raw"
+
+# Project workspace directory
+workspace_path: "/data/projects"
+
+# SQLite database path
+db_path: "/data/db/yt-pipe.db"
+
+# API server settings
+api:
+  host: "localhost"
+  port: 8080
+  # api_key: set via YTP_API_KEY environment variable
+
+# Plugin selections (configured in Story 1.2+)
+llm:
+  provider: "openai"
+  # api_key: set via YTP_LLM_API_KEY environment variable
+
+imagegen:
+  provider: "siliconflow"
+  # api_key: set via YTP_SILICONFLOW_KEY environment variable
+
+tts:
+  provider: "openai"
+  # api_key: set via YTP_TTS_API_KEY environment variable
+
+output:
+  provider: "capcut"
+
+# SCP glossary path
+glossary_path: ""
+
+# Logging
+log_level: "info"    # debug, info, warn, error
+log_format: "json"   # json, text

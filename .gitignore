@@ -1,0 +1,5 @@
+bin/
+*.db
+internal/mocks/*
+!internal/mocks/.gitkeep
+vendor/
