@@ -3,16 +3,28 @@ package cli
 import (
 	"fmt"
 
-	"github.com/jay/youtube-pipeline/internal/config"
-	"github.com/jay/youtube-pipeline/internal/plugin"
-	"github.com/jay/youtube-pipeline/internal/plugin/imagegen"
-	"github.com/jay/youtube-pipeline/internal/plugin/llm"
-	"github.com/jay/youtube-pipeline/internal/plugin/tts"
+	"github.com/sushistack/yt.pipe/internal/config"
+	"github.com/sushistack/yt.pipe/internal/plugin"
+	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
+	"github.com/sushistack/yt.pipe/internal/plugin/llm"
+	"github.com/sushistack/yt.pipe/internal/plugin/tts"
 )
 
 // pluginRegistry is the global plugin registry for the CLI.
-// Plugin implementations register themselves via init() functions.
 var pluginRegistry = plugin.NewRegistry()
+
+func init() {
+	// Register LLM providers
+	_ = pluginRegistry.Register(plugin.PluginTypeLLM, "gemini", llm.GeminiFactory)
+	_ = pluginRegistry.Register(plugin.PluginTypeLLM, "qwen", llm.QwenFactory)
+	_ = pluginRegistry.Register(plugin.PluginTypeLLM, "deepseek", llm.DeepSeekFactory)
+
+	// Register ImageGen providers
+	_ = pluginRegistry.Register(plugin.PluginTypeImageGen, "siliconflow", imagegen.SiliconFlowFactory)
+
+	// Register TTS providers
+	_ = pluginRegistry.Register(plugin.PluginTypeTTS, "dashscope", tts.DashScopeFactory)
+}
 
 // PluginRegistry returns the global plugin registry for registering providers.
 func PluginRegistry() *plugin.Registry {
@@ -41,8 +53,9 @@ func createPlugins(cfg *config.LoadResult) (llm.LLM, imagegen.ImageGen, tts.TTS,
 
 	// Create ImageGen plugin
 	imgCfg := map[string]interface{}{
-		"api_key": c.ImageGen.APIKey,
-		"model":   c.ImageGen.Model,
+		"endpoint": c.ImageGen.Endpoint,
+		"api_key":  c.ImageGen.APIKey,
+		"model":    c.ImageGen.Model,
 	}
 	imgRaw, err := pluginRegistry.Create(plugin.PluginTypeImageGen, c.ImageGen.Provider, imgCfg)
 	if err != nil {
@@ -55,9 +68,11 @@ func createPlugins(cfg *config.LoadResult) (llm.LLM, imagegen.ImageGen, tts.TTS,
 
 	// Create TTS plugin
 	ttsCfg := map[string]interface{}{
-		"api_key": c.TTS.APIKey,
-		"voice":   c.TTS.Voice,
-		"speed":   c.TTS.Speed,
+		"endpoint": c.TTS.Endpoint,
+		"api_key":  c.TTS.APIKey,
+		"model":    c.TTS.Model,
+		"voice":    c.TTS.Voice,
+		"format":   c.TTS.Format,
 	}
 	ttsRaw, err := pluginRegistry.Create(plugin.PluginTypeTTS, c.TTS.Provider, ttsCfg)
 	if err != nil {

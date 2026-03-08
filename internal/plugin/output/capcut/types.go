@@ -7,10 +7,11 @@ import "github.com/google/uuid"
 
 // Format version constants matching video.pipeline templates.
 const (
-	FormatVersion    = 360000
-	FormatNewVersion = "151.0.0"
-	DefaultFPS       = 30.0
-	MicrosecondsPerSecond = 1_000_000
+	FormatVersion            = 360000
+	FormatNewVersion         = "151.0.0"
+	DefaultFPS               = 30.0
+	MicrosecondsPerSecond    = 1_000_000
+	DefaultSceneDurationSec  = 3.0 // Fallback duration for scenes without narration
 )
 
 func newID() string {

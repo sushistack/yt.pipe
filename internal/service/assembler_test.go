@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/mocks"
-	"github.com/jay/youtube-pipeline/internal/plugin/output"
-	"github.com/jay/youtube-pipeline/internal/store"
-	"github.com/jay/youtube-pipeline/internal/workspace"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/mocks"
+	"github.com/sushistack/yt.pipe/internal/plugin/output"
+	"github.com/sushistack/yt.pipe/internal/store"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -193,9 +193,9 @@ func TestAssemble_MultipleAssetErrors(t *testing.T) {
 	require.Error(t, err)
 	var ve *domain.ValidationError
 	assert.ErrorAs(t, err, &ve)
-	assert.Contains(t, ve.Message, "missing image")
-	assert.Contains(t, ve.Message, "missing audio")
-	assert.Contains(t, ve.Message, "missing subtitle")
+	assert.Contains(t, ve.Message, "image")
+	assert.Contains(t, ve.Message, "audio")
+	assert.Contains(t, ve.Message, "subtitle")
 }
 
 func TestAssemble_ValidationFailure(t *testing.T) {
@@ -320,6 +320,80 @@ func TestLogSpecialCopyright_WithSpecialConditions(t *testing.T) {
 	assert.Contains(t, string(data), "SCP-999")
 	assert.Contains(t, string(data), "CC-BY-NC 4.0")
 	assert.Contains(t, string(data), "additional copyright conditions")
+}
+
+// --- ValidateSceneAssets Tests ---
+
+func TestValidateSceneAssets_AllPresent(t *testing.T) {
+	scenes := []domain.Scene{
+		{SceneNum: 1, ImagePath: "/img/1.png", AudioPath: "/audio/1.mp3", SubtitlePath: "/sub/1.srt"},
+	}
+	err := ValidateSceneAssets(scenes, "SCP-173")
+	assert.NoError(t, err)
+}
+
+func TestValidateSceneAssets_MissingAssets(t *testing.T) {
+	scenes := []domain.Scene{
+		{SceneNum: 1, ImagePath: "", AudioPath: "/audio/1.mp3", SubtitlePath: "/sub/1.srt"},
+		{SceneNum: 2, ImagePath: "/img/2.png", AudioPath: "", SubtitlePath: ""},
+	}
+	err := ValidateSceneAssets(scenes, "SCP-173")
+	require.Error(t, err)
+
+	var ve *domain.ValidationError
+	assert.ErrorAs(t, err, &ve)
+	assert.Contains(t, ve.Message, "scene 1")
+	assert.Contains(t, ve.Message, "scene 2")
+	assert.Contains(t, ve.Message, "yt-pipe status SCP-173 --scenes")
+}
+
+// --- CheckLicenseFields Tests ---
+
+func TestCheckLicenseFields_AllPresent(t *testing.T) {
+	meta := &workspace.MetaFile{Author: "Moto42", URL: "https://example.com", Title: "SCP-173"}
+	result := CheckLicenseFields(meta)
+	assert.True(t, result.Valid)
+	assert.Empty(t, result.Warnings)
+}
+
+func TestCheckLicenseFields_MissingAuthor(t *testing.T) {
+	meta := &workspace.MetaFile{URL: "https://example.com", Title: "SCP-173"}
+	result := CheckLicenseFields(meta)
+	assert.False(t, result.Valid)
+	assert.Len(t, result.Warnings, 1)
+	assert.Contains(t, result.Warnings[0], "author")
+}
+
+func TestCheckLicenseFields_AllMissing(t *testing.T) {
+	meta := &workspace.MetaFile{}
+	result := CheckLicenseFields(meta)
+	assert.False(t, result.Valid)
+	assert.Len(t, result.Warnings, 3)
+}
+
+// --- LogSpecialCopyright append to description.txt ---
+
+func TestLogSpecialCopyright_AppendsToDescriptionTxt(t *testing.T) {
+	dir := t.TempDir()
+	outputDir := filepath.Join(dir, "output")
+	require.NoError(t, os.MkdirAll(outputDir, 0o755))
+
+	// Create description.txt first
+	descPath := filepath.Join(outputDir, "description.txt")
+	require.NoError(t, os.WriteFile(descPath, []byte("Original notice\n"), 0o644))
+
+	meta := &workspace.MetaFile{
+		Title:          "SCP-999",
+		CopyrightNotes: "Special license terms",
+	}
+	err := LogSpecialCopyright(dir, "SCP-999", meta)
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(descPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Original notice")
+	assert.Contains(t, string(data), "Special license terms")
+	assert.Contains(t, string(data), "Additional Copyright Conditions")
 }
 
 func TestGenerateCopyrightNotice_IncludesSourceURL(t *testing.T) {

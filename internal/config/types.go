@@ -8,6 +8,7 @@ type Config struct {
 	DBPath        string         `mapstructure:"db_path"`
 	API           APIConfig      `mapstructure:"api"`
 	LLM           LLMConfig      `mapstructure:"llm"`
+	Scenario      ScenarioConfig `mapstructure:"scenario"`
 	ImageGen      ImageGenConfig `mapstructure:"imagegen"`
 	TTS           TTSConfig      `mapstructure:"tts"`
 	Output        OutputConfig   `mapstructure:"output"`
@@ -41,34 +42,57 @@ type APIConfig struct {
 
 // LLMConfig holds LLM plugin settings.
 type LLMConfig struct {
-	Provider    string  `mapstructure:"provider"`
-	APIKey      string  `mapstructure:"api_key"`
-	Model       string  `mapstructure:"model"`
-	Temperature float64 `mapstructure:"temperature"`
-	MaxTokens   int     `mapstructure:"max_tokens"`
+	Provider    string            `mapstructure:"provider"`
+	Endpoint    string            `mapstructure:"endpoint"`
+	APIKey      string            `mapstructure:"api_key"`
+	Model       string            `mapstructure:"model"`
+	Temperature float64           `mapstructure:"temperature"`
+	MaxTokens   int               `mapstructure:"max_tokens"`
+	Fallback    []LLMFallbackItem `mapstructure:"fallback"`
+}
+
+// LLMFallbackItem configures a single fallback LLM provider.
+type LLMFallbackItem struct {
+	Provider string `mapstructure:"provider"`
+	Endpoint string `mapstructure:"endpoint"`
+	APIKey   string `mapstructure:"api_key"`
+	Model    string `mapstructure:"model"`
+}
+
+// ScenarioConfig holds scenario generation settings.
+type ScenarioConfig struct {
+	FactCoverageThreshold float64 `mapstructure:"fact_coverage_threshold"`
+	TargetDurationMin     int     `mapstructure:"target_duration_min"` // target video duration in minutes
 }
 
 // ImageGenConfig holds image generation plugin settings.
 type ImageGenConfig struct {
 	Provider string `mapstructure:"provider"`
+	Endpoint string `mapstructure:"endpoint"`
 	APIKey   string `mapstructure:"api_key"`
 	Model    string `mapstructure:"model"`
+	Width    int    `mapstructure:"width"`
+	Height   int    `mapstructure:"height"`
 }
 
 // TTSConfig holds text-to-speech plugin settings.
 type TTSConfig struct {
 	Provider string  `mapstructure:"provider"`
+	Endpoint string  `mapstructure:"endpoint"`
 	APIKey   string  `mapstructure:"api_key"`
+	Model    string  `mapstructure:"model"`
 	Voice    string  `mapstructure:"voice"`
+	Format   string  `mapstructure:"format"`
 	Speed    float64 `mapstructure:"speed"`
 }
 
 // OutputConfig holds output assembler plugin settings.
 type OutputConfig struct {
-	Provider     string `mapstructure:"provider"`
-	TemplatePath string `mapstructure:"template_path"` // Path to CapCut draft template JSON
-	MetaPath     string `mapstructure:"meta_path"`     // Path to CapCut draft meta info JSON
-	CanvasWidth  int    `mapstructure:"canvas_width"`  // Output canvas width (default: 1920)
-	CanvasHeight int    `mapstructure:"canvas_height"` // Output canvas height (default: 1080)
-	FPS          int    `mapstructure:"fps"`            // Frames per second (default: 30)
+	Provider             string  `mapstructure:"provider"`
+	TemplatePath         string  `mapstructure:"template_path"`          // Path to CapCut draft template JSON
+	MetaPath             string  `mapstructure:"meta_path"`              // Path to CapCut draft meta info JSON
+	CanvasWidth          int     `mapstructure:"canvas_width"`           // Output canvas width (default: 1920)
+	CanvasHeight         int     `mapstructure:"canvas_height"`          // Output canvas height (default: 1080)
+	FPS                  int     `mapstructure:"fps"`                    // Frames per second (default: 30)
+	DefaultSceneDuration float64 `mapstructure:"default_scene_duration"` // Default duration (sec) for scenes without narration (default: 3.0)
 }

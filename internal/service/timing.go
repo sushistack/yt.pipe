@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/workspace"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
 // SceneTiming holds resolved timing for a single scene.
@@ -35,14 +35,26 @@ type Timeline struct {
 	Scenes           []SceneTiming `json:"scenes"`
 }
 
+// DefaultSceneDurationSec is the fallback duration for scenes without narration audio.
+const DefaultSceneDurationSec = 3.0
+
 // TimingResolver resolves TTS audio timing into image transitions and subtitle synchronization data.
 type TimingResolver struct {
-	logger *slog.Logger
+	logger               *slog.Logger
+	defaultSceneDuration float64
 }
 
 // NewTimingResolver creates a new TimingResolver.
 func NewTimingResolver(logger *slog.Logger) *TimingResolver {
-	return &TimingResolver{logger: logger}
+	return &TimingResolver{logger: logger, defaultSceneDuration: DefaultSceneDurationSec}
+}
+
+// WithDefaultSceneDuration sets the fallback duration for scenes without narration.
+func (r *TimingResolver) WithDefaultSceneDuration(d float64) *TimingResolver {
+	if d > 0 {
+		r.defaultSceneDuration = d
+	}
+	return r
 }
 
 // ResolveTimings calculates scene start/end times from audio durations,
@@ -53,6 +65,9 @@ func (r *TimingResolver) ResolveTimings(scenes []*domain.Scene) []SceneTiming {
 
 	for _, scene := range scenes {
 		duration := scene.AudioDuration
+		if duration <= 0 {
+			duration = r.defaultSceneDuration
+		}
 
 		// Build subtitle segments from word timings (AC1)
 		subtitleSegs := buildSubtitleSegments(scene.WordTimings, offset)

@@ -3,14 +3,15 @@ package cli
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 
-	"github.com/jay/youtube-pipeline/internal/glossary"
-	"github.com/jay/youtube-pipeline/internal/pipeline"
-	"github.com/jay/youtube-pipeline/internal/plugin/imagegen"
-	"github.com/jay/youtube-pipeline/internal/plugin/output"
-	"github.com/jay/youtube-pipeline/internal/plugin/output/capcut"
-	"github.com/jay/youtube-pipeline/internal/service"
-	"github.com/jay/youtube-pipeline/internal/store"
+	"github.com/sushistack/yt.pipe/internal/glossary"
+	"github.com/sushistack/yt.pipe/internal/pipeline"
+	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
+	"github.com/sushistack/yt.pipe/internal/plugin/output"
+	"github.com/sushistack/yt.pipe/internal/plugin/output/capcut"
+	"github.com/sushistack/yt.pipe/internal/service"
+	"github.com/sushistack/yt.pipe/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -47,6 +48,13 @@ var imageGenerateCmd = &cobra.Command{
 	RunE:  runStageCmd(service.StageImageGenerate),
 }
 
+var imageRegenerateCmd = &cobra.Command{
+	Use:   "regenerate <scp-id>",
+	Short: "Regenerate images for specific scenes",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runImageRegenerateCmd,
+}
+
 // ttsCmd groups TTS-related subcommands.
 var ttsCmd = &cobra.Command{
 	Use:   "tts",
@@ -57,7 +65,7 @@ var ttsGenerateCmd = &cobra.Command{
 	Use:   "generate <scp-id>",
 	Short: "Synthesize TTS narration for all scenes",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runStageCmd(service.StageTTSSynthesize),
+	RunE:  runTTSGenerateCmd,
 }
 
 // subtitleCmd groups subtitle-related subcommands.
@@ -78,9 +86,19 @@ func init() {
 	scenarioCmd.AddCommand(scenarioApproveCmd)
 	rootCmd.AddCommand(scenarioCmd)
 
+	imageGenerateCmd.Flags().Bool("parallel", false, "enable parallel scene generation (disables shot continuity)")
+	imageGenerateCmd.Flags().Bool("force", false, "regenerate all images even if already generated")
+
+	imageRegenerateCmd.Flags().String("scenes", "", "comma-separated scene numbers to regenerate (e.g., 3,5,7)")
+	imageRegenerateCmd.Flags().Int("scene", 0, "single scene number to regenerate")
+	imageRegenerateCmd.Flags().String("edit-prompt", "", "instruction to modify the prompt before regeneration")
+
 	imageCmd.AddCommand(imageGenerateCmd)
+	imageCmd.AddCommand(imageRegenerateCmd)
 	rootCmd.AddCommand(imageCmd)
 
+	ttsGenerateCmd.Flags().Bool("force", false, "regenerate all scenes even if already generated")
+	ttsGenerateCmd.Flags().String("scenes", "", "comma-separated scene numbers to regenerate (e.g., 3,5)")
 	ttsCmd.AddCommand(ttsGenerateCmd)
 	rootCmd.AddCommand(ttsCmd)
 
@@ -187,12 +205,93 @@ func buildRunner(cmd *cobra.Command) (*pipeline.Runner, func(), error) {
 		SCPDataPath:   c.SCPDataPath,
 		WorkspacePath: c.WorkspacePath,
 		Voice:         c.TTS.Voice,
-		ImageOpts:     imagegen.GenerateOptions{},
-		Canvas:        canvas,
-		TemplatePath:  c.Output.TemplatePath,
-		MetaPath:      c.Output.MetaPath,
+		ImageOpts: imagegen.GenerateOptions{
+			Width:  c.ImageGen.Width,
+			Height: c.ImageGen.Height,
+		},
+		Canvas:               canvas,
+		TemplatePath:         c.Output.TemplatePath,
+		MetaPath:             c.Output.MetaPath,
+		TemplatesPath:        c.TemplatesPath,
+		DefaultSceneDuration: c.Output.DefaultSceneDuration,
 	})
 
 	cleanup := func() { db.Close() }
 	return runner, cleanup, nil
+}
+
+// runImageRegenerateCmd handles `yt-pipe image regenerate <scp-id> --scenes 3,5,7`.
+func runImageRegenerateCmd(cmd *cobra.Command, args []string) error {
+	scpID := args[0]
+	cmd.SilenceUsage = true
+
+	scenes, _ := cmd.Flags().GetString("scenes")
+	singleScene, _ := cmd.Flags().GetInt("scene")
+
+	var sceneNums []int
+	if singleScene > 0 {
+		sceneNums = []int{singleScene}
+	} else if scenes != "" {
+		sceneNums = parseSceneNums(scenes)
+	}
+
+	if len(sceneNums) == 0 {
+		return fmt.Errorf("image regenerate: specify scenes with --scenes 3,5,7 or --scene 3")
+	}
+
+	runner, cleanup, err := buildRunner(cmd)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if err := runner.RunImageRegenerate(cmd.Context(), scpID, sceneNums); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Regenerated images for scenes %v of %s\n", sceneNums, scpID)
+	return nil
+}
+
+// parseSceneNums parses a comma-separated string of scene numbers.
+func parseSceneNums(s string) []int {
+	var nums []int
+	for _, part := range strings.Split(s, ",") {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		var n int
+		if _, err := fmt.Sscanf(p, "%d", &n); err == nil && n > 0 {
+			nums = append(nums, n)
+		}
+	}
+	return nums
+}
+
+// runTTSGenerateCmd handles `yt-pipe tts generate <scp-id>` with --force and --scenes flags.
+func runTTSGenerateCmd(cmd *cobra.Command, args []string) error {
+	scpID := args[0]
+	cmd.SilenceUsage = true
+
+	force, _ := cmd.Flags().GetBool("force")
+	scenesStr, _ := cmd.Flags().GetString("scenes")
+
+	var sceneNums []int
+	if scenesStr != "" {
+		sceneNums = parseSceneNums(scenesStr)
+	}
+
+	runner, cleanup, err := buildRunner(cmd)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if err := runner.RunTTSGenerate(cmd.Context(), scpID, sceneNums, force); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "TTS generation completed for %s\n", scpID)
+	return nil
 }

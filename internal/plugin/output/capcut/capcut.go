@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/plugin/output"
-	"github.com/jay/youtube-pipeline/internal/workspace"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/plugin/output"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
 // Assembler implements the output.Assembler interface for CapCut project format.
@@ -142,7 +142,11 @@ func buildDraftProject(scenes []domain.Scene, canvas output.CanvasConfig, now ti
 	var timelinePos int64
 
 	for _, scene := range scenes {
-		audioDur := secsToMicro(scene.AudioDuration)
+		dur := scene.AudioDuration
+		if dur <= 0 {
+			dur = DefaultSceneDurationSec
+		}
+		audioDur := secsToMicro(dur)
 
 		// Video material + segment
 		videoMat := VideoMaterial{
@@ -177,28 +181,30 @@ func buildDraftProject(scenes []domain.Scene, canvas output.CanvasConfig, now ti
 		}
 		videoTrack.Segments = append(videoTrack.Segments, videoSeg)
 
-		// Audio material + segment
-		audioMat := AudioMaterial{
-			ID:       newID(),
-			Type:     "extract_music",
-			Name:     fmt.Sprintf("scene_%d_audio", scene.SceneNum),
-			Duration: audioDur,
-			Path:     scene.AudioPath,
-		}
-		dp.Materials.Audios = append(dp.Materials.Audios, audioMat)
+		// Audio material + segment (skip for scenes without narration)
+		if scene.AudioPath != "" {
+			audioMat := AudioMaterial{
+				ID:       newID(),
+				Type:     "extract_music",
+				Name:     fmt.Sprintf("scene_%d_audio", scene.SceneNum),
+				Duration: audioDur,
+				Path:     scene.AudioPath,
+			}
+			dp.Materials.Audios = append(dp.Materials.Audios, audioMat)
 
-		audioSeg := Segment{
-			ID:              newID(),
-			SourceTimerange: &TimeRange{Start: 0, Duration: audioDur},
-			TargetTimerange: &TimeRange{Start: timelinePos, Duration: audioDur},
-			Speed:           1.0,
-			Volume:          1.0,
-			MaterialID:      audioMat.ID,
-			ExtraMaterialRefs: []string{},
-			RenderIndex:     0,
-			Visible:         true,
+			audioSeg := Segment{
+				ID:              newID(),
+				SourceTimerange: &TimeRange{Start: 0, Duration: audioDur},
+				TargetTimerange: &TimeRange{Start: timelinePos, Duration: audioDur},
+				Speed:           1.0,
+				Volume:          1.0,
+				MaterialID:      audioMat.ID,
+				ExtraMaterialRefs: []string{},
+				RenderIndex:     0,
+				Visible:         true,
+			}
+			audioTrack.Segments = append(audioTrack.Segments, audioSeg)
 		}
-		audioTrack.Segments = append(audioTrack.Segments, audioSeg)
 
 		// Text materials + segments from word timings
 		for _, wt := range scene.WordTimings {

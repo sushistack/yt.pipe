@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -160,6 +160,57 @@ func TestBuildTimeline(t *testing.T) {
 	assert.Equal(t, 12.0, timeline.TotalDurationSec)
 	assert.Equal(t, 2, timeline.SceneCount)
 	assert.Len(t, timeline.Scenes, 2)
+}
+
+func TestResolveTimings_ZeroDurationUsesDefault(t *testing.T) {
+	resolver := newTestTimingResolver(t)
+	scenes := []*domain.Scene{
+		{SceneNum: 1, AudioDuration: 5.0},
+		{SceneNum: 2, AudioDuration: 0}, // no narration
+		{SceneNum: 3, AudioDuration: 4.0},
+	}
+
+	timings := resolver.ResolveTimings(scenes)
+	assert.Len(t, timings, 3)
+
+	// Scene 2 should use default duration (3.0s)
+	assert.Equal(t, 5.0, timings[1].StartSec)
+	assert.Equal(t, 3.0, timings[1].DurationSec)
+	assert.Equal(t, 8.0, timings[1].EndSec)
+
+	// Scene 3 offset should account for default duration
+	assert.Equal(t, 8.0, timings[2].StartSec)
+	assert.Equal(t, 12.0, timings[2].EndSec)
+}
+
+func TestWithDefaultSceneDuration(t *testing.T) {
+	resolver := newTestTimingResolver(t)
+
+	// Custom default duration
+	resolver = resolver.WithDefaultSceneDuration(5.0)
+
+	scenes := []*domain.Scene{
+		{SceneNum: 1, AudioDuration: 0}, // no narration, should use 5.0
+	}
+
+	timings := resolver.ResolveTimings(scenes)
+	assert.Len(t, timings, 1)
+	assert.Equal(t, 5.0, timings[0].DurationSec)
+}
+
+func TestWithDefaultSceneDuration_IgnoresInvalid(t *testing.T) {
+	resolver := newTestTimingResolver(t)
+
+	// Zero or negative should not change default
+	resolver = resolver.WithDefaultSceneDuration(0)
+	resolver = resolver.WithDefaultSceneDuration(-1)
+
+	scenes := []*domain.Scene{
+		{SceneNum: 1, AudioDuration: 0},
+	}
+
+	timings := resolver.ResolveTimings(scenes)
+	assert.Equal(t, DefaultSceneDurationSec, timings[0].DurationSec)
 }
 
 // countWords counts space-separated words in text.

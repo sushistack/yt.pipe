@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/plugin/output"
-	"github.com/jay/youtube-pipeline/internal/plugin/output/capcut"
-	"github.com/jay/youtube-pipeline/internal/service"
-	"github.com/jay/youtube-pipeline/internal/workspace"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/plugin/output"
+	"github.com/sushistack/yt.pipe/internal/plugin/output/capcut"
+	"github.com/sushistack/yt.pipe/internal/service"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +24,7 @@ var assembleCmd = &cobra.Command{
 }
 
 func init() {
+	assembleCmd.Flags().Bool("check-license", false, "validate attribution fields in meta.json before assembly")
 	rootCmd.AddCommand(assembleCmd)
 }
 
@@ -57,6 +58,22 @@ func runAssembleCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("assemble: load SCP data: %w", err)
 	}
 
+	// Run license check if requested
+	checkLicense, _ := cmd.Flags().GetBool("check-license")
+	var licResult *service.LicenseCheckResult
+	if checkLicense && scpData.Meta != nil {
+		licResult = service.CheckLicenseFields(scpData.Meta)
+		if licResult.Valid {
+			fmt.Fprintf(cmd.OutOrStdout(), "License check: All attribution fields present\n")
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "License check: warnings found\n")
+			for _, w := range licResult.Warnings {
+				fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", w)
+			}
+		}
+		fmt.Fprintln(cmd.OutOrStdout())
+	}
+
 	// Load scenes from workspace
 	projectDir := filepath.Join(c.WorkspacePath, scpID)
 	scenes, err := loadScenesFromWorkspace(projectDir)
@@ -65,6 +82,11 @@ func runAssembleCmd(cmd *cobra.Command, args []string) error {
 	}
 	if len(scenes) == 0 {
 		return fmt.Errorf("assemble: no scenes found for %s", scpID)
+	}
+
+	// Pre-assembly validation with detailed error
+	if err := service.ValidateSceneAssets(scenes, scpID); err != nil {
+		return fmt.Errorf("assemble: %w", err)
 	}
 
 	// Run assembly
@@ -113,6 +135,16 @@ func runAssembleCmd(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(w, "  Images:       %d\n", result.ImageCount)
 	fmt.Fprintf(w, "  Audio clips:  %d\n", result.AudioCount)
 	fmt.Fprintf(w, "  Subtitles:    %d\n", result.SubtitleCount)
+
+	// Show license check summary if check was run
+	if licResult != nil {
+		if licResult.Valid {
+			fmt.Fprintf(w, "  License:      OK\n")
+		} else {
+			fmt.Fprintf(w, "  License:      %d warning(s)\n", len(licResult.Warnings))
+		}
+	}
+
 	fmt.Fprintln(w)
 
 	return nil

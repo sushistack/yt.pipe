@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/plugin/output"
-	"github.com/jay/youtube-pipeline/internal/workspace"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/plugin/output"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
 // AssemblerService handles output assembly and copyright generation.
@@ -50,20 +50,8 @@ func (s *AssemblerService) Assemble(ctx context.Context, projectID string, scene
 	}
 
 	// Validate all scenes have required assets (image, audio, subtitle)
-	var missing []string
-	for _, scene := range scenes {
-		if scene.ImagePath == "" {
-			missing = append(missing, fmt.Sprintf("scene %d: missing image", scene.SceneNum))
-		}
-		if scene.AudioPath == "" {
-			missing = append(missing, fmt.Sprintf("scene %d: missing audio", scene.SceneNum))
-		}
-		if scene.SubtitlePath == "" {
-			missing = append(missing, fmt.Sprintf("scene %d: missing subtitle", scene.SceneNum))
-		}
-	}
-	if len(missing) > 0 {
-		return nil, &domain.ValidationError{Field: "scenes", Message: fmt.Sprintf("incomplete assets: %v", missing)}
+	if err := ValidateSceneAssets(scenes, project.SCPID); err != nil {
+		return nil, err
 	}
 
 	// Ensure output directory exists
@@ -153,8 +141,50 @@ func CheckSpecialCopyright(meta *workspace.MetaFile) (string, bool) {
 	return "", false
 }
 
+// ValidateSceneAssets checks all scenes have required assets (image, audio, subtitle).
+// Returns a detailed error listing per-scene missing files with recovery command.
+func ValidateSceneAssets(scenes []domain.Scene, scpID string) error {
+	var missing []string
+	for _, scene := range scenes {
+		var sceneMissing []string
+		if scene.ImagePath == "" {
+			sceneMissing = append(sceneMissing, "image")
+		}
+		if scene.AudioPath == "" {
+			sceneMissing = append(sceneMissing, "audio")
+		}
+		if scene.SubtitlePath == "" {
+			sceneMissing = append(sceneMissing, "subtitle")
+		}
+		if len(sceneMissing) > 0 {
+			missing = append(missing, fmt.Sprintf("scene %d: missing %s", scene.SceneNum, joinStrings(sceneMissing)))
+		}
+	}
+	if len(missing) > 0 {
+		msg := fmt.Sprintf("Cannot assemble: %d scene(s) have missing assets:\n", len(missing))
+		for _, m := range missing {
+			msg += fmt.Sprintf("  - %s\n", m)
+		}
+		msg += fmt.Sprintf("Run `yt-pipe status %s --scenes` to see details.", scpID)
+		return &domain.ValidationError{Field: "scenes", Message: msg}
+	}
+	return nil
+}
+
+func joinStrings(ss []string) string {
+	result := ""
+	for i, s := range ss {
+		if i > 0 {
+			result += ", "
+		}
+		result += s
+	}
+	return result
+}
+
 // LogSpecialCopyright logs a prominent warning for special copyright conditions
 // and writes the warning to the project metadata file (FR19).
+// If special conditions exist, they are also appended to description.txt.
 func LogSpecialCopyright(projectPath, scpID string, meta *workspace.MetaFile) error {
 	notes, hasSpecial := CheckSpecialCopyright(meta)
 	if !hasSpecial {
@@ -167,6 +197,9 @@ func LogSpecialCopyright(projectPath, scpID string, meta *workspace.MetaFile) er
 		"conditions", notes,
 		"action_required", "Review additional licensing before publication")
 
+	// CLI warning
+	fmt.Fprintf(os.Stderr, "⚠ %s has additional copyright conditions: %s\n", scpID, notes)
+
 	// Write warning to project metadata file
 	warning := map[string]string{
 		"scp_id":     scpID,
@@ -178,5 +211,46 @@ func LogSpecialCopyright(projectPath, scpID string, meta *workspace.MetaFile) er
 		return fmt.Errorf("copyright: marshal warning: %w", err)
 	}
 	warningPath := filepath.Join(projectPath, "output", "copyright_warning.json")
-	return workspace.WriteFileAtomic(warningPath, data)
+	if err := workspace.WriteFileAtomic(warningPath, data); err != nil {
+		return err
+	}
+
+	// Append special conditions to description.txt
+	descPath := filepath.Join(projectPath, "output", "description.txt")
+	appendText := fmt.Sprintf("\n--- Additional Copyright Conditions ---\n%s\n", notes)
+	f, err := os.OpenFile(descPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		slog.Warn("copyright: could not append to description.txt", "error", err)
+		return nil // non-fatal: description.txt may not exist yet
+	}
+	defer f.Close()
+	_, err = f.WriteString(appendText)
+	return err
+}
+
+// LicenseCheckResult holds the result of a license field validation.
+type LicenseCheckResult struct {
+	Valid    bool     `json:"valid"`
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// CheckLicenseFields validates that all required attribution fields are present in meta.json.
+// Missing fields are reported as warnings (does not block assembly).
+func CheckLicenseFields(meta *workspace.MetaFile) *LicenseCheckResult {
+	result := &LicenseCheckResult{Valid: true}
+
+	if meta.Author == "" {
+		result.Warnings = append(result.Warnings, "meta.json: missing 'author' field — attribution may be incomplete")
+	}
+	if meta.URL == "" {
+		result.Warnings = append(result.Warnings, "meta.json: missing 'url' field — source link unavailable")
+	}
+	if meta.Title == "" {
+		result.Warnings = append(result.Warnings, "meta.json: missing 'title' field — entry title unavailable")
+	}
+
+	if len(result.Warnings) > 0 {
+		result.Valid = false
+	}
+	return result
 }
