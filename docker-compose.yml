@@ -1,14 +1,27 @@
 services:
   yt-pipe:
     build: .
+    container_name: yt-pipe
+    restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
-      - /data/raw:/data/raw:ro
-      - /data/projects:/data/projects
-      - /data/db:/data/db
-      - ./config.yaml:/config/config.yaml
+      - ${YTP_SCP_DATA_PATH:-./data/raw}:/data/raw:ro
+      - ${YTP_WORKSPACE_PATH:-./data/projects}:/data/projects
+      - ${YTP_DB_PATH:-./data/db}:/data/db
+      - ${YTP_CONFIG_PATH:-./config.yaml}:/config/config.yaml:ro
     environment:
       - YTP_LLM_API_KEY=${YTP_LLM_API_KEY}
-      - YTP_SILICONFLOW_KEY=${YTP_SILICONFLOW_KEY}
+      - YTP_IMAGEGEN_API_KEY=${YTP_IMAGEGEN_API_KEY}
+      - YTP_TTS_API_KEY=${YTP_TTS_API_KEY}
+      - YTP_API_KEY=${YTP_API_KEY}
+    env_file:
+      - path: .env
+        required: false
     command: ["serve"]
+    healthcheck:
+      test: ["CMD", "/yt-pipe", "config", "validate"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s

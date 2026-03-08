@@ -62,7 +62,7 @@ development_status:
   epic-2-retrospective: optional
 
   # Epic 3: Visual & Audio Asset Generation
-  epic-3: in-progress
+  epic-3: done
   3-1-image-prompt-generation-sanitization: done
   3-2-image-generation-scene-control: done
   3-3-tts-narration-pronunciation: done
@@ -71,28 +71,28 @@ development_status:
   epic-3-retrospective: optional
 
   # Epic 4: CapCut Project Assembly
-  epic-4: backlog
-  4-1-capcut-format-poc-validation: backlog
-  4-2-capcut-project-assembly: backlog
-  4-3-copyright-licensing-automation: backlog
+  epic-4: done
+  4-1-capcut-format-poc-validation: done
+  4-2-capcut-project-assembly: done
+  4-3-copyright-licensing-automation: done
   epic-4-retrospective: optional
 
   # Epic 5: Pipeline Orchestration & Reliability
-  epic-5: backlog
-  5-1-full-pipeline-orchestration: backlog
-  5-2-real-time-progress-status-display: backlog
-  5-3-incremental-build-with-hash-based-skip: backlog
-  5-4-scene-dependency-chain-stale-invalidation: backlog
-  5-5-checkpoint-resume-error-recovery: backlog
-  5-6-retry-reliability-hardening: backlog
+  epic-5: done
+  5-1-full-pipeline-orchestration: done
+  5-2-real-time-progress-status-display: done
+  5-3-incremental-build-with-hash-based-skip: done
+  5-4-scene-dependency-chain-stale-invalidation: done
+  5-5-checkpoint-resume-error-recovery: done
+  5-6-retry-reliability-hardening: done
   epic-5-retrospective: optional
 
   # Epic 6: Observability, Quality & Operational Excellence
-  epic-6: backlog
-  6-1-structured-logging-execution-history: backlog
-  6-2-prompt-template-management-versioning: backlog
-  6-3-quality-feedback-pipeline-metrics: backlog
-  6-4-project-cleanup-disk-management: backlog
+  epic-6: done
+  6-1-structured-logging-execution-history: done
+  6-2-prompt-template-management-versioning: done
+  6-3-quality-feedback-pipeline-metrics: done
+  6-4-project-cleanup-disk-management: done
   epic-6-retrospective: optional
 
   # Epic 7: REST API & External Integration

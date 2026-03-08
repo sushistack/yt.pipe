@@ -1,0 +1,16 @@
+with-expecter: true
+dir: "internal/mocks"
+outpkg: "mocks"
+packages:
+  github.com/jay/youtube-pipeline/internal/plugin/llm:
+    interfaces:
+      LLM:
+  github.com/jay/youtube-pipeline/internal/plugin/tts:
+    interfaces:
+      TTS:
+  github.com/jay/youtube-pipeline/internal/plugin/imagegen:
+    interfaces:
+      ImageGen:
+  github.com/jay/youtube-pipeline/internal/plugin/output:
+    interfaces:
+      Assembler:

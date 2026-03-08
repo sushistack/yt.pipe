@@ -2,6 +2,7 @@ bin/
 *.db
 internal/mocks/*
 !internal/mocks/.gitkeep
+.env
 vendor/
 .claude/
 .omc/

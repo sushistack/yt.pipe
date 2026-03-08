@@ -53,9 +53,36 @@ func (s *Store) ListExecutionLogsByProject(projectID string) ([]*domain.Executio
 		if jobID.Valid {
 			l.JobID = jobID.String
 		}
-		if parsed, err := time.Parse(time.RFC3339, createdAt); err == nil {
-			l.CreatedAt = parsed
+		l.CreatedAt = parseTime(createdAt)
+		logs = append(logs, l)
+	}
+	return logs, rows.Err()
+}
+
+// ListAllExecutionLogs returns all execution logs across all projects.
+func (s *Store) ListAllExecutionLogs() ([]*domain.ExecutionLog, error) {
+	rows, err := s.db.Query(
+		`SELECT id, project_id, job_id, stage, action, status, duration_ms, estimated_cost_usd, details, created_at
+		 FROM execution_logs ORDER BY created_at DESC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list all execution logs: %w", err)
+	}
+	defer rows.Close()
+
+	var logs []*domain.ExecutionLog
+	for rows.Next() {
+		l := &domain.ExecutionLog{}
+		var createdAt string
+		var jobID sql.NullString
+		if err := rows.Scan(&l.ID, &l.ProjectID, &jobID, &l.Stage, &l.Action, &l.Status,
+			&l.DurationMs, &l.EstimatedCostUSD, &l.Details, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan execution log: %w", err)
 		}
+		if jobID.Valid {
+			l.JobID = jobID.String
+		}
+		l.CreatedAt = parseTime(createdAt)
 		logs = append(logs, l)
 	}
 	return logs, rows.Err()

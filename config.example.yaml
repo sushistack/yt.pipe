@@ -1,40 +1,157 @@
 # youtube.pipeline configuration
-# Full configuration is implemented in Story 1.2 — this is the placeholder structure
+#
+# Configuration Priority (highest to lowest):
+#   1. CLI flags (--config, --verbose, --json-output)
+#   2. Environment variables (YTP_ prefix)
+#   3. Project config (./config.yaml in working directory)
+#   4. Global config ($HOME/.yt-pipe/config.yaml)
+#   5. Built-in defaults (shown below)
+#
+# Environment variables use YTP_ prefix with dots replaced by underscores:
+#   scp_data_path  → YTP_SCP_DATA_PATH
+#   api.port       → YTP_API_PORT
+#   llm.api_key    → YTP_LLM_API_KEY
 
-# SCP data source directory (read-only)
+# ---------------------------------------------------------------------------
+# Data Paths
+# ---------------------------------------------------------------------------
+
+# SCP structured data source directory (read-only)
+# Contains facts.json, meta.json, main.txt per SCP
+# Env: YTP_SCP_DATA_PATH
 scp_data_path: "/data/raw"
 
-# Project workspace directory
+# Project workspace directory for generated assets
+# Each project creates a subdirectory: {scp-id}-{timestamp}/
+# Env: YTP_WORKSPACE_PATH
 workspace_path: "/data/projects"
 
-# SQLite database path
+# SQLite database file path (metadata, state, job queue)
+# Env: YTP_DB_PATH
 db_path: "/data/db/yt-pipe.db"
 
-# API server settings
-api:
-  host: "localhost"
-  port: 8080
-  # api_key: set via YTP_API_KEY environment variable
-
-# Plugin selections (configured in Story 1.2+)
-llm:
-  provider: "openai"
-  # api_key: set via YTP_LLM_API_KEY environment variable
-
-imagegen:
-  provider: "siliconflow"
-  # api_key: set via YTP_SILICONFLOW_KEY environment variable
-
-tts:
-  provider: "openai"
-  # api_key: set via YTP_TTS_API_KEY environment variable
-
-output:
-  provider: "capcut"
-
-# SCP glossary path
+# SCP glossary JSON file path for term pronunciation and accuracy
+# Leave empty to disable glossary features
+# Env: YTP_GLOSSARY_PATH
 glossary_path: ""
 
+# ---------------------------------------------------------------------------
+# API Server
+# ---------------------------------------------------------------------------
+api:
+  # Bind address for HTTP server
+  # Env: YTP_API_HOST
+  host: "localhost"
+
+  # Listen port (1-65535)
+  # Env: YTP_API_PORT
+  port: 8080
+
+  # API key for authentication (X-API-Key header)
+  # SECURITY: Set via environment variable, not in config file
+  # Env: YTP_API_KEY
+  # api_key: ""
+
+# ---------------------------------------------------------------------------
+# LLM Plugin (scenario generation)
+# ---------------------------------------------------------------------------
+llm:
+  # Provider: "openai" (OpenAI-compatible API)
+  # Env: YTP_LLM_PROVIDER
+  provider: "openai"
+
+  # API key for LLM provider
+  # SECURITY: Set via environment variable, not in config file
+  # Env: YTP_LLM_API_KEY
+  # api_key: ""
+
+  # Model name (provider-specific, e.g., "gpt-4", "claude-3-sonnet")
+  # Env: YTP_LLM_MODEL
+  model: ""
+
+  # Sampling temperature (0.0 = deterministic, 1.0 = creative)
+  # Env: YTP_LLM_TEMPERATURE
+  temperature: 0.7
+
+  # Maximum output tokens per request
+  # Env: YTP_LLM_MAX_TOKENS
+  max_tokens: 4096
+
+# ---------------------------------------------------------------------------
+# Image Generation Plugin
+# ---------------------------------------------------------------------------
+imagegen:
+  # Provider: "siliconflow" (SiliconFlow FLUX API)
+  # Env: YTP_IMAGEGEN_PROVIDER
+  provider: "siliconflow"
+
+  # API key for image generation
+  # SECURITY: Set via environment variable, not in config file
+  # Env: YTP_IMAGEGEN_API_KEY or YTP_SILICONFLOW_KEY (legacy alias)
+  # api_key: ""
+
+  # Model name (provider-specific)
+  # Env: YTP_IMAGEGEN_MODEL
+  model: ""
+
+# ---------------------------------------------------------------------------
+# TTS Plugin (text-to-speech narration)
+# ---------------------------------------------------------------------------
+tts:
+  # Provider: "openai", "google", "edge" (Edge TTS, free)
+  # Env: YTP_TTS_PROVIDER
+  provider: "openai"
+
+  # API key for TTS provider (not needed for Edge TTS)
+  # SECURITY: Set via environment variable, not in config file
+  # Env: YTP_TTS_API_KEY
+  # api_key: ""
+
+  # Voice name (provider-specific)
+  # Env: YTP_TTS_VOICE
+  voice: ""
+
+  # Speech speed multiplier (1.0 = normal)
+  # Env: YTP_TTS_SPEED
+  speed: 1.0
+
+# ---------------------------------------------------------------------------
+# Output Assembler Plugin
+# ---------------------------------------------------------------------------
+output:
+  # Provider: "capcut" (CapCut project assembly)
+  # Env: YTP_OUTPUT_PROVIDER
+  provider: "capcut"
+
+  # Path to CapCut draft template JSON file
+  # Env: YTP_OUTPUT_TEMPLATE_PATH
+  template_path: ""
+
+  # Path to CapCut draft meta info JSON file
+  # Env: YTP_OUTPUT_META_PATH
+  meta_path: ""
+
+  # Output canvas width in pixels (default: 1920)
+  # Env: YTP_OUTPUT_CANVAS_WIDTH
+  canvas_width: 1920
+
+  # Output canvas height in pixels (default: 1080)
+  # Env: YTP_OUTPUT_CANVAS_HEIGHT
+  canvas_height: 1080
+
+  # Frames per second (default: 30)
+  # Env: YTP_OUTPUT_FPS
+  fps: 30
+
+# ---------------------------------------------------------------------------
 # Logging
-log_level: "info"    # debug, info, warn, error
-log_format: "json"   # json, text
+# ---------------------------------------------------------------------------
+
+# Log level: "debug", "info", "warn", "error"
+# Use --verbose flag to override to "debug"
+# Env: YTP_LOG_LEVEL
+log_level: "info"
+
+# Log format: "json" (structured, n8n compatible) or "text" (human readable)
+# Env: YTP_LOG_FORMAT
+log_format: "json"

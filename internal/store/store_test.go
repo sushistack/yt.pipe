@@ -20,7 +20,7 @@ func TestNew_MigrationApplied(t *testing.T) {
 	s := setupTestStore(t)
 	version, err := s.SchemaVersion()
 	require.NoError(t, err)
-	assert.Equal(t, 1, version)
+	assert.Equal(t, 2, version)
 }
 
 // Project CRUD tests
