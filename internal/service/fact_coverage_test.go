@@ -3,14 +3,14 @@ package service
 import (
 	"testing"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/domain"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestVerifyFactCoverage_FullCoverage(t *testing.T) {
 	scenario := &domain.ScenarioOutput{
 		Scenes: []domain.SceneScript{
-			{FactTags: []domain.FactTag{{Key: "containment"}, {Key: "origin"}}},
+			{SceneNum: 1, FactTags: []domain.FactTag{{Key: "containment"}, {Key: "origin"}}},
 		},
 	}
 	facts := map[string]string{"containment": "Euclid", "origin": "Site-19"}
@@ -24,7 +24,7 @@ func TestVerifyFactCoverage_FullCoverage(t *testing.T) {
 func TestVerifyFactCoverage_PartialCoverage_Pass(t *testing.T) {
 	scenario := &domain.ScenarioOutput{
 		Scenes: []domain.SceneScript{
-			{FactTags: []domain.FactTag{{Key: "a"}, {Key: "b"}, {Key: "c"}, {Key: "d"}}},
+			{SceneNum: 1, FactTags: []domain.FactTag{{Key: "a"}, {Key: "b"}, {Key: "c"}, {Key: "d"}}},
 		},
 	}
 	facts := map[string]string{"a": "1", "b": "2", "c": "3", "d": "4", "e": "5"}
@@ -37,7 +37,7 @@ func TestVerifyFactCoverage_PartialCoverage_Pass(t *testing.T) {
 func TestVerifyFactCoverage_BelowThreshold(t *testing.T) {
 	scenario := &domain.ScenarioOutput{
 		Scenes: []domain.SceneScript{
-			{FactTags: []domain.FactTag{{Key: "a"}}},
+			{SceneNum: 1, FactTags: []domain.FactTag{{Key: "a"}}},
 		},
 	}
 	facts := map[string]string{"a": "1", "b": "2", "c": "3"}
@@ -68,9 +68,9 @@ func TestVerifyFactCoverage_DefaultThreshold(t *testing.T) {
 func TestVerifyFactCoverage_CrossSceneFacts(t *testing.T) {
 	scenario := &domain.ScenarioOutput{
 		Scenes: []domain.SceneScript{
-			{FactTags: []domain.FactTag{{Key: "a"}}},
-			{FactTags: []domain.FactTag{{Key: "b"}}},
-			{FactTags: []domain.FactTag{{Key: "a"}}}, // duplicate
+			{SceneNum: 1, FactTags: []domain.FactTag{{Key: "a"}}},
+			{SceneNum: 2, FactTags: []domain.FactTag{{Key: "b"}}},
+			{SceneNum: 3, FactTags: []domain.FactTag{{Key: "a"}}}, // duplicate
 		},
 	}
 	facts := map[string]string{"a": "1", "b": "2"}
@@ -80,13 +80,55 @@ func TestVerifyFactCoverage_CrossSceneFacts(t *testing.T) {
 	assert.Equal(t, 2, result.CoveredFacts)
 }
 
+func TestVerifyFactCoverage_Details(t *testing.T) {
+	scenario := &domain.ScenarioOutput{
+		Scenes: []domain.SceneScript{
+			{SceneNum: 1, FactTags: []domain.FactTag{{Key: "containment"}}},
+			{SceneNum: 3, FactTags: []domain.FactTag{{Key: "containment"}}},
+		},
+	}
+	facts := map[string]string{"containment": "Euclid", "origin": "Site-19"}
+
+	result := VerifyFactCoverage(scenario, facts, 50.0)
+	assert.Len(t, result.Details, 2)
+
+	for _, d := range result.Details {
+		if d.Key == "containment" {
+			assert.True(t, d.Covered)
+			assert.Contains(t, d.SceneNums, 1)
+			assert.Contains(t, d.SceneNums, 3)
+		}
+		if d.Key == "origin" {
+			assert.False(t, d.Covered)
+			assert.Empty(t, d.SceneNums)
+		}
+	}
+}
+
+func TestSuggestFactPlacements(t *testing.T) {
+	scenario := &domain.ScenarioOutput{
+		Scenes: []domain.SceneScript{
+			{SceneNum: 1}, {SceneNum: 2}, {SceneNum: 3}, {SceneNum: 4},
+		},
+	}
+	facts := map[string]string{"appearance": "Concrete", "origin": "Site-19"}
+	result := VerifyFactCoverage(scenario, facts, 80.0)
+
+	suggestions := SuggestFactPlacements(scenario, result)
+	assert.NotEmpty(t, suggestions)
+	for _, s := range suggestions {
+		assert.NotZero(t, s.SuggestedScene)
+		assert.NotEmpty(t, s.FactKey)
+	}
+}
+
 func TestFormatCoverageReport_Pass(t *testing.T) {
 	result := &FactCoverageResult{
-		TotalFacts:  5,
+		TotalFacts:   5,
 		CoveredFacts: 4,
-		CoveragePct: 80.0,
-		Threshold:   80.0,
-		Pass:        true,
+		CoveragePct:  80.0,
+		Threshold:    80.0,
+		Pass:         true,
 	}
 	report := FormatCoverageReport(result)
 	assert.Contains(t, report, "PASS")
@@ -105,4 +147,36 @@ func TestFormatCoverageReport_Warn(t *testing.T) {
 	report := FormatCoverageReport(result)
 	assert.Contains(t, report, "WARN")
 	assert.Contains(t, report, "fact1")
+}
+
+func TestFormatDetailedReport(t *testing.T) {
+	result := &FactCoverageResult{
+		TotalFacts:    3,
+		CoveredFacts:  2,
+		CoveragePct:   66.7,
+		Threshold:     80.0,
+		Pass:          false,
+		CoveredKeys:   []string{"a", "b"},
+		UncoveredKeys: []string{"c"},
+		Details: []FactCoverageItem{
+			{Key: "a", Content: "fact a", Covered: true, SceneNums: []int{1}},
+			{Key: "b", Content: "fact b", Covered: true, SceneNums: []int{2, 3}},
+			{Key: "c", Content: "fact c", Covered: false},
+		},
+	}
+
+	report := FormatDetailedReport(result)
+	assert.Contains(t, report, "FAIL")
+	assert.Contains(t, report, "66.7%")
+	assert.Contains(t, report, "[OK] a")
+	assert.Contains(t, report, "[--] c")
+}
+
+func TestCategorizeFactKey(t *testing.T) {
+	assert.Equal(t, "physical_description", categorizeFactKey("appearance"))
+	assert.Equal(t, "anomalous_properties", categorizeFactKey("anomalous_behavior"))
+	assert.Equal(t, "containment_procedures", categorizeFactKey("containment_protocol"))
+	assert.Equal(t, "discovery", categorizeFactKey("discovery_log"))
+	assert.Equal(t, "incidents", categorizeFactKey("incident_report"))
+	assert.Equal(t, "general", categorizeFactKey("some_random_key"))
 }
