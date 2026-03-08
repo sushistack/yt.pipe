@@ -7,18 +7,20 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/glossary"
-	"github.com/jay/youtube-pipeline/internal/plugin/imagegen"
-	"github.com/jay/youtube-pipeline/internal/plugin/llm"
-	"github.com/jay/youtube-pipeline/internal/plugin/output"
-	"github.com/jay/youtube-pipeline/internal/plugin/tts"
-	"github.com/jay/youtube-pipeline/internal/service"
-	"github.com/jay/youtube-pipeline/internal/store"
-	"github.com/jay/youtube-pipeline/internal/workspace"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/glossary"
+	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
+	"github.com/sushistack/yt.pipe/internal/plugin/llm"
+	"github.com/sushistack/yt.pipe/internal/plugin/output"
+	"github.com/sushistack/yt.pipe/internal/plugin/tts"
+	"github.com/sushistack/yt.pipe/internal/service"
+	"github.com/sushistack/yt.pipe/internal/store"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
 // Runner executes the full content generation pipeline.
@@ -35,8 +37,10 @@ type Runner struct {
 	voice        string
 	imageOpts    imagegen.GenerateOptions
 	canvas       output.CanvasConfig
-	templatePath string
-	metaPath     string
+	templatePath         string
+	metaPath             string
+	templatesPath        string
+	defaultSceneDuration float64
 
 	// ProgressFunc is called on stage transitions for real-time feedback.
 	ProgressFunc func(service.PipelineProgress)
@@ -44,13 +48,15 @@ type Runner struct {
 
 // RunnerConfig holds configuration for the pipeline runner.
 type RunnerConfig struct {
-	SCPDataPath   string
-	WorkspacePath string
-	Voice         string
-	ImageOpts     imagegen.GenerateOptions
-	Canvas        output.CanvasConfig
-	TemplatePath  string
-	MetaPath      string
+	SCPDataPath          string
+	WorkspacePath        string
+	Voice                string
+	ImageOpts            imagegen.GenerateOptions
+	Canvas               output.CanvasConfig
+	TemplatePath         string
+	MetaPath             string
+	TemplatesPath        string
+	DefaultSceneDuration float64
 }
 
 // NewRunner creates a new pipeline Runner.
@@ -79,6 +85,8 @@ func NewRunner(
 		canvas:        cfg.Canvas,
 		templatePath:  cfg.TemplatePath,
 		metaPath:      cfg.MetaPath,
+		templatesPath:        cfg.TemplatesPath,
+		defaultSceneDuration: cfg.DefaultSceneDuration,
 	}
 }
 
@@ -91,16 +99,81 @@ type RunResult struct {
 	Stages       []StageResult `json:"stages"`
 	TotalElapsed time.Duration `json:"total_elapsed"`
 	PausedAt     string        `json:"paused_at,omitempty"`
+	APICalls     int           `json:"api_calls,omitempty"`
+	EstimatedCost float64      `json:"estimated_cost,omitempty"`
+}
+
+// RunOptions configures how the pipeline executes.
+type RunOptions struct {
+	AutoApprove bool
+	Force       bool // Clear checkpoints and start from scratch
 }
 
 // Run executes the full pipeline for a given SCP ID.
 // It runs stages sequentially: data_load → scenario_generate → (pause for approval) →
 // image_generate + tts_synthesize (parallel) → timing_resolve → subtitle_generate → assemble.
 func (r *Runner) Run(ctx context.Context, scpID string) (*RunResult, error) {
+	return r.RunWithOptions(ctx, scpID, RunOptions{})
+}
+
+// RunWithOptions executes the full pipeline with configurable options.
+func (r *Runner) RunWithOptions(ctx context.Context, scpID string, opts RunOptions) (*RunResult, error) {
 	start := time.Now()
 	result := &RunResult{SCPID: scpID, Stages: make([]StageResult, 0, 8)}
 
-	r.logger.Info("pipeline started", "scp_id", scpID)
+	r.logger.Info("pipeline started", "scp_id", scpID, "auto_approve", opts.AutoApprove, "force", opts.Force)
+
+	// If --force, backup and clear existing checkpoints
+	if opts.Force {
+		if project, _ := r.findProject(ctx, scpID); project != nil {
+			if err := BackupAndClearCheckpoints(project.WorkspacePath); err != nil {
+				r.logger.Warn("failed to backup checkpoints", "err", err)
+			} else {
+				r.logger.Info("cleared checkpoints for fresh run", "scp_id", scpID)
+			}
+		}
+	}
+
+	// Check for existing project with checkpoint (resume support)
+	existingProject, checkpoint := r.findExistingCheckpoint(scpID, opts.Force)
+
+	if existingProject != nil && checkpoint != nil {
+		skipped := 0
+		for _, sc := range checkpoint.Stages {
+			result.Stages = append(result.Stages, StageResult{
+				Name:   string(sc.Stage),
+				Status: "skipped",
+			})
+			skipped++
+		}
+		r.logger.Info("resuming from checkpoint",
+			"scp_id", scpID,
+			"project_id", existingProject.ID,
+			"stages_completed", skipped,
+			"last_stage", checkpoint.LastStage)
+
+		result.ProjectID = existingProject.ID
+		result.SceneCount = existingProject.SceneCount
+
+		// Determine where to resume
+		if checkpoint.HasCompletedStage(service.StageScenarioGenerate) &&
+			(existingProject.Status == domain.StatusApproved || existingProject.Status == domain.StatusGeneratingAssets) {
+			scenario, err := service.LoadScenarioFromFile(existingProject.WorkspacePath + "/scenario.json")
+			if err != nil {
+				return nil, fmt.Errorf("pipeline: load scenario for resume: %w", err)
+			}
+			resumeResult, err := r.resumeFromApproval(ctx, existingProject, scenario, start)
+			if err != nil {
+				return resumeResult, err
+			}
+			result.Stages = append(result.Stages, resumeResult.Stages...)
+			result.Status = resumeResult.Status
+			result.TotalElapsed = time.Since(start)
+			result.APICalls = countAPICalls(result)
+			result.EstimatedCost = estimateCost(result)
+			return result, nil
+		}
+	}
 
 	// Stage 1: Load SCP Data
 	r.reportProgress(service.PipelineProgress{Stage: service.StageDataLoad, StartedAt: start})
@@ -124,7 +197,43 @@ func (r *Runner) Run(ctx context.Context, scpID string) (*RunResult, error) {
 	result.ProjectID = project.ID
 	result.SceneCount = len(scenario.Scenes)
 
-	// Stage 3: Pause for approval
+	// Save checkpoint after scenario generation
+	r.saveCheckpointAfterStage(project.WorkspacePath, project.ID, service.StageScenarioGenerate, len(scenario.Scenes))
+
+	// Stage 3: Approval gate
+	if opts.AutoApprove {
+		r.logger.Warn("auto-approve enabled: scenario review skipped",
+			"scp_id", scpID, "project_id", project.ID)
+		result.Stages = append(result.Stages, StageResult{
+			Name:       string(service.StageScenarioApproval),
+			Status:     "auto-approved",
+			DurationMs: 0,
+		})
+
+		// Auto-approve: transition to approved and continue
+		projectSvc := service.NewProjectService(r.store)
+		scenarioSvc := service.NewScenarioService(r.store, nil, projectSvc)
+		project, err = scenarioSvc.ApproveScenario(ctx, project.ID)
+		if err != nil {
+			result.Status = "failed"
+			return result, fmt.Errorf("pipeline: auto-approve: %w", err)
+		}
+
+		// Continue with remaining stages (same as Resume)
+		resumeResult, err := r.resumeFromApproval(ctx, project, scenario, start)
+		if err != nil {
+			return resumeResult, err
+		}
+		// Merge stages
+		result.Stages = append(result.Stages, resumeResult.Stages...)
+		result.Status = resumeResult.Status
+		result.TotalElapsed = time.Since(start)
+		result.APICalls = countAPICalls(result)
+		result.EstimatedCost = estimateCost(result)
+		return result, nil
+	}
+
+	// Normal flow: Pause for approval
 	r.reportProgress(service.PipelineProgress{Stage: service.StageScenarioApproval, StartedAt: start})
 	result.Stages = append(result.Stages, StageResult{
 		Name:       string(service.StageScenarioApproval),
@@ -147,7 +256,6 @@ func (r *Runner) Run(ctx context.Context, scpID string) (*RunResult, error) {
 // It expects the project to be in "approved" state.
 func (r *Runner) Resume(ctx context.Context, projectID string) (*RunResult, error) {
 	start := time.Now()
-	result := &RunResult{ProjectID: projectID, Stages: make([]StageResult, 0, 6)}
 
 	projectSvc := service.NewProjectService(r.store)
 	project, err := projectSvc.GetProject(ctx, projectID)
@@ -160,21 +268,38 @@ func (r *Runner) Resume(ctx context.Context, projectID string) (*RunResult, erro
 			projectID, project.Status, domain.StatusApproved, project.SCPID)
 	}
 
-	result.SCPID = project.SCPID
-	result.SceneCount = project.SceneCount
-
 	// Load scenario from workspace
 	scenario, err := service.LoadScenarioFromFile(project.WorkspacePath + "/scenario.json")
 	if err != nil {
 		return nil, fmt.Errorf("pipeline: load scenario: %w", err)
 	}
 
+	result, err := r.resumeFromApproval(ctx, project, scenario, start)
+	if err != nil {
+		return result, err
+	}
+	result.APICalls = countAPICalls(result)
+	result.EstimatedCost = estimateCost(result)
+	return result, nil
+}
+
+// resumeFromApproval runs all post-approval stages. Shared by Resume() and RunWithOptions() auto-approve.
+func (r *Runner) resumeFromApproval(ctx context.Context, project *domain.Project, scenario *domain.ScenarioOutput, start time.Time) (*RunResult, error) {
+	result := &RunResult{
+		ProjectID:  project.ID,
+		SCPID:      project.SCPID,
+		SceneCount: project.SceneCount,
+		Stages:     make([]StageResult, 0, 6),
+	}
+
+	projectSvc := service.NewProjectService(r.store)
+
 	// Transition to generating_assets
-	if _, err := projectSvc.TransitionProject(ctx, projectID, domain.StatusGeneratingAssets); err != nil {
+	if _, err := projectSvc.TransitionProject(ctx, project.ID, domain.StatusGeneratingAssets); err != nil {
 		return nil, fmt.Errorf("pipeline: transition to generating_assets: %w", err)
 	}
 
-	r.logger.Info("pipeline resumed", "project_id", projectID, "scp_id", project.SCPID)
+	r.logger.Info("pipeline resumed", "project_id", project.ID, "scp_id", project.SCPID)
 
 	// Stage 4 & 5: Image generation + TTS synthesis (parallel)
 	r.reportProgress(service.PipelineProgress{
@@ -183,15 +308,19 @@ func (r *Runner) Resume(ctx context.Context, projectID string) (*RunResult, erro
 		StartedAt:   start,
 	})
 
+	parallelStart := time.Now()
 	imageScenes, ttsScenes, err := r.runParallelGeneration(ctx, scenario, project)
+	parallelDur := time.Since(parallelStart).Milliseconds()
 	if err != nil {
 		result.Status = "failed"
 		return result, err
 	}
 	result.Stages = append(result.Stages,
-		StageResult{Name: string(service.StageImageGenerate), Status: "pass"},
-		StageResult{Name: string(service.StageTTSSynthesize), Status: "pass"},
+		StageResult{Name: string(service.StageImageGenerate), Status: "pass", DurationMs: parallelDur},
+		StageResult{Name: string(service.StageTTSSynthesize), Status: "pass", DurationMs: parallelDur},
 	)
+	r.saveCheckpointAfterStage(project.WorkspacePath, project.ID, service.StageImageGenerate, len(imageScenes))
+	r.saveCheckpointAfterStage(project.WorkspacePath, project.ID, service.StageTTSSynthesize, len(ttsScenes))
 
 	// Stage 6: Timing resolution
 	r.reportProgress(service.PipelineProgress{
@@ -200,7 +329,7 @@ func (r *Runner) Resume(ctx context.Context, projectID string) (*RunResult, erro
 		StartedAt:   start,
 	})
 	stageStart := time.Now()
-	timingResolver := service.NewTimingResolver(r.logger)
+	timingResolver := service.NewTimingResolver(r.logger).WithDefaultSceneDuration(r.defaultSceneDuration)
 	timings := timingResolver.ResolveTimings(ttsScenes)
 	if err := timingResolver.SaveTimingFiles(timings, project.WorkspacePath); err != nil {
 		result.Stages = append(result.Stages, stageResult(string(service.StageTimingResolve), stageStart, err))
@@ -220,7 +349,7 @@ func (r *Runner) Resume(ctx context.Context, projectID string) (*RunResult, erro
 	})
 	stageStart = time.Now()
 	subtitleSvc := service.NewSubtitleService(r.glossary, r.store, r.logger)
-	if err := subtitleSvc.SaveAllSubtitles(mergedScenes, projectID, project.WorkspacePath, 8, nil); err != nil {
+	if err := subtitleSvc.SaveAllSubtitles(mergedScenes, project.ID, project.WorkspacePath, 8, nil); err != nil {
 		result.Stages = append(result.Stages, stageResult(string(service.StageSubtitleGenerate), stageStart, err))
 		result.Status = "failed"
 		return result, r.pipelineError(service.StageSubtitleGenerate, 0, err, project.SCPID)
@@ -244,23 +373,114 @@ func (r *Runner) Resume(ctx context.Context, projectID string) (*RunResult, erro
 	assemblerSvc.WithConfig(r.templatePath, r.metaPath, r.canvas)
 
 	domainScenes := toDomainScenes(mergedScenes)
-	_, err = assemblerSvc.Assemble(ctx, projectID, domainScenes)
+	assembleResult, err := assemblerSvc.Assemble(ctx, project.ID, domainScenes)
 	result.Stages = append(result.Stages, stageResult(string(service.StageAssemble), stageStart, err))
 	if err != nil {
 		result.Status = "failed"
 		return result, r.pipelineError(service.StageAssemble, 0, err, project.SCPID)
 	}
 
+	// Generate copyright notice and check special conditions
+	r.generateCopyright(project, assemblerSvc)
+
 	result.Status = "complete"
 	result.TotalElapsed = time.Since(start)
 
 	r.logger.Info("pipeline complete",
-		"project_id", projectID,
+		"project_id", project.ID,
 		"scp_id", project.SCPID,
 		"scene_count", project.SceneCount,
+		"duration_sec", assembleResult.TotalDuration,
 		"elapsed", result.TotalElapsed)
 
 	return result, nil
+}
+
+// countAPICalls estimates the number of API calls from stage results.
+func countAPICalls(result *RunResult) int {
+	calls := 0
+	for _, s := range result.Stages {
+		if s.Status != "pass" && s.Status != "auto-approved" {
+			continue
+		}
+		switch s.Name {
+		case string(service.StageScenarioGenerate):
+			calls += 4 // 4-stage scenario pipeline
+		case string(service.StageImageGenerate):
+			calls += result.SceneCount
+		case string(service.StageTTSSynthesize):
+			calls += result.SceneCount
+		}
+	}
+	return calls
+}
+
+// estimateCost provides a rough cost estimate based on API calls.
+func estimateCost(result *RunResult) float64 {
+	var cost float64
+	for _, s := range result.Stages {
+		if s.Status != "pass" && s.Status != "auto-approved" {
+			continue
+		}
+		switch s.Name {
+		case string(service.StageScenarioGenerate):
+			cost += 0.02 // ~$0.02 for 4-stage LLM calls
+		case string(service.StageImageGenerate):
+			cost += float64(result.SceneCount) * 0.003 // ~$0.003 per image
+		case string(service.StageTTSSynthesize):
+			cost += float64(result.SceneCount) * 0.001 // ~$0.001 per TTS
+		}
+	}
+	return cost
+}
+
+// findExistingCheckpoint looks for an existing project with checkpoint data for resume.
+func (r *Runner) findExistingCheckpoint(scpID string, force bool) (*domain.Project, *service.PipelineCheckpoint) {
+	if force {
+		return nil, nil
+	}
+
+	projects, err := r.store.ListProjects()
+	if err != nil {
+		return nil, nil
+	}
+	for _, p := range projects {
+		if p.SCPID != scpID {
+			continue
+		}
+		cp, err := service.LoadCheckpoint(p.WorkspacePath)
+		if err != nil {
+			continue
+		}
+		if len(cp.Stages) > 0 {
+			return p, cp
+		}
+	}
+	return nil, nil
+}
+
+// saveCheckpointAfterStage saves checkpoint after a pipeline stage completes.
+func (r *Runner) saveCheckpointAfterStage(projectPath, projectID string, stage service.PipelineStage, scenesDone int) {
+	cm := NewCheckpointManager(r.logger)
+	if err := cm.SaveStageCheckpoint(projectPath, projectID, stage, scenesDone); err != nil {
+		r.logger.Warn("failed to save checkpoint", "stage", stage, "err", err)
+	}
+}
+
+// backupAndClearCheckpoints backs up existing artifacts and clears checkpoint for --force mode.
+func BackupAndClearCheckpoints(projectPath string) error {
+	backupDir := filepath.Join(projectPath, "backup", time.Now().Format("20060102-150405"))
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return fmt.Errorf("backup: create dir: %w", err)
+	}
+	// Move checkpoint file to backup
+	cpPath := filepath.Join(projectPath, "checkpoint.json")
+	if _, err := os.Stat(cpPath); err == nil {
+		if err := os.Rename(cpPath, filepath.Join(backupDir, "checkpoint.json")); err != nil {
+			return fmt.Errorf("backup: move checkpoint: %w", err)
+		}
+	}
+	return nil
 }
 
 // RunStage executes a single pipeline stage by name.
@@ -408,9 +628,57 @@ func (r *Runner) runImageGenerateStage(ctx context.Context, scpID string) error 
 	if err != nil {
 		return fmt.Errorf("image generate: prompts: %w", err)
 	}
+
 	imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
-	_, err = imgSvc.GenerateAllImages(ctx, prompts, project.ID, project.WorkspacePath, r.imageOpts, nil)
-	return err
+
+	total := len(prompts)
+	for i, p := range prompts {
+		r.logger.Info("image generation progress",
+			"scene", fmt.Sprintf("%d/%d", i+1, total),
+			"scene_num", p.SceneNum,
+			"status", "generating",
+		)
+		_, err := imgSvc.GenerateSceneImage(ctx, p, project.ID, project.WorkspacePath, r.imageOpts)
+		if err != nil {
+			r.logger.Error("scene image failed", "scene_num", p.SceneNum, "err", err)
+			continue
+		}
+	}
+	return nil
+}
+
+// RunImageRegenerate regenerates images for specific scenes with backup.
+func (r *Runner) RunImageRegenerate(ctx context.Context, scpID string, sceneNums []int) error {
+	project, err := r.findProject(ctx, scpID)
+	if err != nil {
+		return err
+	}
+	scenario, err := service.LoadScenarioFromFile(project.WorkspacePath + "/scenario.json")
+	if err != nil {
+		return fmt.Errorf("image regenerate: load scenario: %w", err)
+	}
+	prompts, err := service.GenerateImagePrompts(scenario, nil)
+	if err != nil {
+		return fmt.Errorf("image regenerate: prompts: %w", err)
+	}
+
+	imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
+
+	// Backup existing images before regeneration
+	for _, num := range sceneNums {
+		service.BackupSceneImage(project.WorkspacePath, num)
+	}
+
+	_, err = imgSvc.GenerateAllImages(ctx, prompts, project.ID, project.WorkspacePath, r.imageOpts, sceneNums)
+	if err != nil {
+		return fmt.Errorf("image regenerate: %w", err)
+	}
+
+	r.logger.Info("image regeneration complete",
+		"scp_id", scpID,
+		"scenes_regenerated", len(sceneNums),
+	)
+	return nil
 }
 
 func (r *Runner) runTTSSynthesizeStage(ctx context.Context, scpID string) error {
@@ -423,7 +691,56 @@ func (r *Runner) runTTSSynthesizeStage(ctx context.Context, scpID string) error 
 		return fmt.Errorf("tts synthesize: load scenario: %w", err)
 	}
 	ttsSvc := service.NewTTSService(r.tts, r.glossary, r.store, r.logger)
-	_, err = ttsSvc.SynthesizeAll(ctx, scenario.Scenes, project.ID, project.WorkspacePath, r.voice, nil)
+	ttsScenes, err := ttsSvc.SynthesizeAll(ctx, scenario.Scenes, project.ID, project.WorkspacePath, r.voice, nil)
+	if err != nil {
+		return err
+	}
+
+	// Generate subtitles from TTS word timings
+	subtitleSvc := service.NewSubtitleService(r.glossary, r.store, r.logger)
+	if subErr := subtitleSvc.SaveAllSubtitles(ttsScenes, project.ID, project.WorkspacePath, 8, nil); subErr != nil {
+		r.logger.Warn("subtitle generation after TTS failed", "err", subErr)
+	}
+
+	return nil
+}
+
+// RunTTSGenerate runs TTS generation with --force and --scenes flags.
+func (r *Runner) RunTTSGenerate(ctx context.Context, scpID string, sceneNums []int, force bool) error {
+	project, err := r.findProject(ctx, scpID)
+	if err != nil {
+		return err
+	}
+	scenario, err := service.LoadScenarioFromFile(project.WorkspacePath + "/scenario.json")
+	if err != nil {
+		return fmt.Errorf("tts generate: load scenario: %w", err)
+	}
+
+	ttsSvc := service.NewTTSService(r.tts, r.glossary, r.store, r.logger)
+	ttsScenes, err := ttsSvc.SynthesizeAllWithOpts(ctx, scenario.Scenes, project.ID, project.WorkspacePath, r.voice, service.SynthesizeAllOpts{
+		SceneNums: sceneNums,
+		Force:     force,
+	})
+
+	// Generate subtitles even if some TTS scenes failed
+	if len(ttsScenes) > 0 {
+		subtitleSvc := service.NewSubtitleService(r.glossary, r.store, r.logger)
+		if subErr := subtitleSvc.SaveAllSubtitles(ttsScenes, project.ID, project.WorkspacePath, 8, nil); subErr != nil {
+			r.logger.Warn("subtitle generation after TTS failed", "err", subErr)
+		}
+	}
+
+	// Display summary
+	var totalDuration float64
+	for _, s := range ttsScenes {
+		totalDuration += s.AudioDuration
+	}
+	r.logger.Info("tts generation complete",
+		"scp_id", scpID,
+		"scenes_generated", len(ttsScenes),
+		"total_audio_sec", totalDuration,
+	)
+
 	return err
 }
 
@@ -454,7 +771,40 @@ func (r *Runner) runAssembleStage(ctx context.Context, scpID string) error {
 	assemblerSvc.WithConfig(r.templatePath, r.metaPath, r.canvas)
 	domainScenes := toDomainScenes(scenes)
 	_, err = assemblerSvc.Assemble(ctx, project.ID, domainScenes)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Generate copyright notice and check special conditions
+	r.generateCopyright(project, assemblerSvc)
+
+	return nil
+}
+
+// generateCopyright generates copyright notice and checks for special conditions.
+func (r *Runner) generateCopyright(project *domain.Project, assemblerSvc *service.AssemblerService) {
+	scpData, err := workspace.LoadSCPData(r.scpDataPath, project.SCPID)
+	if err != nil {
+		r.logger.Warn("copyright: could not load SCP data for copyright", "error", err)
+		// Generate with unknown author
+		if err := assemblerSvc.GenerateCopyrightNotice(project.WorkspacePath, project.SCPID, ""); err != nil {
+			r.logger.Error("copyright: failed to generate notice", "error", err)
+		}
+		return
+	}
+
+	author := ""
+	if scpData.Meta != nil {
+		author = scpData.Meta.Author
+	}
+	if err := assemblerSvc.GenerateCopyrightNotice(project.WorkspacePath, project.SCPID, author); err != nil {
+		r.logger.Error("copyright: failed to generate notice", "error", err)
+	}
+	if scpData.Meta != nil {
+		if err := service.LogSpecialCopyright(project.WorkspacePath, project.SCPID, scpData.Meta); err != nil {
+			r.logger.Error("copyright: failed to log special conditions", "error", err)
+		}
+	}
 }
 
 func (r *Runner) findProject(ctx context.Context, scpID string) (*domain.Project, error) {
@@ -535,6 +885,9 @@ func mergeSceneData(imageScenes, ttsScenes []*domain.Scene, timings []service.Sc
 	for _, s := range byNum {
 		scenes = append(scenes, s)
 	}
+	sort.Slice(scenes, func(i, j int) bool {
+		return scenes[i].SceneNum < scenes[j].SceneNum
+	})
 	return scenes
 }
 

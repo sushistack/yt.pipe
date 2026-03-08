@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "facts": {
+    "object_class": "Euclid",
+    "containment": "SCP-173 is to be kept in a locked container at all times.",
+    "description": "SCP-173 is a concrete sculpture of unknown origin. It is animate and extremely hostile.",
+    "behavior": "SCP-173 cannot move while within direct line of sight. Line of sight must not be broken at any time.",
+    "danger": "Object is reported to attack by snapping the neck at the base of the skull or by strangulation.",
+    "maintenance": "Personnel must maintain direct eye contact with SCP-173 until all personnel have vacated the container."
+  }
+}

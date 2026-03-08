@@ -1,7 +1,7 @@
-.PHONY: build test generate lint docker docker-up docker-down docker-logs run clean
+.PHONY: build test test-integration generate lint docker docker-up docker-down docker-logs run clean
 
 BINARY := bin/yt-pipe
-MODULE := github.com/jay/youtube-pipeline
+MODULE := github.com/sushistack/yt.pipe
 IMAGE  := yt-pipe
 TAG    := latest
 
@@ -10,6 +10,9 @@ build:
 
 test:
 	go test ./...
+
+test-integration:
+	go test -tags=integration -timeout 600s ./...
 
 generate:
 	go generate ./...

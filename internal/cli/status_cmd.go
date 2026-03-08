@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/store"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -29,13 +29,24 @@ func init() {
 
 // ProjectStatus is the JSON output format for yt-pipe status.
 type ProjectStatus struct {
-	ProjectID   string        `json:"project_id"`
-	SCPID       string        `json:"scp_id"`
-	Status      string        `json:"status"`
-	SceneCount  int           `json:"scene_count"`
-	Scenes      []SceneStatus `json:"scenes,omitempty"`
-	CreatedAt   string        `json:"created_at"`
-	UpdatedAt   string        `json:"updated_at"`
+	ProjectID     string           `json:"project_id"`
+	SCPID         string           `json:"scp_id"`
+	Status        string           `json:"status"`
+	SceneCount    int              `json:"scene_count"`
+	Scenes        []SceneStatus    `json:"scenes,omitempty"`
+	CreatedAt     string           `json:"created_at"`
+	UpdatedAt     string           `json:"updated_at"`
+	WorkspacePath string           `json:"-"` // internal use
+	Progress      []ProgressEntry  `json:"progress,omitempty"`
+}
+
+// ProgressEntry represents a stage's live progress.
+type ProgressEntry struct {
+	Stage          string  `json:"stage"`
+	Status         string  `json:"status"`
+	ScenesTotal    int     `json:"scenes_total,omitempty"`
+	ScenesComplete int     `json:"scenes_complete,omitempty"`
+	ElapsedSec     float64 `json:"elapsed_sec"`
 }
 
 // SceneStatus describes per-scene asset status.
@@ -81,16 +92,20 @@ func runStatusCmd(cmd *cobra.Command, args []string) error {
 	scenes := collectSceneStatuses(project.WorkspacePath, project.SceneCount)
 
 	ps := ProjectStatus{
-		ProjectID:  project.ID,
-		SCPID:      project.SCPID,
-		Status:     project.Status,
-		SceneCount: project.SceneCount,
-		CreatedAt:  project.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:  project.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		ProjectID:     project.ID,
+		SCPID:         project.SCPID,
+		Status:        project.Status,
+		SceneCount:    project.SceneCount,
+		CreatedAt:     project.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:     project.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		WorkspacePath: project.WorkspacePath,
 	}
 	if showScenes {
 		ps.Scenes = scenes
 	}
+
+	// Load live progress if pipeline is running
+	ps.Progress = loadLiveProgress(project.WorkspacePath)
 
 	jsonOutput, _ := cmd.Flags().GetBool("json-output")
 	if jsonOutput {
@@ -112,6 +127,21 @@ func outputStatusHuman(cmd *cobra.Command, ps ProjectStatus, scenes []SceneStatu
 	fmt.Fprintf(w, "  Created:     %s\n", ps.CreatedAt)
 	fmt.Fprintf(w, "  Updated:     %s\n", ps.UpdatedAt)
 	fmt.Fprintln(w)
+
+	// Show live progress if available
+	if len(ps.Progress) > 0 {
+		fmt.Fprintln(w, "Pipeline Progress:")
+		for _, p := range ps.Progress {
+			if p.ScenesTotal > 0 {
+				pct := float64(p.ScenesComplete) / float64(p.ScenesTotal) * 100
+				fmt.Fprintf(w, "  %-16s %s  %d/%d scenes (%.0f%%) %.0fs\n",
+					p.Stage, p.Status, p.ScenesComplete, p.ScenesTotal, pct, p.ElapsedSec)
+			} else {
+				fmt.Fprintf(w, "  %-16s %s  %.0fs\n", p.Stage, p.Status, p.ElapsedSec)
+			}
+		}
+		fmt.Fprintln(w)
+	}
 
 	if !showScenes || len(scenes) == 0 {
 		return nil
@@ -216,4 +246,17 @@ func truncatePrompt(prompt string, maxLen int) string {
 		return prompt
 	}
 	return strings.TrimSpace(prompt[:maxLen]) + "..."
+}
+
+// loadLiveProgress reads progress.json from the workspace if it exists.
+func loadLiveProgress(workspacePath string) []ProgressEntry {
+	data, err := os.ReadFile(filepath.Join(workspacePath, "progress.json"))
+	if err != nil {
+		return nil
+	}
+	var entries []ProgressEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil
+	}
+	return entries
 }

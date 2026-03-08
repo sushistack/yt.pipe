@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/jay/youtube-pipeline/internal/glossary"
-	"github.com/jay/youtube-pipeline/internal/pipeline"
-	"github.com/jay/youtube-pipeline/internal/plugin/imagegen"
-	"github.com/jay/youtube-pipeline/internal/plugin/output"
-	"github.com/jay/youtube-pipeline/internal/plugin/output/capcut"
-	"github.com/jay/youtube-pipeline/internal/store"
+	"github.com/sushistack/yt.pipe/internal/glossary"
+	"github.com/sushistack/yt.pipe/internal/pipeline"
+	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
+	"github.com/sushistack/yt.pipe/internal/plugin/output"
+	"github.com/sushistack/yt.pipe/internal/plugin/output/capcut"
+	"github.com/sushistack/yt.pipe/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +25,8 @@ var runCmd = &cobra.Command{
 func init() {
 	runCmd.Flags().Bool("dry-run", false, "verify pipeline flow without making real API calls")
 	runCmd.Flags().String("resume", "", "resume pipeline from project ID (after scenario approval)")
+	runCmd.Flags().Bool("auto-approve", false, "skip scenario approval pause and continue automatically")
+	runCmd.Flags().Bool("force", false, "clear checkpoints and start pipeline from scratch")
 	rootCmd.AddCommand(runCmd)
 }
 
@@ -110,7 +112,12 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Fresh run
-	result, err := runner.Run(cmd.Context(), scpID)
+	autoApprove, _ := cmd.Flags().GetBool("auto-approve")
+	force, _ := cmd.Flags().GetBool("force")
+	result, err := runner.RunWithOptions(cmd.Context(), scpID, pipeline.RunOptions{
+		AutoApprove: autoApprove,
+		Force:       force,
+	})
 	if err != nil {
 		cmd.SilenceUsage = true
 		return err
@@ -158,6 +165,11 @@ func outputRunResult(cmd *cobra.Command, result *pipeline.RunResult) error {
 		fmt.Fprintf(w, "  yt-pipe run %s --resume %s\n\n", result.SCPID, result.ProjectID)
 	} else if result.Status == "complete" {
 		fmt.Fprintln(w, "Pipeline completed successfully.")
+		if result.APICalls > 0 {
+			fmt.Fprintf(w, "\nSummary:\n")
+			fmt.Fprintf(w, "  Total API Calls:  %d\n", result.APICalls)
+			fmt.Fprintf(w, "  Estimated Cost:   $%.4f\n", result.EstimatedCost)
+		}
 	}
 
 	return nil
