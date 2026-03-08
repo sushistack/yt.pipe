@@ -4,10 +4,16 @@ stepsCompleted:
   - step-02-design-epics
   - step-03-create-stories
   - step-04-final-validation
+  - step-01-validate-prerequisites-phase2
+  - step-02-design-epics-phase2
+  - step-03-create-stories-phase2
+  - step-04-final-validation-phase2
 inputDocuments:
   - _bmad-output/planning-artifacts/prd.md
   - _bmad-output/planning-artifacts/architecture.md
   - _bmad-output/planning-artifacts/prd-validation-report.md
+  - /mnt/work/projects/video.pipeline/assets/prompts/ (legacy prompt templates)
+  - /mnt/data/raw/ (422 SCP structured data samples)
 ---
 
 # youtube.pipeline - Epic Breakdown
@@ -220,6 +226,25 @@ This document provides the complete epic and story breakdown for youtube.pipelin
 - FR43: Epic 6 - Pipeline success rate aggregation and query
 - FR44: Epic 6 - Manual intervention ratio tracking and query
 
+**Phase 2 — Concrete Plugin Implementations:**
+- FR4: Epic 8 - Gemini LLM scenario generation (concrete implementation)
+- FR5: Epic 8 - Fact-tagged scenario generation with 4-stage pipeline
+- FR6: Epic 8 - Fact coverage verification with LLM
+- FR8: Epic 8 - SCP glossary-aware scenario generation
+- FR9: Epic 9 - SiliconFlow FLUX image prompt generation (3-stage pipeline)
+- FR10: Epic 9 - SiliconFlow FLUX image generation with Frozen Descriptor Protocol
+- FR11: Epic 9 - Selective scene image regeneration via SiliconFlow
+- FR12: Epic 9 - Shot breakdown and image prompt editing
+- FR13: Epic 10 - DashScope CosyVoice TTS narration synthesis
+- FR14: Epic 10 - Korean Hangul pronunciation XML conversion for TTS
+- FR15: Epic 10 - DashScope Voice Cloning via config-level VoiceID
+- FR16: Epic 10 - CosyVoice Flash model support and subtitle generation
+- FR17: Epic 11 - CapCut project assembly with generated assets
+- FR18: Epic 11 - Timing synchronization (narration→image→subtitle alignment)
+- FR19: Epic 11 - CC-BY-SA 3.0 copyright auto-inclusion in CapCut project
+- FR20: Epic 12 - Full pipeline single-command execution (SCP→CapCut)
+- FR32: Epic 12 - End-to-end integration testing with checkpoint/resume
+
 ## Epic List
 
 ### Epic 1: Project Foundation & Configuration
@@ -261,6 +286,34 @@ n8n and external systems can orchestrate the pipeline via REST API with async jo
 **NFRs addressed:** NFR3 (API response time), NFR9 (plugin interface standardization), NFR11 (n8n compatibility), NFR16 (API key log protection), NFR17 (auth failure handling), NFR22 (polling-optimized status), NFR24 (localhost binding)
 **Additional:** Job-based async processing, webhook delivery with retry, API key authentication middleware
 **Stories:** 7.1-7.7 (7 stories)
+
+### Epic 8: LLM Plugin — Gemini Scenario Generation
+Creator can generate complete video scenarios from SCP data using Gemini LLM with the proven 4-stage pipeline (Research→Structure→Writing→Review) from video.pipeline. Includes LLM fallback chain (Gemini→Qwen→DeepSeek) as a separate enhancement and minimal E2E smoke test for early user value validation.
+**FRs covered:** FR4, FR5, FR6, FR8
+**Additional:** 4-stage scenario pipeline from video.pipeline prompts, Gemini OpenAI-compatible endpoint, fallback chain story, E2E smoke test story, `go test -tags=integration` build tag separation
+**Reference:** `/mnt/work/projects/video.pipeline/assets/prompts/story_script/` (01_research→04_review)
+
+### Epic 9: ImageGen Plugin — SiliconFlow FLUX Image Generation
+Creator can generate per-scene images from scenario data using SiliconFlow FLUX API, with Frozen Descriptor Protocol for entity visual consistency and the 3-stage shot-breakdown-to-prompt pipeline from video.pipeline.
+**FRs covered:** FR9, FR10, FR11, FR12
+**Additional:** 3-stage image prompt pipeline from video.pipeline prompts, Frozen Descriptor Protocol, SiliconFlow FLUX API integration, prompt sanitization
+**Reference:** `/mnt/work/projects/video.pipeline/assets/prompts/image_prompt/` (01_shot_first_breakdown→03_shot_video)
+
+### Epic 10: TTS Plugin — DashScope CosyVoice Narration
+Creator can generate narration audio from scenario scripts using DashScope CosyVoice TTS, with Korean Hangul pronunciation XML conversion. Voice Cloning supported via config-level VoiceID option (no interface change), Flash model for cost optimization.
+**FRs covered:** FR13, FR14, FR15, FR16
+**Additional:** DashScope non-OpenAI API (WebSocket streaming + REST), Korean TTS XML format from video.pipeline, config-level VoiceID for Voice Cloning, Flash model toggle
+**Reference:** `/mnt/work/projects/video.pipeline/assets/prompts/caption/scenario_refine_ko.txt`
+
+### Epic 11: Output Plugin — CapCut Project Assembly
+Creator can assemble all generated assets (images, narration audio, subtitles) into a CapCut-compatible project format with timing synchronization and CC-BY-SA 3.0 copyright/licensing metadata auto-inclusion.
+**FRs covered:** FR17, FR18, FR19
+**Additional:** Timing resolver (narration→image→subtitle alignment), CapCut draft format, copyright metadata automation
+
+### Epic 12: End-to-End Pipeline Integration
+Creator can run the complete pipeline from SCP data to CapCut project in a single command with checkpoint/resume, real-time progress display, and comprehensive integration test suite using `go test -tags=integration` build tags.
+**FRs covered:** FR20, FR32
+**Additional:** Integration test suite with build tag separation, E2E pipeline orchestration, checkpoint/resume across all stages
 
 ## Epic 1: Project Foundation & Configuration
 
@@ -1475,3 +1528,709 @@ So that only authorized clients can control the pipeline.
 **Then** all endpoints are accessible without API key
 **And** a startup warning is logged: "API authentication is disabled"
 **And** this satisfies NFR24 (safe for localhost binding without auth)
+
+## Epic 8: LLM Plugin — Gemini Scenario Generation
+
+Creator can generate complete video scenarios from SCP data using Gemini LLM with the proven 4-stage pipeline (Research→Structure→Writing→Review). Includes LLM fallback chain as a separate enhancement and minimal E2E smoke test for early user value.
+
+### Story 8.1: Gemini LLM Provider Implementation
+
+As a creator,
+I want the system to connect to Gemini's OpenAI-compatible API as the LLM provider,
+So that I can use Gemini for high-quality scenario generation.
+
+**Acceptance Criteria:**
+
+**Given** a Gemini API key is configured in `llm.api_key` and endpoint set to `generativelanguage.googleapis.com/v1beta/openai/`
+**When** the LLM plugin is initialized
+**Then** an `OpenAICompatibleProvider` struct in `plugin/llm/openai.go` is instantiated with Gemini-specific config (endpoint, API key, model)
+**And** no separate `GeminiProvider` struct exists — all OpenAI-compatible providers (Gemini, Qwen, DeepSeek) reuse the same `OpenAICompatibleProvider` with different config injection
+**And** the provider instance is registered in the plugin registry under the name `"gemini"`
+
+**Given** a `GenerateScenario` call is made
+**When** the Gemini API returns a successful response
+**Then** the response is parsed into `domain.ScenarioOutput` with scenes, narration text, and fact tags
+**And** token usage (input/output) is logged at INFO level for cost tracking
+
+**Given** a Gemini API call fails with a retryable error (429, 500, 503)
+**When** the retry mechanism activates
+**Then** the call is retried with exponential backoff (max 3 retries) using the existing `retry` package
+**And** non-retryable errors (400, 401, 403) are returned immediately with descriptive error messages
+
+**Given** the API key is invalid or missing
+**When** any LLM method is called
+**Then** the error message includes "Gemini API authentication failed" with guidance to check `llm.api_key` config
+**And** this satisfies FR4
+
+### Story 8.2: 4-Stage Scenario Prompt Template System
+
+As a creator,
+I want the scenario generation to follow a proven 4-stage prompt pipeline (Research→Structure→Writing→Review),
+So that generated scenarios are consistently high-quality with proper SCP accuracy and narrative flow.
+
+**Acceptance Criteria:**
+
+**Given** prompt templates are stored in `templates/scenario/` directory
+**When** the template system is initialized
+**Then** 4 template files are loaded: `01_research.md`, `02_structure.md`, `03_writing.md`, `04_review.md`
+**And** templates are managed by the existing `internal/template` package with version tracking
+**And** each template supports variable substitution: `{scp_fact_sheet}`, `{topic}`, `{context}`, `{research_packet}`, `{scp_visual_reference}`, `{target_duration}`, `{scene_structure}`, `{narration_script}`
+
+**Given** the Research template (Stage 1) is executed
+**When** SCP facts.json and main.txt are injected as `{scp_fact_sheet}`
+**Then** the LLM produces a structured research packet with: Core Identity Summary, Visual Identity Profile (Frozen Descriptor), Key Dramatic Beats, Environment & Atmosphere Notes, and Narrative Hooks
+**And** the Visual Identity Profile follows the exact format from video.pipeline: Silhouette & Build, Head/Face, Body Covering, Hands & Limbs, Carried Items, Organic Integration Note
+
+**Given** the Structure template (Stage 2) is executed
+**When** the research packet from Stage 1 is injected
+**Then** the LLM produces a scene structure following the 4-act format: Hook & Introduction (~15%), Properties & Background (~30%), Incidents & Evidence (~40%), Resolution & Mystery (~15%)
+**And** each scene includes `key_points` that reference the Visual Identity Profile verbatim (Frozen Descriptor Protocol)
+
+**Given** the Writing template (Stage 3) is executed
+**When** the scene structure from Stage 2 is injected
+**Then** the LLM produces Korean narration in documentary style with natural conjunctions (시간/순서, 대비/반전, 누적/추가)
+**And** sentences do not exceed 20 characters for TTS readability
+**And** the tone uses polite-formal register (~합니다) without excessive formality
+
+**Given** the Review template (Stage 4) is executed
+**When** the narration from Stage 3 is injected
+**Then** the LLM performs fact-check validation: SCP class accuracy, anomalous properties accuracy, containment procedure correctness, Visual Identity consistency
+**And** issues are returned as patch-based corrections (not full rewrites) with specific line references
+**And** this satisfies FR5
+
+### Story 8.3: SCP Data to Scenario Generation Pipeline
+
+As a creator,
+I want to run `yt-pipe scenario generate SCP-173` and get a complete scenario,
+So that the full 4-stage pipeline executes automatically from raw SCP data to finished script.
+
+**Acceptance Criteria:**
+
+**Given** SCP data is loaded (facts.json, meta.json, main.txt) for a valid SCP ID
+**When** `yt-pipe scenario generate <SCP-ID>` is executed
+**Then** the system executes all 4 stages sequentially: Research → Structure → Writing → Review
+**And** each stage's output is saved as an intermediate artifact in the project workspace (`{project}/stages/01_research.json`, `02_structure.json`, `03_writing.json`, `04_review.json`)
+**And** the final reviewed narration is saved as `{project}/scenario.md`
+
+**Given** Stage 1 (Research) completes
+**When** Stage 2 (Structure) begins
+**Then** the research packet output is automatically injected into the Structure template
+**And** the Visual Identity Profile from Stage 1 is passed through as `{scp_visual_reference}` (Frozen Descriptor)
+**And** the target duration is read from project config (default: 10 minutes)
+
+**Given** Stage 4 (Review) identifies corrections
+**When** corrections are applied
+**Then** the system applies patch-based corrections to the narration automatically
+**And** a diff summary is logged showing what was changed and why
+**And** the final scenario includes fact tags linking narration segments to source facts
+
+**Given** any stage fails during execution
+**When** the error is caught
+**Then** the system saves a checkpoint at the last completed stage
+**And** re-running the command resumes from the failed stage (not from the beginning)
+**And** the error message includes which stage failed and a suggested fix
+**And** this satisfies FR4, FR5
+
+### Story 8.4: Fact Coverage Verification
+
+As a creator,
+I want the system to verify that the generated scenario covers at least 80% of source facts,
+So that I can be confident the video accurately represents the SCP content.
+
+**Acceptance Criteria:**
+
+**Given** a scenario has been generated with fact tags
+**When** fact coverage verification runs (automatically after generation or via `yt-pipe scenario verify <SCP-ID>`)
+**Then** the system compares tagged facts in the scenario against all facts in facts.json
+**And** calculates a coverage percentage (tagged facts / total facts × 100)
+**And** displays a coverage report: total facts, covered facts, missing facts list, coverage percentage
+
+**Given** the coverage percentage meets or exceeds the threshold (default 80%, configurable via `scenario.fact_coverage_threshold`)
+**When** the verification result is returned
+**Then** the scenario status is set to `verified` in the project state
+**And** a success message displays the coverage percentage
+
+**Given** the coverage percentage is below the threshold
+**When** the verification result is returned
+**Then** the system lists specific missing facts with their categories (physical_description, anomalous_properties, containment_procedures, etc.)
+**And** suggests which scene(s) could incorporate the missing facts
+**And** the scenario status remains `draft` until coverage is met
+**And** this satisfies FR6
+
+**Given** the creator runs `yt-pipe scenario verify --detail <SCP-ID>`
+**When** the detailed report is generated
+**Then** each fact is listed with: fact text, covered/missing status, and if covered, the scene number and narration line where it appears
+
+### Story 8.5: SCP Glossary-Aware Generation
+
+As a creator,
+I want the LLM to use consistent SCP terminology from the glossary during generation,
+So that terms like object classes, containment levels, and SCP-specific jargon are used correctly and consistently.
+
+**Acceptance Criteria:**
+
+**Given** a glossary is loaded from the existing `internal/glossary` package
+**When** the scenario generation pipeline starts
+**Then** glossary terms relevant to the target SCP are injected into each prompt template as a terminology reference section
+**And** the injected glossary includes: term, definition, preferred usage, and Korean translation where applicable
+
+**Given** the LLM generates narration text
+**When** the output is post-processed
+**Then** the system validates that SCP object classes (Safe, Euclid, Keter, Thaumiel, Apollyon) are used correctly per the source data
+**And** any misused terms are flagged in the review stage output
+
+**Given** a new SCP entry uses domain-specific terms not in the default glossary
+**When** the creator adds custom terms via `yt-pipe glossary add <term> <definition>`
+**Then** the custom terms are included in subsequent generation prompts
+**And** glossary data persists in the project's SQLite database
+**And** this satisfies FR8
+
+### Story 8.6: LLM Fallback Chain (Gemini → Qwen → DeepSeek)
+
+As a creator,
+I want the system to automatically try alternative LLM providers when Gemini is unavailable,
+So that scenario generation continues without manual intervention during provider outages.
+
+**Acceptance Criteria:**
+
+**Given** fallback providers are configured in YAML: `llm.fallback: [{provider: "qwen", model: "qwen-max"}, {provider: "deepseek", model: "deepseek-chat"}]`
+**When** the LLM plugin is initialized
+**Then** a `FallbackChain` wrapper implements the `LLM` interface
+**And** it holds an ordered list of providers: primary (Gemini) → fallback 1 (Qwen) → fallback 2 (DeepSeek)
+**And** each fallback provider is registered in the plugin registry with its own API key and endpoint config
+
+**Given** the primary Gemini provider fails with a non-retryable error (after exhausting retries)
+**When** the fallback chain activates
+**Then** the next provider in the chain is attempted with the same prompt and parameters
+**And** a warning log is emitted: "Primary LLM failed, falling back to {provider_name}"
+**And** the execution log records which provider was ultimately used
+
+**Given** all providers in the chain fail
+**When** the final fallback is exhausted
+**Then** the error message lists all attempted providers with their individual error messages
+**And** the pipeline halts with a clear "All LLM providers failed" error
+
+**Given** Qwen and DeepSeek are also OpenAI-compatible endpoints
+**When** their providers are initialized
+**Then** they reuse the same `openai-compatible` client code as Gemini with different endpoint/key configs
+**And** no code duplication exists between providers — only config differs
+
+### Story 8.7: Minimal E2E Smoke Test
+
+As a creator,
+I want to run a single command that proves the entire scenario generation pipeline works end-to-end,
+So that I can validate my setup is correct before processing all 422 SCP entries.
+
+**Acceptance Criteria:**
+
+**Given** the system is configured with a valid Gemini API key and SCP data path
+**When** `yt-pipe scenario generate SCP-173 --verbose` is executed
+**Then** the full 4-stage pipeline runs: Research → Structure → Writing → Review
+**And** a `scenario.md` file is produced in the project workspace
+**And** the CLI displays stage-by-stage progress with elapsed time per stage
+**And** total execution time and token usage summary are displayed at completion
+
+**Given** the smoke test completes successfully
+**When** the output is inspected
+**Then** the scenario contains: Korean narration text, scene breakdowns with key_points, fact tags referencing facts.json entries, and a coverage percentage ≥ 80%
+
+**Given** a unit test file `service/scenario_test.go` exists (no build tag required)
+**When** `go test ./internal/service/ -run TestScenarioPipeline` is executed
+**Then** the test uses mock LLM provider (from `internal/mocks`) to validate the 4-stage pipeline orchestration logic: correct stage ordering, inter-stage data passing, checkpoint creation, and error handling
+**And** no real API calls are made — real API integration tests are deferred to Story 12.4
+**And** the test completes in under 5 seconds
+
+## Epic 9: ImageGen Plugin — SiliconFlow FLUX Image Generation
+
+Creator can generate per-scene images from scenario data using SiliconFlow FLUX API, with Frozen Descriptor Protocol for entity visual consistency and the 3-stage shot-breakdown-to-prompt pipeline from video.pipeline.
+
+### Story 9.1: SiliconFlow FLUX Provider Implementation
+
+As a creator,
+I want the system to connect to SiliconFlow's FLUX API for image generation,
+So that I can generate high-quality scene images from my scenarios.
+
+**Acceptance Criteria:**
+
+**Given** a SiliconFlow API key is configured in `imagegen.api_key` and endpoint configured
+**When** the ImageGen plugin is initialized
+**Then** a `SiliconFlowProvider` struct in `plugin/imagegen/siliconflow.go` implements the `ImageGen` interface
+**And** the provider supports configurable model selection (default: `FLUX.1-schnell`)
+**And** the provider is registered in the plugin registry under the name `"siliconflow"`
+
+**Given** a `Generate` call is made with a prompt and `GenerateOptions`
+**When** the SiliconFlow API returns a successful response
+**Then** the image data is returned as `ImageResult` with format, width, and height populated
+**And** the default output dimensions are 1920×1080 (16:9) matching CapCut canvas config
+**And** API response time and image size are logged at INFO level
+
+**Given** a SiliconFlow API call fails with a retryable error (429, 500, 503)
+**When** the retry mechanism activates
+**Then** the call is retried with exponential backoff (max 3 retries) using the existing `retry` package
+**And** rate limit errors (429) respect the `Retry-After` header if present
+**And** this satisfies FR10
+
+### Story 9.2: Shot Breakdown Prompt Template System
+
+As a creator,
+I want each scene's narration to be decomposed into cinematographic shots using the proven shot breakdown system,
+So that generated images have professional composition with correct camera angles and entity positioning.
+
+**Acceptance Criteria:**
+
+**Given** prompt templates are stored in `templates/image/` directory
+**When** the image prompt template system is initialized
+**Then** 2 template files are loaded: `01_shot_breakdown.md` (scene→shot decomposition) and `02_shot_to_prompt.md` (shot→image prompt)
+**And** templates support variable substitution: `{entity_visual_identity}`, `{frozen_descriptor}`, `{scene_number}`, `{synopsis}`, `{emotional_beat}`, `{previous_last_shot_context}`, `{shot_json}`
+
+**Given** the Shot Breakdown template (Stage 1) is executed for a scene
+**When** the scene's synopsis, emotional beat, and entity Visual Identity Profile are injected
+**Then** the LLM produces a JSON shot description with: shot_number, role, camera_type, entity_visible, subject, lighting, mood, motion
+**And** camera_type is one of: wide, medium, close-up, extreme close-up, POV, over-the-shoulder, bird's eye, low angle
+**And** if entity_visible is true, the subject field starts with the FROZEN DESCRIPTOR verbatim
+
+**Given** the Shot-to-Prompt template (Stage 2) is executed
+**When** the shot JSON from Stage 1 is injected
+**Then** the LLM produces an image generation prompt with: main subject (preserving frozen descriptor), camera angle, lighting, mood/style, and technical quality suffix
+**And** a negative prompt is generated including entity-specific negatives when entity is visible
+**And** the common suffix "cinematic still, dark horror photography, highly detailed, 8k, sharp focus, volumetric lighting, film grain, 16:9 aspect ratio" is appended
+**And** this satisfies FR9
+
+### Story 9.3: Frozen Descriptor Protocol Implementation
+
+As a creator,
+I want entity visual descriptions to be locked and reused verbatim across all scene images,
+So that the SCP entity looks consistent throughout the entire video.
+
+**Acceptance Criteria:**
+
+**Given** the Research stage (Epic 8, Stage 1) has produced a Visual Identity Profile
+**When** the image generation pipeline starts
+**Then** a Frozen Descriptor is extracted from the Visual Identity Profile: a single dense text block containing all physical attributes (silhouette, head/face, body covering, hands/limbs, carried items)
+**And** the descriptor is stored in the project workspace as `{project}/frozen_descriptor.txt`
+
+**Given** a Frozen Descriptor exists for the project
+**When** any shot breakdown is generated (Story 9.2, Stage 1)
+**Then** the descriptor is injected verbatim into the `{frozen_descriptor}` template variable
+**And** the LLM is instructed to use it verbatim in the `subject` field when `entity_visible: true`
+**And** the shot-to-prompt stage (Stage 2) preserves it exactly — no paraphrasing, abbreviation, or modification
+
+**Given** a generated image prompt is post-processed
+**When** entity_visible is true for the shot
+**Then** the system validates the frozen descriptor in the final prompt using a 2-tier check: first strict verbatim match, then fuzzy similarity (≥95% threshold) if verbatim fails
+**And** if verbatim match passes, no action needed; if fuzzy match passes, a warning is logged with the diff; if fuzzy match also fails, the prompt is auto-corrected by re-inserting the descriptor verbatim
+**And** entity-specific negative prompts are generated to prevent visual inconsistency (e.g., "human face visible" if entity wears a mask)
+**And** this satisfies FR11
+
+### Story 9.4: Scene Image Generation Pipeline
+
+As a creator,
+I want to run `yt-pipe image generate <SCP-ID>` to generate images for all scenes in my scenario,
+So that each scene has a matching visual that I can use in the final video.
+
+**Acceptance Criteria:**
+
+**Given** an approved scenario exists with scene breakdowns
+**When** `yt-pipe image generate <SCP-ID>` is executed
+**Then** for each scene: the 2-stage prompt pipeline runs (shot breakdown → image prompt), then the SiliconFlow API generates the image
+**And** generated images are saved as `{project}/scenes/{scene_num}/image.png`
+**And** the corresponding prompt and shot metadata are saved as `{project}/scenes/{scene_num}/image_prompt.json`
+**And** CLI displays per-scene progress: "Scene 3/10: generating shot breakdown... generating image... saved (2.3s)"
+
+**Given** multiple scenes need image generation
+**When** the pipeline processes them
+**Then** scenes are generated sequentially by default (to maintain narrative context for shot continuity)
+**And** the `{previous_last_shot_context}` variable carries the previous scene's last shot for visual flow
+**And** a `--parallel` flag enables concurrent generation (disabling shot continuity context) for speed
+
+**Given** image generation fails for a specific scene
+**When** the error is caught
+**Then** the failed scene is logged with the error, and generation continues with remaining scenes
+**And** a summary at the end lists: total scenes, succeeded, failed, with scene numbers for each
+**And** re-running the command skips already-generated scenes (unless `--force` is specified)
+**And** this satisfies FR10, FR12
+
+### Story 9.5: Selective Scene Image Regeneration
+
+As a creator,
+I want to regenerate images for specific scenes without re-running the entire pipeline,
+So that I can fix individual images that don't meet my quality standards.
+
+**Acceptance Criteria:**
+
+**Given** images have been generated for a project
+**When** `yt-pipe image regenerate <SCP-ID> --scenes 3,5,7` is executed
+**Then** only the specified scenes have their images regenerated through the full 2-stage prompt pipeline
+**And** the previous images are backed up as `image.prev.png` before overwriting
+**And** the new prompt metadata is saved alongside the new image
+
+**Given** the creator wants to edit a prompt before regeneration
+**When** `yt-pipe image regenerate <SCP-ID> --scene 3 --edit-prompt` is executed
+**Then** the current image prompt JSON for scene 3 is displayed
+**And** the creator can provide a modified prompt or instruction (e.g., "make the lighting warmer")
+**And** the LLM re-generates only the image prompt incorporating the edit, then generates a new image
+**And** this satisfies FR11, FR12
+
+**Given** a regenerated image uses a different seed or prompt
+**When** the image is saved
+**Then** the image_prompt.json records the generation history: original prompt, edit instruction (if any), and seed used
+**And** the project execution log records the regeneration event with before/after metadata
+
+## Epic 10: TTS Plugin — DashScope CosyVoice Narration
+
+Creator can generate narration audio from scenario scripts using DashScope CosyVoice TTS, with Korean Hangul pronunciation XML conversion. Voice Cloning supported via config-level VoiceID option, Flash model for cost optimization.
+
+### Story 10.1: DashScope CosyVoice Provider Implementation
+
+As a creator,
+I want the system to connect to DashScope's CosyVoice API for TTS narration,
+So that I can generate professional Korean narration audio from my scenarios.
+
+**Acceptance Criteria:**
+
+**Given** a DashScope API key is configured in `tts.api_key` and model set (default: `cosyvoice-v1`)
+**When** the TTS plugin is initialized
+**Then** a `DashScopeProvider` struct in `plugin/tts/dashscope.go` implements the `TTS` interface
+**And** the provider uses REST mode only in this story (WebSocket streaming is a future optimization, not in scope)
+**And** the provider is registered in the plugin registry under the name `"dashscope"`
+
+**Given** a `Synthesize` call is made with Korean text and a voice ID
+**When** the DashScope API returns a successful response
+**Then** the audio data is returned as `SynthesisResult` with PCM/MP3 audio bytes, word-level timings, and total duration
+**And** word timings are parsed from the DashScope response for subtitle alignment
+**And** the audio is saved in the configured format (default: MP3, configurable via `tts.format`)
+
+**Given** DashScope uses a non-OpenAI-compatible API format
+**When** the provider constructs API requests
+**Then** it uses DashScope's native REST endpoint (`POST /api/v1/services/aigc/text2audio/generation`) with the correct header format (`Authorization: Bearer {api_key}`)
+**And** API errors are mapped to standard Go errors with descriptive messages
+
+**Given** a DashScope API call fails with a retryable error
+**When** the retry mechanism activates
+**Then** the call is retried with exponential backoff (max 3 retries) using the existing `retry` package
+**And** this satisfies FR13
+
+### Story 10.2: Korean Hangul Pronunciation XML Conversion
+
+As a creator,
+I want English terms and numbers in the narration to be converted to Korean pronunciation before TTS,
+So that the narration sounds natural without awkward English pronunciation breaks.
+
+**Acceptance Criteria:**
+
+**Given** a scenario narration contains English terms (e.g., "SCP-173", "Keter", "Level 1")
+**When** the TTS preprocessing stage runs
+**Then** a 2-tier conversion executes: first, deterministic glossary-based substitution replaces known terms ("SCP" → "에스씨피", "Keter" → "케테르", "API" → "에이피아이"); then, the LLM handles remaining context-dependent conversions (numbers, novel English terms) using the `scenario_refine` prompt template
+**And** glossary substitutions are applied before LLM invocation to reduce token cost
+**And** numbers are converted contextually by the LLM: "2시" → "두 시", "2025년" → "이천이십오 년", "3개" → "세 개"
+
+**Given** the conversion prompt template is stored in `templates/tts/scenario_refine.md` (Korean-only, no multi-language support in this phase)
+**When** the template is applied
+**Then** the output is valid XML in `<script>` format with speaker tags on separate lines
+**And** the meaning and structure of the original narration are preserved exactly — no summarization or content changes
+**And** the converted text is saved as `{project}/scenes/{scene_num}/narration_refined.xml` for audit
+
+**Given** the glossary contains SCP-specific pronunciation overrides
+**When** `SynthesizeWithOverrides` is called
+**Then** glossary overrides take precedence over LLM-generated pronunciations
+**And** this satisfies FR14
+
+### Story 10.3: Voice Cloning via Config-Level VoiceID
+
+As a creator,
+I want to use a cloned voice for narration by specifying a VoiceID in config,
+So that my videos have a distinctive, consistent narrator voice without changing any code.
+
+**Acceptance Criteria:**
+
+**Given** DashScope Voice Cloning requires a 2-step process: register voice → receive VoiceID
+**When** the creator has already registered a voice via DashScope console or API
+**Then** they configure the VoiceID in YAML: `tts.voice: "cosyvoice-clone-{voice_id}"`
+**And** no interface change is needed — the existing `voice` parameter in `Synthesize(ctx, text, voice)` carries the VoiceID
+
+**Given** `tts.voice` is set to a clone VoiceID (prefix: `cosyvoice-clone-`)
+**When** the DashScope provider constructs the API request
+**Then** it uses the VoiceID in the `voice` parameter of the DashScope request body
+**And** the request includes `"voice_clone": true` in the API payload if the voice ID indicates a cloned voice
+
+**Given** `tts.voice` is set to a standard preset voice (e.g., `longxiaochun`)
+**When** the DashScope provider constructs the API request
+**Then** it uses the standard voice without the clone flag
+**And** no additional configuration is required
+**And** this satisfies FR15
+
+**Given** the creator wants to register a new voice clone
+**When** `yt-pipe tts register-voice --audio <sample.wav> --name "my-narrator"` is executed
+**Then** the system calls DashScope's voice registration API with the audio sample
+**And** the returned VoiceID is displayed and optionally written to config: `tts.voice: "cosyvoice-clone-{returned_id}"`
+
+### Story 10.4: CosyVoice Flash Model & Subtitle Generation
+
+As a creator,
+I want to optionally use the Flash model for faster/cheaper TTS and auto-generate subtitles from word timings,
+So that I can balance cost vs quality and have synchronized subtitles for my videos.
+
+**Acceptance Criteria:**
+
+**Given** `tts.model` is set to `cosyvoice-v1-flash` in config
+**When** the DashScope provider is initialized
+**Then** it uses the Flash model endpoint for all synthesis calls
+**And** the Flash model is documented as faster but potentially lower quality than the standard model
+**And** switching between standard and Flash requires only a config change, no code modification
+
+**Given** a `Synthesize` call returns word-level timings in `SynthesisResult.WordTimings`
+**When** subtitle generation runs
+**Then** the system produces an SRT subtitle file at `{project}/scenes/{scene_num}/subtitle.srt`
+**And** each subtitle entry aligns with word timing boundaries from the TTS response
+**And** subtitle segments are grouped into readable chunks (max 2 lines, max 40 characters per line)
+
+**Given** word timings from DashScope have millisecond precision
+**When** the subtitles are generated
+**Then** timing format follows SRT standard: `HH:MM:SS,mmm --> HH:MM:SS,mmm`
+**And** a project-wide subtitle file `{project}/subtitles.srt` concatenates all scene subtitles with correct time offsets
+**And** this satisfies FR16
+
+### Story 10.5: Narration Generation Pipeline
+
+As a creator,
+I want to run `yt-pipe tts generate <SCP-ID>` to generate narration audio for all scenes,
+So that each scene has a matching audio file ready for CapCut assembly.
+
+**Acceptance Criteria:**
+
+**Given** an approved scenario exists with scene narration text
+**When** `yt-pipe tts generate <SCP-ID>` is executed
+**Then** for each scene: Korean pronunciation conversion runs, then DashScope TTS synthesizes the audio
+**And** generated audio is saved as `{project}/scenes/{scene_num}/narration.mp3`
+**And** word timings are saved as `{project}/scenes/{scene_num}/timing.json`
+**And** subtitles are saved as `{project}/scenes/{scene_num}/subtitle.srt`
+**And** CLI displays per-scene progress: "Scene 3/10: converting pronunciation... synthesizing... saved (1.8s, 45.2s audio)"
+
+**Given** multiple scenes need narration generation
+**When** the pipeline processes them
+**Then** scenes are generated sequentially to respect API rate limits
+**And** total audio duration and estimated API cost are displayed at completion
+
+**Given** narration generation fails for a specific scene
+**When** the error is caught
+**Then** the failed scene is logged with the error, and generation continues with remaining scenes
+**And** re-running the command skips already-generated scenes (unless `--force` is specified)
+**And** a `--scenes 3,5` flag enables regenerating specific scenes only (same as image regeneration UX)
+**And** this satisfies FR13, FR15
+
+## Epic 11: Output Plugin — CapCut Project Assembly
+
+Creator can assemble all generated assets (images, narration audio, subtitles) into a CapCut-compatible project with timing synchronization and CC-BY-SA 3.0 copyright metadata. Builds on the CapCut format validated in Epic 4 with concrete asset integration from Epics 8-10.
+
+### Story 11.1: CapCut Assembler Concrete Implementation
+
+As a creator,
+I want the CapCut assembler to work with real generated assets from the scenario, image, and TTS pipelines,
+So that I can open a fully assembled project in CapCut immediately after pipeline completion.
+
+**Acceptance Criteria:**
+
+**Given** a project has completed scenario generation (Epic 8), image generation (Epic 9), and TTS generation (Epic 10)
+**When** `yt-pipe assemble <SCP-ID>` is executed
+**Then** the `Assembler` implementation in `plugin/output/capcut/assembler.go` loads all scene assets from the project workspace
+**And** for each scene, it reads: `scenes/{num}/image.png`, `scenes/{num}/narration.mp3`, `scenes/{num}/timing.json`, `scenes/{num}/subtitle.srt`
+**And** the CapCut draft JSON is generated with correct material references for each asset file
+
+**Given** assets are loaded for assembly
+**When** the CapCut project structure is built
+**Then** the video track contains one segment per scene with the image file as the material
+**And** the audio track contains one segment per scene with the narration MP3 as the material
+**And** the text track contains subtitle segments from the SRT file mapped to CapCut text segment format
+**And** all track segments are ordered sequentially matching the scene order
+
+**Given** the assembly completes
+**When** the output files are saved
+**Then** `draft_content.json` and `draft_meta_info.json` are written to `{project}/output/`
+**And** all referenced asset files are copied or symlinked into the CapCut project's resource directory
+**And** the output validates against the CapCut schema from Story 4.1
+**And** this satisfies FR17
+
+**Given** a scene has missing assets (e.g., image generation failed for scene 3 in Epic 9)
+**When** the assembler loads scene assets
+**Then** a pre-assembly validation runs and lists all scenes with missing assets: which files are missing per scene (image/narration/timing/subtitle)
+**And** assembly halts with a clear error: "Cannot assemble: scenes 3, 7 have missing assets. Run `yt-pipe status <SCP-ID> --scenes` to see details."
+**And** the creator can fix the missing assets and re-run assembly without affecting completed scenes
+
+### Story 11.2: Timing Resolver — Narration-Driven Scene Synchronization
+
+As a creator,
+I want scene images to be displayed for exactly the duration of their narration audio,
+So that visuals and audio are perfectly synchronized in the final video.
+
+**Acceptance Criteria:**
+
+**Given** each scene has `timing.json` with word-level timings and total audio duration
+**When** the Timing Resolver processes all scenes
+**Then** each scene's image display duration is set to match its narration audio duration exactly
+**And** scene transitions are placed at the boundary between consecutive narration segments (no overlap, no gap)
+**And** the total video duration equals the sum of all scene narration durations
+
+**Given** subtitle segments exist for each scene
+**When** timing is resolved
+**Then** subtitle start/end times are offset by the cumulative duration of all preceding scenes
+**And** the project-level `timeline.json` contains: per-scene start time, end time, image path, audio path, and subtitle segments with absolute timestamps
+
+**Given** a scene has no narration (e.g., title card or transition)
+**When** the Timing Resolver encounters it
+**Then** a default duration is used (configurable via `assembly.default_scene_duration`, default: 3 seconds)
+**And** the scene is still included in the timeline with its image but no audio track segment
+
+**Given** timing data is recalculated after a scene's TTS is regenerated
+**When** `yt-pipe assemble <SCP-ID>` is re-run
+**Then** only the affected scene's timing is updated and all subsequent scene offsets are recalculated
+**And** this satisfies FR18
+
+### Story 11.3: Copyright & Licensing Metadata Integration
+
+As a creator,
+I want CC-BY-SA 3.0 copyright attribution and SCP-specific licensing warnings included automatically,
+So that every assembled project is legally compliant without manual effort.
+
+**Acceptance Criteria:**
+
+**Given** a project is assembled for an SCP entry
+**When** the assembler runs
+**Then** a `description.txt` is generated in `{project}/output/` containing: SCP Foundation credit, original author(s) from `meta.json`, CC-BY-SA 3.0 license URL, and AI-generated content disclosure
+**And** this text is formatted ready for YouTube video description paste
+
+**Given** `meta.json` contains additional copyright conditions (e.g., image usage restrictions, derivative work conditions)
+**When** the assembler processes the metadata
+**Then** a CLI warning is displayed: "⚠ SCP-XXX has additional copyright conditions: {details}"
+**And** the conditions are appended to `description.txt` with clear labeling
+**And** the warning is recorded in the execution log
+**And** this satisfies FR19
+
+**Given** the creator runs `yt-pipe assemble <SCP-ID> --check-license`
+**When** the license check runs
+**Then** the system validates that all required attribution fields are present in meta.json
+**And** missing fields are reported as warnings (assembly still proceeds)
+**And** the license check result is included in the assembly summary output
+
+## Epic 12: End-to-End Pipeline Integration
+
+Creator can run the complete pipeline from SCP data to CapCut project in a single command with real providers (Gemini, SiliconFlow, DashScope), checkpoint/resume across all stages, real-time progress display, and comprehensive integration test suite.
+
+### Story 12.1: Full Pipeline with Real Providers
+
+As a creator,
+I want `yt-pipe run <SCP-ID>` to execute the complete pipeline using real API providers end-to-end,
+So that I get a finished CapCut project from a single command with no manual steps between stages.
+
+**Acceptance Criteria:**
+
+**Given** configuration has valid API keys for Gemini (LLM), SiliconFlow (ImageGen), and DashScope (TTS)
+**When** `yt-pipe run <SCP-ID>` is executed
+**Then** the pipeline orchestrator executes all stages in sequence with the concrete providers:
+1. SCP data loading and validation
+2. Scenario generation (4-stage Gemini pipeline)
+3. Pause for scenario approval (`yt-pipe scenario approve <SCP-ID>` to resume)
+4. Image generation (SiliconFlow FLUX) + TTS generation (DashScope CosyVoice) in parallel
+5. CapCut project assembly with timing synchronization
+**And** each stage uses the provider registered in the plugin registry based on config
+**And** this satisfies FR20
+
+**Given** the pipeline completes all stages
+**When** the final output is produced
+**Then** the `{project}/output/` directory contains: `draft_content.json`, `draft_meta_info.json`, `description.txt`, and all referenced assets
+**And** CLI displays a completion summary: total time, per-stage time breakdown, total API calls, estimated cost (tokens + images + audio duration)
+
+**Given** the creator wants to skip the approval pause for batch processing
+**When** `yt-pipe run <SCP-ID> --auto-approve` is executed
+**Then** the scenario approval step is skipped and the pipeline continues immediately after generation
+**And** a warning is logged: "Auto-approve enabled: scenario review skipped"
+
+### Story 12.2: Cross-Stage Checkpoint & Resume
+
+As a creator,
+I want to resume the pipeline from the exact stage that failed when using real providers,
+So that I don't waste API calls and time re-running completed stages after fixing a config issue.
+
+**Acceptance Criteria:**
+
+**Given** the pipeline fails at image generation (e.g., SiliconFlow API key expired)
+**When** the creator fixes the API key and runs `yt-pipe run <SCP-ID>` again
+**Then** the orchestrator detects completed checkpoints: data loading (done), scenario generation (done), scenario approved (done)
+**And** resumes from image generation stage without re-running prior stages
+**And** CLI displays: "Resuming from stage: image_generation (3 stages already completed)"
+
+**Given** image generation partially completed (scenes 1-5 done, scene 6 failed)
+**When** the pipeline resumes
+**Then** scenes 1-5 are skipped (already have artifacts), scene 6 onwards are processed
+**And** TTS generation resumes from its own independent per-scene checkpoint (image and TTS maintain separate checkpoint state since they run in parallel)
+**And** a failure in image generation does not affect TTS checkpoint progress, and vice versa
+**And** this satisfies FR32
+
+**Given** the creator wants to force a full re-run from scratch
+**When** `yt-pipe run <SCP-ID> --force` is executed
+**Then** all checkpoints are cleared and the pipeline starts from stage 1
+**And** existing artifacts are backed up to `{project}/backup/{timestamp}/` before overwriting
+
+### Story 12.3: Multi-Stage Pipeline Progress Dashboard
+
+As a creator,
+I want real-time progress visibility across **multiple parallel stages** when running the full pipeline,
+So that I can monitor long-running batch jobs and estimate remaining time.
+
+**Scope distinction from Story 5.2:** Story 5.2 provides single-stage progress (one active stage at a time). This story extends it to show **concurrent multi-stage progress** (image + TTS running in parallel) with a unified dashboard view.
+
+**Acceptance Criteria:**
+
+**Given** the full pipeline is running via `yt-pipe run <SCP-ID>`
+**When** stages are executing
+**Then** the CLI displays a live progress view on stderr:
+```
+[scenario]  ████████████████████ 100% (4/4 stages, 45s)
+[image]     ████████░░░░░░░░░░░░  40% (4/10 scenes, 32s)
+[tts]       ██████░░░░░░░░░░░░░░  30% (3/10 scenes, 28s)
+[assembly]  waiting...
+```
+**And** each line updates in-place (using `\r` or ANSI escape codes)
+**And** the display degrades gracefully to simple line-by-line output when stderr is not a TTY (e.g., piped to file)
+
+**Given** parallel stages (image + TTS) are running
+**When** one stage completes before the other
+**Then** the completed stage shows 100% and the remaining stage continues updating
+**And** assembly begins only when both parallel stages show 100%
+
+**Given** the creator queries status from another terminal
+**When** `yt-pipe status <SCP-ID>` is executed during a run
+**Then** the response includes: current running stages, per-stage progress, elapsed time, and estimated remaining time based on average scene processing speed
+
+### Story 12.4: Integration Test Suite
+
+As a creator,
+I want a comprehensive integration test suite that validates the full pipeline with real APIs,
+So that regressions are caught before they affect my production workflow.
+
+**Acceptance Criteria:**
+
+**Given** integration test files exist with `//go:build integration` build tag
+**When** `go test -tags=integration ./...` is executed
+**Then** the following test cases run against real APIs:
+- `TestGeminiScenarioGeneration`: Generates scenario for SCP-173 fixture, validates 4-stage output structure
+- `TestSiliconFlowImageGeneration`: Generates one image from a test prompt, validates ImageResult fields
+- `TestDashScopeTTSSynthesis`: Synthesizes one Korean sentence, validates audio bytes and word timings
+- `TestFullPipelineE2E`: Runs the complete pipeline for SCP-173 with all real providers, validates final output
+- `TestFallbackChainActivation`: Configures primary LLM with an invalid key to force fallback, validates that the fallback provider (Qwen or DeepSeek) handles the request successfully
+**And** all tests are skipped in regular `go test ./...` (no build tag)
+
+**Given** integration tests require API keys
+**When** keys are not configured
+**Then** each test skips with `t.Skip("GEMINI_API_KEY not set")` (or equivalent for each provider)
+**And** the test output clearly indicates which tests were skipped and why
+
+**Given** integration tests run against real APIs with latency
+**When** individual test timeouts are set
+**Then** scenario generation test: 120s timeout, image generation test: 60s timeout, TTS test: 30s timeout, full E2E test: 300s timeout
+**And** each test cleans up its project workspace after completion (unless `--keep-artifacts` flag is set)
+
+**Given** a CI environment is configured with API keys
+**When** the integration test suite runs
+**Then** test results are output in standard Go test format compatible with CI reporting
+**And** a `Makefile` target `make test-integration` wraps the command: `go test -tags=integration -timeout 600s ./...`
+**And** a separate `make test` target runs only unit tests (no build tag, no API calls)

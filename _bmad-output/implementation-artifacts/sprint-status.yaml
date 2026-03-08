@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-03-08
+generated: 2026-03-08 (updated)
 project: youtube.pipeline
 project_key: NOKEY
 tracking_system: file-system
@@ -96,12 +96,56 @@ development_status:
   epic-6-retrospective: optional
 
   # Epic 7: REST API & External Integration
-  epic-7: backlog
-  7-1-rest-api-server-health-endpoint: backlog
-  7-2-project-crud-api: backlog
-  7-3-pipeline-control-api: backlog
-  7-4-asset-management-api: backlog
-  7-5-configuration-plugin-management-api: backlog
-  7-6-webhook-notifications: backlog
-  7-7-api-authentication-middleware: backlog
+  epic-7: done
+  7-1-rest-api-server-health-endpoint: done
+  7-2-project-crud-api: done
+  7-3-pipeline-control-api: done
+  7-4-asset-management-api: done
+  7-5-configuration-plugin-management-api: done
+  7-6-webhook-notifications: done
+  7-7-api-authentication-middleware: done
   epic-7-retrospective: optional
+
+  # Epic 8: LLM Plugin — Gemini Scenario Generation
+  epic-8: done
+  8-1-gemini-llm-provider-implementation: done
+  8-2-4-stage-scenario-prompt-template-system: done
+  8-3-scp-data-to-scenario-generation-pipeline: done
+  8-4-fact-coverage-verification: done
+  8-5-scp-glossary-aware-generation: done
+  8-6-llm-fallback-chain: done
+  8-7-minimal-e2e-smoke-test: done
+  epic-8-retrospective: optional
+
+  # Epic 9: ImageGen Plugin — SiliconFlow FLUX Image Generation
+  epic-9: done
+  9-1-siliconflow-flux-provider-implementation: done
+  9-2-shot-breakdown-prompt-template-system: done
+  9-3-frozen-descriptor-protocol-implementation: done
+  9-4-scene-image-generation-pipeline: done
+  9-5-selective-scene-image-regeneration: done
+  epic-9-retrospective: optional
+
+  # Epic 10: TTS Plugin — DashScope CosyVoice Narration
+  epic-10: done
+  10-1-dashscope-cosyvoice-provider-implementation: done
+  10-2-korean-hangul-pronunciation-xml-conversion: done
+  10-3-voice-cloning-via-config-level-voiceid: done
+  10-4-cosyvoice-flash-model-subtitle-generation: done
+  10-5-narration-generation-pipeline: done
+  epic-10-retrospective: optional
+
+  # Epic 11: Output Plugin — CapCut Project Assembly
+  epic-11: done
+  11-1-capcut-assembler-concrete-implementation: done
+  11-2-timing-resolver-narration-driven-scene-synchronization: done
+  11-3-copyright-licensing-metadata-integration: done
+  epic-11-retrospective: optional
+
+  # Epic 12: End-to-End Pipeline Integration
+  epic-12: done
+  12-1-full-pipeline-with-real-providers: done
+  12-2-cross-stage-checkpoint-resume: done
+  12-3-multi-stage-pipeline-progress-dashboard: done
+  12-4-integration-test-suite: done
+  epic-12-retrospective: optional
