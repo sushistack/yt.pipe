@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,12 +10,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jay/youtube-pipeline/internal/domain"
-	"github.com/jay/youtube-pipeline/internal/glossary"
-	"github.com/jay/youtube-pipeline/internal/plugin/tts"
-	"github.com/jay/youtube-pipeline/internal/retry"
-	"github.com/jay/youtube-pipeline/internal/store"
-	"github.com/jay/youtube-pipeline/internal/workspace"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/glossary"
+	"github.com/sushistack/yt.pipe/internal/plugin/tts"
+	"github.com/sushistack/yt.pipe/internal/store"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
 // TTSService handles TTS narration synthesis for scenes.
@@ -31,22 +31,19 @@ func NewTTSService(t tts.TTS, g *glossary.Glossary, s *store.Store, logger *slog
 }
 
 // SynthesizeScene synthesizes narration for a single scene and saves audio to the scene directory.
-// Uses retry with exponential backoff for the TTS API call.
+// The TTS plugin handles its own retry logic, so the service layer does not add additional retries.
 func (s *TTSService) SynthesizeScene(ctx context.Context, scene domain.SceneScript, projectID, projectPath, voice string) (*domain.Scene, error) {
 	overrides := s.buildOverrides()
 
 	var result *tts.SynthesisResult
+	var err error
 	start := time.Now()
 
-	err := retry.Do(ctx, 3, 1*time.Second, func() error {
-		var synthErr error
-		if len(overrides) > 0 {
-			result, synthErr = s.tts.SynthesizeWithOverrides(ctx, scene.Narration, voice, overrides)
-		} else {
-			result, synthErr = s.tts.Synthesize(ctx, scene.Narration, voice)
-		}
-		return synthErr
-	})
+	if len(overrides) > 0 {
+		result, err = s.tts.SynthesizeWithOverrides(ctx, scene.Narration, voice, overrides)
+	} else {
+		result, err = s.tts.Synthesize(ctx, scene.Narration, voice)
+	}
 	if err != nil {
 		s.logger.Error("tts synthesis failed",
 			"project_id", projectID,
@@ -74,6 +71,17 @@ func (s *TTSService) SynthesizeScene(ctx context.Context, scene domain.SceneScri
 		return nil, fmt.Errorf("tts: save audio %d: %w", scene.SceneNum, err)
 	}
 
+	// Save word timings as timing.json
+	if len(result.WordTimings) > 0 {
+		timingPath := filepath.Join(sceneDir, "timing.json")
+		timingData, err := json.MarshalIndent(result.WordTimings, "", "  ")
+		if err == nil {
+			if writeErr := workspace.WriteFileAtomic(timingPath, timingData); writeErr != nil {
+				s.logger.Warn("failed to save timing.json", "scene_num", scene.SceneNum, "err", writeErr)
+			}
+		}
+	}
+
 	// Update scene manifest with audio hash + duration (AC4)
 	audioHash := hashBytes(result.AudioData)
 	s.updateManifestAudioHash(projectID, scene.SceneNum, audioHash)
@@ -96,20 +104,60 @@ func (s *TTSService) SynthesizeScene(ctx context.Context, scene domain.SceneScri
 	}, nil
 }
 
+// ShouldSkipScene checks if a scene already has audio generated.
+func (s *TTSService) ShouldSkipScene(projectID string, sceneNum int) bool {
+	manifest, err := s.store.GetManifest(projectID, sceneNum)
+	if err != nil {
+		return false
+	}
+	return manifest.Status == "audio_generated" && manifest.AudioHash != ""
+}
+
+// SynthesizeAllOpts configures the SynthesizeAll behavior.
+type SynthesizeAllOpts struct {
+	SceneNums []int // Selective scene regeneration; empty = all scenes
+	Force     bool  // Bypass skip logic
+}
+
 // SynthesizeAll synthesizes narration for all or selected scenes.
 // If sceneNums is non-empty, only those scenes are synthesized (AC3: selective re-synthesis).
 // On partial failure, continues processing remaining scenes.
 func (s *TTSService) SynthesizeAll(ctx context.Context, scenes []domain.SceneScript, projectID, projectPath, voice string, sceneNums []int) ([]*domain.Scene, error) {
-	filtered := filterSceneScripts(scenes, sceneNums)
+	return s.SynthesizeAllWithOpts(ctx, scenes, projectID, projectPath, voice, SynthesizeAllOpts{SceneNums: sceneNums})
+}
 
-	results := make([]*domain.Scene, 0, len(filtered))
+// SynthesizeAllWithOpts synthesizes narration with extended options including skip logic.
+func (s *TTSService) SynthesizeAllWithOpts(ctx context.Context, scenes []domain.SceneScript, projectID, projectPath, voice string, opts SynthesizeAllOpts) ([]*domain.Scene, error) {
+	filtered := filterSceneScripts(scenes, opts.SceneNums)
+	total := len(filtered)
+
+	results := make([]*domain.Scene, 0, total)
 	var errs []error
-	for _, scene := range filtered {
+	var totalDuration float64
+
+	for i, scene := range filtered {
 		if err := ctx.Err(); err != nil {
-			s.logger.Warn("tts synthesis cancelled", "project_id", projectID, "remaining", len(filtered)-len(results)-len(errs))
+			s.logger.Warn("tts synthesis cancelled", "project_id", projectID, "remaining", total-len(results)-len(errs))
 			errs = append(errs, fmt.Errorf("tts: cancelled: %w", err))
 			break
 		}
+
+		// Skip logic: check if scene already has audio (unless --force)
+		if !opts.Force && s.ShouldSkipScene(projectID, scene.SceneNum) {
+			s.logger.Info("scene tts skipped (already generated)",
+				"project_id", projectID,
+				"scene_num", scene.SceneNum,
+				"progress", fmt.Sprintf("%d/%d", i+1, total),
+			)
+			continue
+		}
+
+		s.logger.Info("scene tts progress",
+			"project_id", projectID,
+			"scene_num", scene.SceneNum,
+			"progress", fmt.Sprintf("%d/%d", i+1, total),
+			"status", "synthesizing",
+		)
 
 		result, err := s.SynthesizeScene(ctx, scene, projectID, projectPath, voice)
 		if err != nil {
@@ -117,9 +165,18 @@ func (s *TTSService) SynthesizeAll(ctx context.Context, scenes []domain.SceneScr
 			continue
 		}
 		results = append(results, result)
+		totalDuration += result.AudioDuration
 	}
+
+	s.logger.Info("tts synthesis batch complete",
+		"project_id", projectID,
+		"synthesized", len(results),
+		"failed", len(errs),
+		"total_duration_sec", totalDuration,
+	)
+
 	if len(errs) > 0 {
-		return results, fmt.Errorf("tts: %d/%d scenes failed: %w", len(errs), len(filtered), errors.Join(errs...))
+		return results, fmt.Errorf("tts: %d/%d scenes failed: %w", len(errs), total, errors.Join(errs...))
 	}
 	return results, nil
 }
