@@ -87,7 +87,7 @@ func TestSynthesize_Success(t *testing.T) {
 		t.Fatalf("create provider: %v", err)
 	}
 
-	result, err := p.Synthesize(context.Background(), "안녕하세요", "longxiaochun")
+	result, err := p.Synthesize(context.Background(), "안녕하세요", "longxiaochun", nil)
 	if err != nil {
 		t.Fatalf("synthesize: %v", err)
 	}
@@ -109,6 +109,66 @@ func TestSynthesize_Success(t *testing.T) {
 	}
 }
 
+func TestSynthesize_WithMoodPreset(t *testing.T) {
+	audioB64 := base64.StdEncoding.EncodeToString([]byte("mood-audio"))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := dsResponse{
+			Output: dsOutput{Audio: audioB64, DurationMs: 1000},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	p, _ := NewDashScopeProvider(DashScopeConfig{
+		Endpoint: server.URL,
+		APIKey:   "test-key",
+	})
+
+	opts := &TTSOptions{
+		MoodPreset: &MoodPreset{
+			Speed:   1.2,
+			Emotion: "fearful",
+			Pitch:   0.9,
+			Params:  map[string]any{"intensity": 0.8},
+		},
+	}
+
+	result, err := p.Synthesize(context.Background(), "공포의 순간", "longxiaochun", opts)
+	if err != nil {
+		t.Fatalf("synthesize with mood: %v", err)
+	}
+	if result.DurationSec != 1.0 {
+		t.Errorf("expected duration 1.0, got %f", result.DurationSec)
+	}
+}
+
+func TestSynthesize_NilOpts(t *testing.T) {
+	audioB64 := base64.StdEncoding.EncodeToString([]byte("audio"))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := dsResponse{
+			Output: dsOutput{Audio: audioB64, DurationMs: 1000},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	p, _ := NewDashScopeProvider(DashScopeConfig{
+		Endpoint: server.URL,
+		APIKey:   "test-key",
+	})
+
+	// nil opts should work (backward compatible)
+	result, err := p.Synthesize(context.Background(), "test", "longxiaochun", nil)
+	if err != nil {
+		t.Fatalf("synthesize with nil opts: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
 func TestSynthesize_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -124,7 +184,7 @@ func TestSynthesize_APIError(t *testing.T) {
 		APIKey:   "test-key",
 	})
 
-	_, err := p.Synthesize(context.Background(), "test", "voice")
+	_, err := p.Synthesize(context.Background(), "test", "voice", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -154,7 +214,7 @@ func TestSynthesizeWithOverrides(t *testing.T) {
 	overrides := map[string]string{
 		"SCP": "에스씨피",
 	}
-	_, err := p.SynthesizeWithOverrides(context.Background(), "SCP-173 문서", "voice", overrides)
+	_, err := p.SynthesizeWithOverrides(context.Background(), "SCP-173 문서", "voice", overrides, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -202,13 +262,13 @@ func TestVoiceCloneFlag(t *testing.T) {
 	})
 
 	// Test with clone voice
-	p.Synthesize(context.Background(), "text", "cosyvoice-clone-myvoice")
+	p.Synthesize(context.Background(), "text", "cosyvoice-clone-myvoice", nil)
 	if !receivedCloneFlag {
 		t.Error("expected voice_clone=true for clone voice")
 	}
 
 	// Test with standard voice
-	p.Synthesize(context.Background(), "text", "longxiaochun")
+	p.Synthesize(context.Background(), "text", "longxiaochun", nil)
 	if receivedCloneFlag {
 		t.Error("expected voice_clone=false for standard voice")
 	}

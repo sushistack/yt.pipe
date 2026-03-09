@@ -35,14 +35,17 @@ func NewTTSService(t tts.TTS, g *glossary.Glossary, s *store.Store, logger *slog
 func (s *TTSService) SynthesizeScene(ctx context.Context, scene domain.SceneScript, projectID, projectPath, voice string) (*domain.Scene, error) {
 	overrides := s.buildOverrides()
 
+	// Look up confirmed mood assignment for this scene
+	opts := s.buildTTSOptions(projectID, scene.SceneNum)
+
 	var result *tts.SynthesisResult
 	var err error
 	start := time.Now()
 
 	if len(overrides) > 0 {
-		result, err = s.tts.SynthesizeWithOverrides(ctx, scene.Narration, voice, overrides)
+		result, err = s.tts.SynthesizeWithOverrides(ctx, scene.Narration, voice, overrides, opts)
 	} else {
-		result, err = s.tts.Synthesize(ctx, scene.Narration, voice)
+		result, err = s.tts.Synthesize(ctx, scene.Narration, voice, opts)
 	}
 	if err != nil {
 		s.logger.Error("tts synthesis failed",
@@ -179,6 +182,31 @@ func (s *TTSService) SynthesizeAllWithOpts(ctx context.Context, scenes []domain.
 		return results, fmt.Errorf("tts: %d/%d scenes failed: %w", len(errs), total, errors.Join(errs...))
 	}
 	return results, nil
+}
+
+// buildTTSOptions looks up a confirmed mood preset for the scene and returns TTSOptions.
+func (s *TTSService) buildTTSOptions(projectID string, sceneNum int) *tts.TTSOptions {
+	assignment, err := s.store.GetSceneMoodAssignment(projectID, sceneNum)
+	if err != nil || !assignment.Confirmed {
+		return nil
+	}
+	preset, err := s.store.GetMoodPreset(assignment.PresetID)
+	if err != nil {
+		s.logger.Warn("mood preset not found for scene assignment",
+			"project_id", projectID,
+			"scene_num", sceneNum,
+			"preset_id", assignment.PresetID,
+		)
+		return nil
+	}
+	return &tts.TTSOptions{
+		MoodPreset: &tts.MoodPreset{
+			Speed:   preset.Speed,
+			Emotion: preset.Emotion,
+			Pitch:   preset.Pitch,
+			Params:  preset.ParamsJSON,
+		},
+	}
 }
 
 func (s *TTSService) buildOverrides() map[string]string {

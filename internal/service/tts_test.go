@@ -34,7 +34,7 @@ func TestSynthesizeScene_Success(t *testing.T) {
 	projectID := "tts-proj"
 	createTestProject(t, st, projectID)
 
-	mockTTS.On("Synthesize", mock.Anything, "Hello world", "en-US-Neural2-D").
+	mockTTS.On("Synthesize", mock.Anything, "Hello world", "en-US-Neural2-D", mock.Anything).
 		Return(&tts.SynthesisResult{
 			AudioData:   []byte("fake-audio"),
 			DurationSec: 1.5,
@@ -78,7 +78,7 @@ func TestSynthesizeScene_WithGlossary(t *testing.T) {
 
 	mockTTS.On("SynthesizeWithOverrides", mock.Anything, "About SCP-173", "voice1", mock.MatchedBy(func(o map[string]string) bool {
 		return o["SCP-173"] == "ess see pee one seven three"
-	})).Return(&tts.SynthesisResult{
+	}), mock.Anything).Return(&tts.SynthesisResult{
 		AudioData:   []byte("audio-data"),
 		DurationSec: 2.0,
 	}, nil)
@@ -97,7 +97,7 @@ func TestSynthesizeAll_Success(t *testing.T) {
 	projectID := "tts-all"
 	createTestProject(t, st, projectID)
 
-	mockTTS.On("Synthesize", mock.Anything, mock.Anything, mock.Anything).
+	mockTTS.On("Synthesize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&tts.SynthesisResult{AudioData: []byte("audio"), DurationSec: 1.0}, nil)
 
 	scenes := []domain.SceneScript{
@@ -118,9 +118,9 @@ func TestSynthesizeAll_PartialFailure(t *testing.T) {
 	projectID := "tts-partial"
 	createTestProject(t, st, projectID)
 
-	mockTTS.On("Synthesize", mock.Anything, "Scene one", mock.Anything).
+	mockTTS.On("Synthesize", mock.Anything, "Scene one", mock.Anything, mock.Anything).
 		Return(&tts.SynthesisResult{AudioData: []byte("audio"), DurationSec: 1.0}, nil)
-	mockTTS.On("Synthesize", mock.Anything, "Scene two", mock.Anything).
+	mockTTS.On("Synthesize", mock.Anything, "Scene two", mock.Anything, mock.Anything).
 		Return(nil, assert.AnError)
 
 	scenes := []domain.SceneScript{
@@ -146,7 +146,7 @@ func TestSynthesizeAll_SceneFilter(t *testing.T) {
 	projectID := "tts-filter"
 	createTestProject(t, st, projectID)
 
-	mockTTS.On("Synthesize", mock.Anything, "Scene two", mock.Anything).
+	mockTTS.On("Synthesize", mock.Anything, "Scene two", mock.Anything, mock.Anything).
 		Return(&tts.SynthesisResult{AudioData: []byte("audio"), DurationSec: 1.0}, nil)
 
 	scenes := []domain.SceneScript{
@@ -176,7 +176,7 @@ func TestSynthesizeScene_BackupExistingAudio(t *testing.T) {
 	existingAudio := filepath.Join(sceneDir, "audio.mp3")
 	require.NoError(t, os.WriteFile(existingAudio, []byte("old-audio"), 0o644))
 
-	mockTTS.On("Synthesize", mock.Anything, "New narration", "voice1").
+	mockTTS.On("Synthesize", mock.Anything, "New narration", "voice1", mock.Anything).
 		Return(&tts.SynthesisResult{AudioData: []byte("new-audio"), DurationSec: 2.0}, nil)
 
 	scene := domain.SceneScript{SceneNum: 1, Narration: "New narration"}

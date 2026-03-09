@@ -138,16 +138,16 @@ type dsErrorResponse struct {
 }
 
 // Synthesize converts text to speech using DashScope CosyVoice API.
-func (p *DashScopeProvider) Synthesize(ctx context.Context, text string, voice string) (*SynthesisResult, error) {
-	return p.synthesize(ctx, text, voice, nil)
+func (p *DashScopeProvider) Synthesize(ctx context.Context, text string, voice string, opts *TTSOptions) (*SynthesisResult, error) {
+	return p.synthesize(ctx, text, voice, nil, opts)
 }
 
 // SynthesizeWithOverrides applies pronunciation overrides before synthesis.
-func (p *DashScopeProvider) SynthesizeWithOverrides(ctx context.Context, text string, voice string, overrides map[string]string) (*SynthesisResult, error) {
-	return p.synthesize(ctx, text, voice, overrides)
+func (p *DashScopeProvider) SynthesizeWithOverrides(ctx context.Context, text string, voice string, overrides map[string]string, opts *TTSOptions) (*SynthesisResult, error) {
+	return p.synthesize(ctx, text, voice, overrides, opts)
 }
 
-func (p *DashScopeProvider) synthesize(ctx context.Context, text string, voice string, overrides map[string]string) (*SynthesisResult, error) {
+func (p *DashScopeProvider) synthesize(ctx context.Context, text string, voice string, overrides map[string]string, opts *TTSOptions) (*SynthesisResult, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, &APIError{
 			Provider:   "dashscope",
