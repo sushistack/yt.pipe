@@ -13,13 +13,21 @@ type ImageResult struct {
 	Height    int
 }
 
+// CharacterRef holds a character visual reference for consistent image generation.
+type CharacterRef struct {
+	Name             string // canonical character name (e.g. "SCP-173")
+	VisualDescriptor string // visual appearance description
+	ImagePromptBase  string // base prompt fragment for this character
+}
+
 // GenerateOptions holds optional parameters for image generation.
 type GenerateOptions struct {
-	Width  int
-	Height int
-	Model  string
-	Style  string
-	Seed   int64
+	Width         int
+	Height        int
+	Model         string
+	Style         string
+	Seed          int64
+	CharacterRefs []CharacterRef // nil or empty means no character references
 }
 
 // ImageGen defines the interface for image generation plugins.

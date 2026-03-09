@@ -42,6 +42,8 @@ type ImagePromptResult struct {
 	OriginalPrompt  string `json:"original_prompt"`
 	SanitizedPrompt string `json:"sanitized_prompt"`
 	TemplateVersion string `json:"template_version"`
+	SCPID           string `json:"scp_id,omitempty"`     // for character auto-reference
+	SceneText       string `json:"scene_text,omitempty"` // narration text for character matching
 }
 
 // GenerateImagePrompts creates image prompts from scenario visual descriptions and applies safety sanitization.

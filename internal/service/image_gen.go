@@ -21,9 +21,10 @@ import (
 
 // ImageGenService handles image generation for scenes.
 type ImageGenService struct {
-	imageGen imagegen.ImageGen
-	store    *store.Store
-	logger   *slog.Logger
+	imageGen     imagegen.ImageGen
+	store        *store.Store
+	logger       *slog.Logger
+	characterSvc *CharacterService // optional: enables character auto-reference
 }
 
 // NewImageGenService creates a new ImageGenService.
@@ -31,9 +32,30 @@ func NewImageGenService(ig imagegen.ImageGen, s *store.Store, logger *slog.Logge
 	return &ImageGenService{imageGen: ig, store: s, logger: logger}
 }
 
+// SetCharacterService enables character auto-reference during image generation.
+func (s *ImageGenService) SetCharacterService(cs *CharacterService) {
+	s.characterSvc = cs
+}
+
 // GenerateSceneImage generates an image for a single scene and saves it to the scene directory.
 // It uses retry with exponential backoff for the API call and updates the scene manifest.
+// If CharacterService is set and prompt contains SCPID/SceneText, character references are auto-injected.
 func (s *ImageGenService) GenerateSceneImage(ctx context.Context, prompt ImagePromptResult, projectID, projectPath string, opts imagegen.GenerateOptions) (*domain.Scene, error) {
+	// Character auto-reference: match characters in scene text and inject refs
+	if s.characterSvc != nil && prompt.SCPID != "" && prompt.SceneText != "" {
+		refs, matchErr := s.characterSvc.MatchCharacters(prompt.SCPID, prompt.SceneText)
+		if matchErr != nil {
+			s.logger.Warn("character matching failed, proceeding without refs",
+				"project_id", projectID, "scene_num", prompt.SceneNum, "err", matchErr)
+		} else {
+			opts.CharacterRefs = refs
+			if len(refs) > 0 {
+				s.logger.Info("character refs injected",
+					"project_id", projectID, "scene_num", prompt.SceneNum, "count", len(refs))
+			}
+		}
+	}
+
 	var result *imagegen.ImageResult
 	start := time.Now()
 
