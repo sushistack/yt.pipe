@@ -12,8 +12,13 @@ func TestCanTransition_ValidTransitions(t *testing.T) {
 		{"pending to scenario_review", StatusPending, StatusScenarioReview, true},
 		{"scenario_review to approved", StatusScenarioReview, StatusApproved, true},
 		{"scenario_review to pending (reject)", StatusScenarioReview, StatusPending, true},
-		{"approved to generating_assets", StatusApproved, StatusGeneratingAssets, true},
-		{"generating_assets to assembling", StatusGeneratingAssets, StatusAssembling, true},
+		// New approval flow
+		{"approved to image_review", StatusApproved, StatusImageReview, true},
+		{"image_review to tts_review", StatusImageReview, StatusTTSReview, true},
+		{"tts_review to assembling", StatusTTSReview, StatusAssembling, true},
+		// Backward compat: skip-approval path
+		{"approved to generating_assets (compat)", StatusApproved, StatusGeneratingAssets, true},
+		{"generating_assets to assembling (compat)", StatusGeneratingAssets, StatusAssembling, true},
 		{"assembling to complete", StatusAssembling, StatusComplete, true},
 	}
 

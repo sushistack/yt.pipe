@@ -105,8 +105,9 @@ type RunResult struct {
 
 // RunOptions configures how the pipeline executes.
 type RunOptions struct {
-	AutoApprove bool
-	Force       bool // Clear checkpoints and start from scratch
+	AutoApprove  bool
+	SkipApproval bool // Skip image/TTS per-scene approval (auto-approve all)
+	Force        bool // Clear checkpoints and start from scratch
 }
 
 // Run executes the full pipeline for a given SCP ID.
@@ -121,7 +122,10 @@ func (r *Runner) RunWithOptions(ctx context.Context, scpID string, opts RunOptio
 	start := time.Now()
 	result := &RunResult{SCPID: scpID, Stages: make([]StageResult, 0, 8)}
 
-	r.logger.Info("pipeline started", "scp_id", scpID, "auto_approve", opts.AutoApprove, "force", opts.Force)
+	// When AutoApprove is set, also skip image/TTS approval for backward compatibility
+	skipApproval := opts.SkipApproval || opts.AutoApprove
+
+	r.logger.Info("pipeline started", "scp_id", scpID, "auto_approve", opts.AutoApprove, "skip_approval", skipApproval, "force", opts.Force)
 
 	// If --force, backup and clear existing checkpoints
 	if opts.Force {
@@ -155,14 +159,19 @@ func (r *Runner) RunWithOptions(ctx context.Context, scpID string, opts RunOptio
 		result.ProjectID = existingProject.ID
 		result.SceneCount = existingProject.SceneCount
 
-		// Determine where to resume
-		if checkpoint.HasCompletedStage(service.StageScenarioGenerate) &&
-			(existingProject.Status == domain.StatusApproved || existingProject.Status == domain.StatusGeneratingAssets) {
+		// Determine where to resume based on project status
+		resumableStatuses := map[string]bool{
+			domain.StatusApproved:         true,
+			domain.StatusGeneratingAssets: true,
+			domain.StatusImageReview:      true,
+			domain.StatusTTSReview:        true,
+		}
+		if checkpoint.HasCompletedStage(service.StageScenarioGenerate) && resumableStatuses[existingProject.Status] {
 			scenario, err := service.LoadScenarioFromFile(existingProject.WorkspacePath + "/scenario.json")
 			if err != nil {
 				return nil, fmt.Errorf("pipeline: load scenario for resume: %w", err)
 			}
-			resumeResult, err := r.resumeFromApproval(ctx, existingProject, scenario, start)
+			resumeResult, err := r.resumeFromApproval(ctx, existingProject, scenario, start, skipApproval)
 			if err != nil {
 				return resumeResult, err
 			}
@@ -220,7 +229,7 @@ func (r *Runner) RunWithOptions(ctx context.Context, scpID string, opts RunOptio
 		}
 
 		// Continue with remaining stages (same as Resume)
-		resumeResult, err := r.resumeFromApproval(ctx, project, scenario, start)
+		resumeResult, err := r.resumeFromApproval(ctx, project, scenario, start, skipApproval)
 		if err != nil {
 			return resumeResult, err
 		}
@@ -252,9 +261,14 @@ func (r *Runner) RunWithOptions(ctx context.Context, scpID string, opts RunOptio
 	return result, nil
 }
 
-// Resume continues the pipeline after scenario approval.
-// It expects the project to be in "approved" state.
+// Resume continues the pipeline after scenario/image/TTS approval.
+// Handles projects in "approved", "image_review", or "tts_review" state.
 func (r *Runner) Resume(ctx context.Context, projectID string) (*RunResult, error) {
+	return r.ResumeWithOptions(ctx, projectID, false)
+}
+
+// ResumeWithOptions continues the pipeline with configurable skip-approval.
+func (r *Runner) ResumeWithOptions(ctx context.Context, projectID string, skipApproval bool) (*RunResult, error) {
 	start := time.Now()
 
 	projectSvc := service.NewProjectService(r.store)
@@ -263,9 +277,14 @@ func (r *Runner) Resume(ctx context.Context, projectID string) (*RunResult, erro
 		return nil, fmt.Errorf("pipeline: get project: %w", err)
 	}
 
-	if project.Status != domain.StatusApproved {
-		return nil, fmt.Errorf("pipeline: project %s is in %q state, expected %q. Approve with: yt-pipe scenario approve %s",
-			projectID, project.Status, domain.StatusApproved, project.SCPID)
+	resumableStatuses := map[string]bool{
+		domain.StatusApproved:    true,
+		domain.StatusImageReview: true,
+		domain.StatusTTSReview:   true,
+	}
+	if !resumableStatuses[project.Status] {
+		return nil, fmt.Errorf("pipeline: project %s is in %q state (expected approved, image_review, or tts_review). Approve with: yt-pipe scenario approve %s",
+			projectID, project.Status, project.SCPID)
 	}
 
 	// Load scenario from workspace
@@ -274,7 +293,7 @@ func (r *Runner) Resume(ctx context.Context, projectID string) (*RunResult, erro
 		return nil, fmt.Errorf("pipeline: load scenario: %w", err)
 	}
 
-	result, err := r.resumeFromApproval(ctx, project, scenario, start)
+	result, err := r.resumeFromApproval(ctx, project, scenario, start, skipApproval)
 	if err != nil {
 		return result, err
 	}
@@ -284,7 +303,9 @@ func (r *Runner) Resume(ctx context.Context, projectID string) (*RunResult, erro
 }
 
 // resumeFromApproval runs all post-approval stages. Shared by Resume() and RunWithOptions() auto-approve.
-func (r *Runner) resumeFromApproval(ctx context.Context, project *domain.Project, scenario *domain.ScenarioOutput, start time.Time) (*RunResult, error) {
+// When skipApproval is true, uses the legacy parallel generation path (backward compatible).
+// When skipApproval is false, pauses at image_review and tts_review for per-scene approval.
+func (r *Runner) resumeFromApproval(ctx context.Context, project *domain.Project, scenario *domain.ScenarioOutput, start time.Time, skipApproval bool) (*RunResult, error) {
 	result := &RunResult{
 		ProjectID:  project.ID,
 		SCPID:      project.SCPID,
@@ -293,13 +314,37 @@ func (r *Runner) resumeFromApproval(ctx context.Context, project *domain.Project
 	}
 
 	projectSvc := service.NewProjectService(r.store)
-
-	// Transition to generating_assets
-	if _, err := projectSvc.TransitionProject(ctx, project.ID, domain.StatusGeneratingAssets); err != nil {
-		return nil, fmt.Errorf("pipeline: transition to generating_assets: %w", err)
+	approvalSvc := service.NewApprovalService(r.store, r.logger)
+	sceneCount := len(scenario.Scenes)
+	if sceneCount == 0 {
+		sceneCount = project.SceneCount
 	}
 
-	r.logger.Info("pipeline resumed", "project_id", project.ID, "scp_id", project.SCPID)
+	r.logger.Info("pipeline resumed", "project_id", project.ID, "scp_id", project.SCPID, "skip_approval", skipApproval, "current_status", project.Status)
+
+	// --- Skip-Approval Path: Use legacy parallel generation (backward compatible) ---
+	if skipApproval {
+		return r.runSkipApprovalPath(ctx, project, scenario, start, result, projectSvc, approvalSvc, sceneCount)
+	}
+
+	// --- Approval Path: Sequential with pause at image_review and tts_review ---
+	return r.runApprovalPath(ctx, project, scenario, start, result, projectSvc, approvalSvc, sceneCount)
+}
+
+// runSkipApprovalPath executes the legacy parallel generation path with auto-approval.
+func (r *Runner) runSkipApprovalPath(ctx context.Context, project *domain.Project, scenario *domain.ScenarioOutput, start time.Time, result *RunResult, projectSvc *service.ProjectService, approvalSvc *service.ApprovalService, sceneCount int) (*RunResult, error) {
+	// Transition: approved → generating_assets (backward compat path)
+	if project.Status == domain.StatusApproved {
+		if _, err := projectSvc.TransitionProject(ctx, project.ID, domain.StatusGeneratingAssets); err != nil {
+			return nil, fmt.Errorf("pipeline: transition to generating_assets: %w", err)
+		}
+	}
+
+	// Initialize and auto-approve all image/TTS approvals
+	_ = approvalSvc.InitApprovals(project.ID, sceneCount, domain.AssetTypeImage)
+	_ = approvalSvc.AutoApproveAll(project.ID, domain.AssetTypeImage)
+	_ = approvalSvc.InitApprovals(project.ID, sceneCount, domain.AssetTypeTTS)
+	_ = approvalSvc.AutoApproveAll(project.ID, domain.AssetTypeTTS)
 
 	// Stage 4 & 5: Image generation + TTS synthesis (parallel)
 	r.reportProgress(service.PipelineProgress{
@@ -322,6 +367,140 @@ func (r *Runner) resumeFromApproval(ctx context.Context, project *domain.Project
 	r.saveCheckpointAfterStage(project.WorkspacePath, project.ID, service.StageImageGenerate, len(imageScenes))
 	r.saveCheckpointAfterStage(project.WorkspacePath, project.ID, service.StageTTSSynthesize, len(ttsScenes))
 
+	return r.runPostGenerationStages(ctx, project, imageScenes, ttsScenes, start, result, projectSvc)
+}
+
+// runApprovalPath executes the per-scene approval flow with pauses at image_review and tts_review.
+func (r *Runner) runApprovalPath(ctx context.Context, project *domain.Project, scenario *domain.ScenarioOutput, start time.Time, result *RunResult, projectSvc *service.ProjectService, approvalSvc *service.ApprovalService, sceneCount int) (*RunResult, error) {
+	// Handle based on current project status
+	switch project.Status {
+	case domain.StatusApproved:
+		// Transition to image_review and generate images
+		if _, err := projectSvc.TransitionProject(ctx, project.ID, domain.StatusImageReview); err != nil {
+			return nil, fmt.Errorf("pipeline: transition to image_review: %w", err)
+		}
+
+		// Initialize image approval records
+		if err := approvalSvc.InitApprovals(project.ID, sceneCount, domain.AssetTypeImage); err != nil {
+			return nil, fmt.Errorf("pipeline: init image approvals: %w", err)
+		}
+
+		// Generate all images
+		r.reportProgress(service.PipelineProgress{
+			Stage:       service.StageImageGenerate,
+			ScenesTotal: project.SceneCount,
+			StartedAt:   start,
+		})
+		stageStart := time.Now()
+		prompts, err := service.GenerateImagePrompts(scenario, nil)
+		if err != nil {
+			result.Status = "failed"
+			return result, r.pipelineError(service.StageImageGenerate, 0, err, project.SCPID)
+		}
+		imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
+		_, err = imgSvc.GenerateAllImages(ctx, prompts, project.ID, project.WorkspacePath, r.imageOpts, nil)
+		result.Stages = append(result.Stages, stageResult(string(service.StageImageGenerate), stageStart, err))
+		if err != nil {
+			result.Status = "failed"
+			return result, r.pipelineError(service.StageImageGenerate, 0, err, project.SCPID)
+		}
+		r.saveCheckpointAfterStage(project.WorkspacePath, project.ID, service.StageImageGenerate, sceneCount)
+
+		// Mark all images as generated
+		for i := 1; i <= sceneCount; i++ {
+			_ = approvalSvc.MarkGenerated(project.ID, i, domain.AssetTypeImage)
+		}
+
+		// Pause for image approval
+		result.Status = "awaiting_image_approval"
+		result.PausedAt = "image_review"
+		result.TotalElapsed = time.Since(start)
+		r.logger.Info("pipeline paused for image approval",
+			"project_id", project.ID, "scene_count", sceneCount)
+		return result, nil
+
+	case domain.StatusImageReview:
+		// Check if all images are approved
+		allApproved, err := approvalSvc.AllApproved(project.ID, domain.AssetTypeImage)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline: check image approvals: %w", err)
+		}
+		if !allApproved {
+			imgStatus, _ := approvalSvc.GetApprovalStatus(project.ID, domain.AssetTypeImage)
+			return nil, fmt.Errorf("pipeline: not all images approved (%d/%d). Use: yt-pipe scenes approve %s --type image --scene <num>",
+				imgStatus.Approved, imgStatus.Total, project.ID)
+		}
+
+		// Transition to tts_review
+		if _, err := projectSvc.TransitionProject(ctx, project.ID, domain.StatusTTSReview); err != nil {
+			return nil, fmt.Errorf("pipeline: transition to tts_review: %w", err)
+		}
+
+		// Initialize TTS approval records
+		if err := approvalSvc.InitApprovals(project.ID, sceneCount, domain.AssetTypeTTS); err != nil {
+			return nil, fmt.Errorf("pipeline: init tts approvals: %w", err)
+		}
+
+		// Generate all TTS
+		r.reportProgress(service.PipelineProgress{
+			Stage:       service.StageTTSSynthesize,
+			ScenesTotal: project.SceneCount,
+			StartedAt:   start,
+		})
+		stageStart := time.Now()
+		ttsSvc := service.NewTTSService(r.tts, r.glossary, r.store, r.logger)
+		_, err = ttsSvc.SynthesizeAll(ctx, scenario.Scenes, project.ID, project.WorkspacePath, r.voice, nil)
+		result.Stages = append(result.Stages, stageResult(string(service.StageTTSSynthesize), stageStart, err))
+		if err != nil {
+			result.Status = "failed"
+			return result, r.pipelineError(service.StageTTSSynthesize, 0, err, project.SCPID)
+		}
+		r.saveCheckpointAfterStage(project.WorkspacePath, project.ID, service.StageTTSSynthesize, sceneCount)
+
+		// Mark all TTS as generated
+		for i := 1; i <= sceneCount; i++ {
+			_ = approvalSvc.MarkGenerated(project.ID, i, domain.AssetTypeTTS)
+		}
+
+		// Pause for TTS approval
+		result.Status = "awaiting_tts_approval"
+		result.PausedAt = "tts_review"
+		result.TotalElapsed = time.Since(start)
+		r.logger.Info("pipeline paused for TTS approval",
+			"project_id", project.ID, "scene_count", sceneCount)
+		return result, nil
+
+	case domain.StatusTTSReview:
+		// Check if all TTS are approved
+		allApproved, err := approvalSvc.AllApproved(project.ID, domain.AssetTypeTTS)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline: check tts approvals: %w", err)
+		}
+		if !allApproved {
+			ttsStatus, _ := approvalSvc.GetApprovalStatus(project.ID, domain.AssetTypeTTS)
+			return nil, fmt.Errorf("pipeline: not all TTS approved (%d/%d). Use: yt-pipe scenes approve %s --type tts --scene <num>",
+				ttsStatus.Approved, ttsStatus.Total, project.ID)
+		}
+
+		// Load scenes from workspace for post-generation stages
+		imageScenes, err := loadScenesFromDir(project.WorkspacePath)
+		if err != nil {
+			imageScenes = make([]*domain.Scene, 0)
+		}
+		ttsScenes, err := loadScenesFromDir(project.WorkspacePath)
+		if err != nil {
+			ttsScenes = make([]*domain.Scene, 0)
+		}
+
+		return r.runPostGenerationStages(ctx, project, imageScenes, ttsScenes, start, result, projectSvc)
+
+	default:
+		return nil, fmt.Errorf("pipeline: unexpected status %q for resume", project.Status)
+	}
+}
+
+// runPostGenerationStages runs timing, subtitle, and assembly stages after all assets are approved.
+func (r *Runner) runPostGenerationStages(ctx context.Context, project *domain.Project, imageScenes, ttsScenes []*domain.Scene, start time.Time, result *RunResult, projectSvc *service.ProjectService) (*RunResult, error) {
 	// Stage 6: Timing resolution
 	r.reportProgress(service.PipelineProgress{
 		Stage:       service.StageTimingResolve,
@@ -354,13 +533,20 @@ func (r *Runner) resumeFromApproval(ctx context.Context, project *domain.Project
 		result.Status = "failed"
 		return result, r.pipelineError(service.StageSubtitleGenerate, 0, err, project.SCPID)
 	}
-	// Update subtitle paths on merged scenes
 	for _, s := range mergedScenes {
 		if s.SubtitlePath == "" {
 			s.SubtitlePath = fmt.Sprintf("%s/scenes/%d/subtitle.json", project.WorkspacePath, s.SceneNum)
 		}
 	}
 	result.Stages = append(result.Stages, stageResult(string(service.StageSubtitleGenerate), stageStart, nil))
+
+	// Transition to assembling
+	if project.Status != domain.StatusAssembling {
+		if _, err := projectSvc.TransitionProject(ctx, project.ID, domain.StatusAssembling); err != nil {
+			// If already in assembling, continue
+			r.logger.Warn("transition to assembling failed (may already be in correct state)", "err", err)
+		}
+	}
 
 	// Stage 8: Assembly
 	r.reportProgress(service.PipelineProgress{
