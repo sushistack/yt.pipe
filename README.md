@@ -1,4 +1,4 @@
-# youtube.pipeline
+# yt.pipe
 
 SCP 콘텐츠 기반 YouTube 영상 자동 생성 파이프라인.
 LLM 시나리오 생성 → 이미지 생성 → TTS 나레이션 → CapCut 프로젝트 어셈블리를 자동화합니다.
