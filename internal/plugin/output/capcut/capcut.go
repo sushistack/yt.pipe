@@ -37,7 +37,7 @@ func (a *Assembler) Assemble(ctx context.Context, input output.AssembleInput) (*
 		canvas = output.DefaultCanvasConfig()
 	}
 
-	project := buildDraftProject(input.Scenes, canvas, now)
+	project := buildDraftProject(input.Scenes, canvas, now, input.BGMAssignments)
 
 	// Serialize draft_content.json
 	contentPath := filepath.Join(input.OutputDir, "draft_content.json")
@@ -77,8 +77,8 @@ func (a *Assembler) Assemble(ctx context.Context, input output.AssembleInput) (*
 	return result, nil
 }
 
-// buildDraftProject constructs the full CapCut DraftProject from scenes.
-func buildDraftProject(scenes []domain.Scene, canvas output.CanvasConfig, now time.Time) *DraftProject {
+// buildDraftProject constructs the full CapCut DraftProject from scenes with optional BGM tracks.
+func buildDraftProject(scenes []domain.Scene, canvas output.CanvasConfig, now time.Time, bgmAssignments []output.BGMAssignment) *DraftProject {
 	projectID := newID()
 	nowUnix := now.Unix()
 
@@ -264,9 +264,83 @@ func buildDraftProject(scenes []domain.Scene, canvas output.CanvasConfig, now ti
 	}
 
 	dp.Duration = timelinePos
-	dp.Tracks = []Track{videoTrack, audioTrack, textTrack}
+	tracks := []Track{videoTrack, audioTrack, textTrack}
 
+	// Add BGM track if assignments are provided
+	if len(bgmAssignments) > 0 {
+		bgmTrack := buildBGMTrack(scenes, bgmAssignments, dp.Materials)
+		if len(bgmTrack.Segments) > 0 {
+			tracks = append(tracks, bgmTrack)
+		}
+	}
+
+	dp.Tracks = tracks
 	return dp
+}
+
+// buildBGMTrack creates a separate audio track for BGM with per-scene volume/fade/ducking.
+func buildBGMTrack(scenes []domain.Scene, assignments []output.BGMAssignment, materials *Materials) Track {
+	bgmTrack := Track{
+		ID:            newID(),
+		Type:          "audio",
+		Segments:      make([]Segment, 0),
+		Flag:          0,
+		Attribute:     0,
+		Name:          "bgm",
+		IsDefaultName: false,
+	}
+
+	// Build a map of scene positions and durations
+	type sceneTimeline struct {
+		start    int64
+		duration int64
+	}
+	sceneMap := make(map[int]sceneTimeline)
+	var pos int64
+	for _, scene := range scenes {
+		dur := scene.AudioDuration
+		if dur <= 0 {
+			dur = DefaultSceneDurationSec
+		}
+		microDur := secsToMicro(dur)
+		sceneMap[scene.SceneNum] = sceneTimeline{start: pos, duration: microDur}
+		pos += microDur
+	}
+
+	for _, a := range assignments {
+		st, ok := sceneMap[a.SceneNum]
+		if !ok {
+			continue
+		}
+
+		// Create BGM audio material
+		bgmMat := AudioMaterial{
+			ID:       newID(),
+			Type:     "extract_music",
+			Name:     fmt.Sprintf("bgm_scene_%d", a.SceneNum),
+			Duration: st.duration,
+			Path:     a.FilePath,
+		}
+		materials.Audios = append(materials.Audios, bgmMat)
+
+		// Convert dB volume to linear (0 dB = 1.0, -6 dB ≈ 0.5)
+		volume := dbToLinear(a.VolumeDB)
+
+		bgmSeg := Segment{
+			ID:              newID(),
+			SourceTimerange: &TimeRange{Start: 0, Duration: st.duration},
+			TargetTimerange: &TimeRange{Start: st.start, Duration: st.duration},
+			Speed:           1.0,
+			Volume:          volume,
+			MaterialID:      bgmMat.ID,
+			ExtraMaterialRefs: []string{},
+			RenderIndex:     0,
+			Visible:         true,
+		}
+		bgmTrack.Segments = append(bgmTrack.Segments, bgmSeg)
+	}
+
+	return bgmTrack
 }
 
 // buildDraftMeta constructs the draft_meta_info.json structure.

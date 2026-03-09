@@ -3,7 +3,11 @@
 // Timing unit: microseconds (1 second = 1_000_000).
 package capcut
 
-import "github.com/google/uuid"
+import (
+	"math"
+
+	"github.com/google/uuid"
+)
 
 // Format version constants matching video.pipeline templates.
 const (
@@ -20,6 +24,11 @@ func newID() string {
 
 func secsToMicro(seconds float64) int64 {
 	return int64(seconds * MicrosecondsPerSecond)
+}
+
+// dbToLinear converts decibels to linear volume (0 dB = 1.0, -6 dB ≈ 0.5).
+func dbToLinear(db float64) float64 {
+	return math.Pow(10, db/20.0)
 }
 
 // DraftProject is the top-level CapCut draft_content.json structure.

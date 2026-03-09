@@ -21,14 +21,32 @@ func DefaultCanvasConfig() CanvasConfig {
 	return CanvasConfig{Width: 1920, Height: 1080, FPS: 30.0}
 }
 
+// BGMAssignment represents a BGM track placement for a specific scene.
+type BGMAssignment struct {
+	SceneNum  int
+	FilePath  string
+	VolumeDB  float64 // base volume relative to 0dB
+	FadeInMs  int     // fade-in duration at segment start
+	FadeOutMs int     // fade-out duration at segment end
+	DuckingDB float64 // volume reduction during narration
+}
+
+// CreditEntry represents a single credit line (BGM, CC-BY-SA, etc.)
+type CreditEntry struct {
+	Type string // e.g. "bgm", "cc-by-sa"
+	Text string
+}
+
 // AssembleInput contains all assets needed for final project assembly.
 type AssembleInput struct {
-	Project      domain.Project
-	Scenes       []domain.Scene
-	OutputDir    string
-	TemplatePath string       // Path to CapCut draft template JSON
-	MetaPath     string       // Path to CapCut draft meta info JSON
-	Canvas       CanvasConfig // Output canvas configuration
+	Project        domain.Project
+	Scenes         []domain.Scene
+	OutputDir      string
+	TemplatePath   string           // Path to CapCut draft template JSON
+	MetaPath       string           // Path to CapCut draft meta info JSON
+	Canvas         CanvasConfig     // Output canvas configuration
+	BGMAssignments []BGMAssignment  // BGM tracks to place; nil/empty = no BGM
+	Credits        []CreditEntry    // Additional credits; nil/empty = no extra credits
 }
 
 // AssembleResult contains the output summary after successful assembly.

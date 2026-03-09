@@ -17,6 +17,7 @@ import (
 type AssemblerService struct {
 	assembler    output.Assembler
 	projectSvc   *ProjectService
+	bgmSvc       *BGMService
 	templatePath string
 	metaPath     string
 	canvas       output.CanvasConfig
@@ -29,6 +30,11 @@ func NewAssemblerService(a output.Assembler, ps *ProjectService) *AssemblerServi
 		projectSvc: ps,
 		canvas:     output.DefaultCanvasConfig(),
 	}
+}
+
+// WithBGMService sets the BGM service for BGM integration during assembly.
+func (s *AssemblerService) WithBGMService(bgmSvc *BGMService) {
+	s.bgmSvc = bgmSvc
 }
 
 // WithConfig sets the CapCut template and canvas configuration from OutputConfig.
@@ -67,6 +73,35 @@ func (s *AssemblerService) Assemble(ctx context.Context, projectID string, scene
 		TemplatePath: s.templatePath,
 		MetaPath:     s.metaPath,
 		Canvas:       s.canvas,
+	}
+
+	// Integrate BGM assignments and credits if BGM service is available
+	if s.bgmSvc != nil {
+		assignments, err := s.bgmSvc.store.ListSceneBGMAssignments(projectID)
+		if err == nil && len(assignments) > 0 {
+			for _, a := range assignments {
+				if !a.Confirmed {
+					continue
+				}
+				bgm, err := s.bgmSvc.store.GetBGM(a.BGMID)
+				if err != nil {
+					continue
+				}
+				input.BGMAssignments = append(input.BGMAssignments, output.BGMAssignment{
+					SceneNum:  a.SceneNum,
+					FilePath:  bgm.FilePath,
+					VolumeDB:  a.VolumeDB,
+					FadeInMs:  a.FadeInMs,
+					FadeOutMs: a.FadeOutMs,
+					DuckingDB: a.DuckingDB,
+				})
+			}
+		}
+
+		credits, err := s.bgmSvc.GetCredits(projectID)
+		if err == nil && len(credits) > 0 {
+			input.Credits = credits
+		}
 	}
 
 	result, err := s.assembler.Assemble(ctx, input)
@@ -130,6 +165,26 @@ func (s *AssemblerService) GenerateCopyrightNotice(projectPath, scpID, author st
 		"author", author,
 		"path", descPath)
 	return nil
+}
+
+// AppendBGMCredits appends BGM credit lines to an existing description.txt.
+func AppendBGMCredits(projectPath string, credits []output.CreditEntry) error {
+	if len(credits) == 0 {
+		return nil
+	}
+	descPath := filepath.Join(projectPath, "output", "description.txt")
+	f, err := os.OpenFile(descPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return fmt.Errorf("bgm credits: open description.txt: %w", err)
+	}
+	defer f.Close()
+
+	text := "\n🎵 BGM Credits:\n"
+	for _, c := range credits {
+		text += fmt.Sprintf("- %s\n", c.Text)
+	}
+	_, err = f.WriteString(text)
+	return err
 }
 
 // CheckSpecialCopyright checks if an SCP entry has additional copyright conditions.
