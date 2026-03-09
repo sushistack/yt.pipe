@@ -168,7 +168,7 @@ func TestDashScopeTTSSynthesis(t *testing.T) {
 	require.True(t, ok)
 
 	// Synthesize Korean text
-	result, err := ttsProvider.Synthesize(ctx, "SCP-173은 콘크리트와 철근으로 만들어진 조각상입니다.", "")
+	result, err := ttsProvider.Synthesize(ctx, "SCP-173은 콘크리트와 철근으로 만들어진 조각상입니다.", "", nil)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 

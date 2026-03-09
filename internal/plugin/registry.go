@@ -51,14 +51,14 @@ func (r *Registry) Register(pluginType PluginType, provider string, factory Fact
 }
 
 // Create instantiates a plugin using the registered factory for the given type and provider.
-// Returns a PluginError with available providers listed if the provider is not found.
+// Returns a ProviderNotFoundError with available providers listed if the provider is not found.
 func (r *Registry) Create(pluginType PluginType, provider string, cfg map[string]interface{}) (interface{}, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	providers, ok := r.factories[pluginType]
 	if !ok || providers == nil {
-		return nil, &PluginError{
+		return nil, &ProviderNotFoundError{
 			PluginType: pluginType,
 			Provider:   provider,
 			Available:  nil,
@@ -67,7 +67,7 @@ func (r *Registry) Create(pluginType PluginType, provider string, cfg map[string
 
 	factory, ok := providers[provider]
 	if !ok {
-		return nil, &PluginError{
+		return nil, &ProviderNotFoundError{
 			PluginType: pluginType,
 			Provider:   provider,
 			Available:  r.providersLocked(pluginType),
@@ -98,14 +98,14 @@ func (r *Registry) providersLocked(pluginType PluginType) []string {
 	return names
 }
 
-// PluginError indicates that a requested plugin provider was not found.
-type PluginError struct {
+// ProviderNotFoundError indicates that a requested plugin provider was not found.
+type ProviderNotFoundError struct {
 	PluginType PluginType
 	Provider   string
 	Available  []string
 }
 
-func (e *PluginError) Error() string {
+func (e *ProviderNotFoundError) Error() string {
 	if len(e.Available) == 0 {
 		return fmt.Sprintf("plugin %s: provider %q not found, no providers registered", e.PluginType, e.Provider)
 	}

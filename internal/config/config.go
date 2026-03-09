@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -172,6 +173,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("output.provider", "capcut")
 	v.SetDefault("output.default_scene_duration", 3.0)
 
+	v.SetDefault("job_retention_days", 7)
 	v.SetDefault("glossary_path", "")
 	v.SetDefault("templates_path", "")
 	v.SetDefault("log_level", "info")
@@ -265,17 +267,42 @@ func Validate(cfg *Config) *ValidationResult {
 // is replaced with "***".
 func MaskSecrets(cfg *Config) *Config {
 	masked := *cfg
-	masked.API.APIKey = maskValue(masked.API.APIKey)
-	masked.LLM.APIKey = maskValue(masked.LLM.APIKey)
-	masked.ImageGen.APIKey = maskValue(masked.ImageGen.APIKey)
-	masked.TTS.APIKey = maskValue(masked.TTS.APIKey)
+	maskStructSecrets(reflect.ValueOf(&masked).Elem())
 	return &masked
 }
 
-// maskValue replaces non-empty strings with "***".
-func maskValue(v string) string {
-	if v == "" {
-		return ""
+// isSecretField checks if a field name matches secret patterns.
+func isSecretField(name string) bool {
+	lower := strings.ToLower(name)
+	for _, pattern := range []string{"key", "secret", "token", "password"} {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
 	}
-	return "***"
+	return false
+}
+
+// maskStructSecrets recursively masks string fields whose names match secret patterns.
+func maskStructSecrets(v reflect.Value) {
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		fieldType := t.Field(i)
+
+		switch field.Kind() {
+		case reflect.Struct:
+			maskStructSecrets(field)
+		case reflect.Slice:
+			for j := 0; j < field.Len(); j++ {
+				elem := field.Index(j)
+				if elem.Kind() == reflect.Struct {
+					maskStructSecrets(elem)
+				}
+			}
+		case reflect.String:
+			if isSecretField(fieldType.Name) && field.String() != "" {
+				field.SetString("***")
+			}
+		}
+	}
 }

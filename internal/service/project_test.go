@@ -174,6 +174,30 @@ func TestTransitionProject_ScenarioReviewBackToPending(t *testing.T) {
 	assert.Equal(t, domain.StatusPending, p.Status)
 }
 
+func TestTransitionProject_ApprovalFlowLifecycle(t *testing.T) {
+	svc := setupTestService(t)
+	ctx := context.Background()
+
+	p, err := svc.CreateProject(ctx, "SCP-173", "/tmp/ws")
+	require.NoError(t, err)
+
+	// New approval flow: pending → scenario_review → approved → image_review → tts_review → assembling → complete
+	transitions := []string{
+		domain.StatusScenarioReview,
+		domain.StatusApproved,
+		domain.StatusImageReview,
+		domain.StatusTTSReview,
+		domain.StatusAssembling,
+		domain.StatusComplete,
+	}
+
+	for _, next := range transitions {
+		p, err = svc.TransitionProject(ctx, p.ID, next)
+		require.NoError(t, err, "transition to %s failed", next)
+		assert.Equal(t, next, p.Status)
+	}
+}
+
 func TestTransitionProject_CompleteHasNoTransitions(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()

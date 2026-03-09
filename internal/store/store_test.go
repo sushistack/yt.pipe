@@ -20,7 +20,93 @@ func TestNew_MigrationApplied(t *testing.T) {
 	s := setupTestStore(t)
 	version, err := s.SchemaVersion()
 	require.NoError(t, err)
-	assert.Equal(t, 2, version)
+	assert.Equal(t, 7, version)
+}
+
+func TestNew_SceneApprovalsTableCreated(t *testing.T) {
+	s := setupTestStore(t)
+
+	// Setup project for FK
+	require.NoError(t, s.CreateProject(&domain.Project{ID: "p1", SCPID: "SCP-1", Status: "pending", WorkspacePath: "/w"}))
+
+	// Insert valid scene approval
+	_, err := s.db.Exec(`INSERT INTO scene_approvals (project_id, scene_num, asset_type, status, attempts, updated_at)
+		VALUES ('p1', 1, 'image', 'pending', 0, '2026-01-01T00:00:00Z')`)
+	assert.NoError(t, err)
+
+	_, err = s.db.Exec(`INSERT INTO scene_approvals (project_id, scene_num, asset_type, status, attempts, updated_at)
+		VALUES ('p1', 1, 'tts', 'generated', 1, '2026-01-01T00:00:00Z')`)
+	assert.NoError(t, err)
+
+	// Invalid asset_type should fail
+	_, err = s.db.Exec(`INSERT INTO scene_approvals (project_id, scene_num, asset_type, status, attempts, updated_at)
+		VALUES ('p1', 2, 'video', 'pending', 0, '2026-01-01T00:00:00Z')`)
+	assert.Error(t, err, "invalid asset_type should be rejected by CHECK constraint")
+
+	// Invalid status should fail
+	_, err = s.db.Exec(`INSERT INTO scene_approvals (project_id, scene_num, asset_type, status, attempts, updated_at)
+		VALUES ('p1', 2, 'image', 'invalid', 0, '2026-01-01T00:00:00Z')`)
+	assert.Error(t, err, "invalid status should be rejected by CHECK constraint")
+
+	// Composite PK constraint: duplicate (project_id, scene_num, asset_type) should fail
+	_, err = s.db.Exec(`INSERT INTO scene_approvals (project_id, scene_num, asset_type, status, attempts, updated_at)
+		VALUES ('p1', 1, 'image', 'pending', 0, '2026-01-01T00:00:00Z')`)
+	assert.Error(t, err, "duplicate composite PK should fail")
+}
+
+func TestNew_TemplateTablesCreated(t *testing.T) {
+	s := setupTestStore(t)
+
+	// Verify prompt_templates table exists
+	_, err := s.db.Exec(`INSERT INTO prompt_templates (id, category, name, content, version, is_default, created_at, updated_at)
+		VALUES ('t1', 'scenario', 'test', 'content', 1, 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+	assert.NoError(t, err)
+
+	// Verify prompt_template_versions table exists
+	_, err = s.db.Exec(`INSERT INTO prompt_template_versions (id, template_id, version, content, created_at)
+		VALUES ('v1', 't1', 1, 'content', '2026-01-01T00:00:00Z')`)
+	assert.NoError(t, err)
+
+	// Verify project_template_overrides table exists
+	_, err = s.db.Exec(`INSERT INTO project_template_overrides (project_id, template_id, content, created_at)
+		VALUES ('p1', 't1', 'override', '2026-01-01T00:00:00Z')`)
+	assert.NoError(t, err)
+}
+
+func TestNew_TemplateCategoryConstraint(t *testing.T) {
+	s := setupTestStore(t)
+
+	// Valid categories should succeed
+	for _, cat := range []string{"scenario", "image", "tts", "caption"} {
+		_, err := s.db.Exec(`INSERT INTO prompt_templates (id, category, name, content, version, is_default, created_at, updated_at)
+			VALUES (?, ?, 'test', 'content', 1, 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+			"t-"+cat, cat)
+		assert.NoError(t, err, "category %s should be valid", cat)
+	}
+
+	// Invalid category should fail due to CHECK constraint
+	_, err := s.db.Exec(`INSERT INTO prompt_templates (id, category, name, content, version, is_default, created_at, updated_at)
+		VALUES ('t-bad', 'invalid', 'test', 'content', 1, 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+	assert.Error(t, err, "invalid category should be rejected by CHECK constraint")
+}
+
+func TestNew_BGMTablesCreated(t *testing.T) {
+	s := setupTestStore(t)
+
+	// Verify bgms table exists with CHECK constraint
+	_, err := s.db.Exec(`INSERT INTO bgms (id, name, file_path, mood_tags, duration_ms, license_type, created_at)
+		VALUES ('bgm1', 'Test BGM', '/path/bgm.mp3', '["epic","dark"]', 120000, 'royalty_free', '2026-01-01T00:00:00Z')`)
+	assert.NoError(t, err)
+
+	// Invalid license_type should fail due to CHECK constraint
+	_, err = s.db.Exec(`INSERT INTO bgms (id, name, file_path, license_type, created_at)
+		VALUES ('bgm2', 'Bad', '/path/bad.mp3', 'invalid', '2026-01-01T00:00:00Z')`)
+	assert.Error(t, err, "invalid license_type should be rejected by CHECK constraint")
+
+	// Verify scene_bgm_assignments table exists
+	_, err = s.db.Exec(`INSERT INTO scene_bgm_assignments (project_id, scene_num, bgm_id)
+		VALUES ('p1', 1, 'bgm1')`)
+	assert.NoError(t, err)
 }
 
 // Project CRUD tests

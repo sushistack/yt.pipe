@@ -110,6 +110,162 @@ func TestWebhookNotifier_RetryOnFailure(t *testing.T) {
 	assert.Equal(t, int32(3), attempts.Load())
 }
 
+func TestWebhookNotifier_NilSafe_AllMethods(t *testing.T) {
+	// All Notify methods on nil notifier should be no-ops (no panic)
+	var wn *api.WebhookNotifier
+	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved")
+	wn.NotifyJobComplete("proj-1", "SCP-173", "job-1", "image_generate", "ok")
+	wn.NotifyJobFailed("proj-1", "SCP-173", "job-1", "tts_generate", "err", 3)
+	wn.NotifySceneApproved("proj-1", "SCP-173", 1, "image")
+	wn.NotifyAllApproved("proj-1", "SCP-173", "image")
+}
+
+func TestWebhookNotifier_JobComplete(t *testing.T) {
+	var lastBody map[string]interface{}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&lastBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	wn := api.NewWebhookNotifier(config.WebhookConfig{
+		URLs:             []string{ts.URL},
+		TimeoutSeconds:   5,
+		RetryMaxAttempts: 1,
+	})
+	require.NotNil(t, wn)
+
+	wn.NotifyJobComplete("proj-1", "SCP-173", "job-42", "image_generate", "/path/to/output")
+	time.Sleep(100 * time.Millisecond)
+
+	assert.Equal(t, "job_complete", lastBody["event"])
+	assert.Equal(t, "proj-1", lastBody["project_id"])
+	assert.Equal(t, "SCP-173", lastBody["scp_id"])
+	assert.Equal(t, "job-42", lastBody["job_id"])
+	assert.Equal(t, "image_generate", lastBody["job_type"])
+	assert.Equal(t, "/path/to/output", lastBody["result"])
+	assert.NotEmpty(t, lastBody["timestamp"])
+}
+
+func TestWebhookNotifier_JobFailed(t *testing.T) {
+	var lastBody map[string]interface{}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&lastBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	wn := api.NewWebhookNotifier(config.WebhookConfig{
+		URLs:             []string{ts.URL},
+		TimeoutSeconds:   5,
+		RetryMaxAttempts: 1,
+	})
+
+	wn.NotifyJobFailed("proj-1", "SCP-173", "job-99", "tts_generate", "scene 3: timeout", 3)
+	time.Sleep(100 * time.Millisecond)
+
+	assert.Equal(t, "job_failed", lastBody["event"])
+	assert.Equal(t, "proj-1", lastBody["project_id"])
+	assert.Equal(t, "SCP-173", lastBody["scp_id"])
+	assert.Equal(t, "job-99", lastBody["job_id"])
+	assert.Equal(t, "tts_generate", lastBody["job_type"])
+	assert.Equal(t, "scene 3: timeout", lastBody["error"])
+	assert.Equal(t, float64(3), lastBody["failed_scene"]) // JSON numbers are float64
+	assert.NotEmpty(t, lastBody["timestamp"])
+}
+
+func TestWebhookNotifier_SceneApproved(t *testing.T) {
+	var lastBody map[string]interface{}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&lastBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	wn := api.NewWebhookNotifier(config.WebhookConfig{
+		URLs:             []string{ts.URL},
+		TimeoutSeconds:   5,
+		RetryMaxAttempts: 1,
+	})
+
+	wn.NotifySceneApproved("proj-1", "SCP-173", 5, "image")
+	time.Sleep(100 * time.Millisecond)
+
+	assert.Equal(t, "scene_approved", lastBody["event"])
+	assert.Equal(t, "proj-1", lastBody["project_id"])
+	assert.Equal(t, "SCP-173", lastBody["scp_id"])
+	assert.Equal(t, float64(5), lastBody["scene_num"])
+	assert.Equal(t, "image", lastBody["asset_type"])
+	assert.NotEmpty(t, lastBody["timestamp"])
+}
+
+func TestWebhookNotifier_AllApproved(t *testing.T) {
+	var lastBody map[string]interface{}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&lastBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	wn := api.NewWebhookNotifier(config.WebhookConfig{
+		URLs:             []string{ts.URL},
+		TimeoutSeconds:   5,
+		RetryMaxAttempts: 1,
+	})
+
+	wn.NotifyAllApproved("proj-1", "SCP-173", "tts")
+	time.Sleep(100 * time.Millisecond)
+
+	assert.Equal(t, "all_approved", lastBody["event"])
+	assert.Equal(t, "proj-1", lastBody["project_id"])
+	assert.Equal(t, "SCP-173", lastBody["scp_id"])
+	assert.Equal(t, "tts", lastBody["asset_type"])
+	assert.NotEmpty(t, lastBody["timestamp"])
+}
+
+func TestWebhookNotifier_FlatJSON(t *testing.T) {
+	// Verify all event payloads are flat JSON (no nested objects) — n8n compatibility
+	var lastBody map[string]json.RawMessage
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&lastBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	wn := api.NewWebhookNotifier(config.WebhookConfig{
+		URLs:             []string{ts.URL},
+		TimeoutSeconds:   5,
+		RetryMaxAttempts: 1,
+	})
+
+	// Test each event type for flat structure
+	events := []func(){
+		func() { wn.NotifyJobComplete("p", "s", "j", "t", "r") },
+		func() { wn.NotifyJobFailed("p", "s", "j", "t", "e", 1) },
+		func() { wn.NotifySceneApproved("p", "s", 1, "image") },
+		func() { wn.NotifyAllApproved("p", "s", "image") },
+	}
+
+	for i, fire := range events {
+		lastBody = nil
+		fire()
+		time.Sleep(100 * time.Millisecond)
+		require.NotNil(t, lastBody, "event %d: no payload received", i)
+
+		// Each value must be a scalar (string, number, bool) — not object or array
+		for key, raw := range lastBody {
+			s := string(raw)
+			assert.False(t, len(s) > 0 && (s[0] == '{' || s[0] == '['),
+				"event %d: field %q is nested: %s", i, key, s)
+		}
+	}
+}
+
 func TestWebhookNotifier_FailureDoesNotBlock(t *testing.T) {
 	// Webhook to unreachable host should not block
 	wn := api.NewWebhookNotifier(config.WebhookConfig{

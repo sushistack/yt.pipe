@@ -50,8 +50,85 @@ func TestHealthEndpoint(t *testing.T) {
 
 	data, ok := resp.Data.(map[string]interface{})
 	require.True(t, ok)
-	assert.Equal(t, "ok", data["status"])
+	// Default server has no plugins configured, so status is "degraded"
+	assert.Equal(t, "degraded", data["status"])
 	assert.NotEmpty(t, data["version"])
+
+	// Verify plugins field is present
+	plugins, ok := data["plugins"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Contains(t, plugins, "llm")
+	assert.Contains(t, plugins, "imagegen")
+	assert.Contains(t, plugins, "tts")
+	assert.Contains(t, plugins, "output")
+}
+
+func TestHealthEndpoint_AllPluginsAvailable(t *testing.T) {
+	tmpDir := t.TempDir()
+	st, err := store.New(":memory:")
+	require.NoError(t, err)
+	defer st.Close()
+
+	cfg := &config.Config{
+		WorkspacePath: tmpDir,
+		API:           config.APIConfig{Host: "localhost", Port: 8080},
+	}
+
+	allAvailable := map[string]bool{
+		"llm": true, "imagegen": true, "tts": true, "output": true,
+	}
+	srv := api.NewServer(st, cfg, api.WithPluginStatus(allAvailable))
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp api.Response
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+
+	data := resp.Data.(map[string]interface{})
+	assert.Equal(t, "ok", data["status"])
+
+	plugins := data["plugins"].(map[string]interface{})
+	assert.Equal(t, true, plugins["llm"])
+	assert.Equal(t, true, plugins["imagegen"])
+	assert.Equal(t, true, plugins["tts"])
+	assert.Equal(t, true, plugins["output"])
+}
+
+func TestHealthEndpoint_PartialPlugins(t *testing.T) {
+	tmpDir := t.TempDir()
+	st, err := store.New(":memory:")
+	require.NoError(t, err)
+	defer st.Close()
+
+	cfg := &config.Config{
+		WorkspacePath: tmpDir,
+		API:           config.APIConfig{Host: "localhost", Port: 8080},
+	}
+
+	partial := map[string]bool{
+		"llm": true, "imagegen": false, "tts": true, "output": true,
+	}
+	srv := api.NewServer(st, cfg, api.WithPluginStatus(partial))
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	var resp api.Response
+	err = json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+
+	data := resp.Data.(map[string]interface{})
+	assert.Equal(t, "degraded", data["status"])
+
+	plugins := data["plugins"].(map[string]interface{})
+	assert.Equal(t, true, plugins["llm"])
+	assert.Equal(t, false, plugins["imagegen"])
 }
 
 func TestReadyEndpoint(t *testing.T) {

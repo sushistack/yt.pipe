@@ -37,7 +37,7 @@ func TestRegistry_UnknownProvider(t *testing.T) {
 	_, err := r.Create(PluginTypeLLM, "unknown", nil)
 	require.Error(t, err)
 
-	var pluginErr *PluginError
+	var pluginErr *ProviderNotFoundError
 	require.True(t, errors.As(err, &pluginErr))
 	assert.Equal(t, PluginTypeLLM, pluginErr.PluginType)
 	assert.Equal(t, "unknown", pluginErr.Provider)
@@ -116,7 +116,7 @@ func TestRegistry_UnregisteredType(t *testing.T) {
 	_, err := r.Create(PluginTypeOutput, "capcut", nil)
 	require.Error(t, err)
 
-	var pluginErr *PluginError
+	var pluginErr *ProviderNotFoundError
 	require.True(t, errors.As(err, &pluginErr))
 	assert.Nil(t, pluginErr.Available)
 }

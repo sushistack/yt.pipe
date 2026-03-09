@@ -81,15 +81,38 @@ func (s *Store) ListProjects() ([]*domain.Project, error) {
 	return projects, rows.Err()
 }
 
-// DeleteProject deletes a project by ID.
+// DeleteProject deletes a project and all its child records (jobs, manifests, execution logs).
 func (s *Store) DeleteProject(id string) error {
-	result, err := s.db.Exec(`DELETE FROM projects WHERE id = ?`, id)
+	tx, err := s.db.Begin()
 	if err != nil {
+		return fmt.Errorf("begin delete project tx: %w", err)
+	}
+
+	// Delete child records first (no ON DELETE CASCADE in schema)
+	for _, q := range []string{
+		`DELETE FROM execution_logs WHERE project_id = ?`,
+		`DELETE FROM scene_manifests WHERE project_id = ?`,
+		`DELETE FROM jobs WHERE project_id = ?`,
+	} {
+		if _, err := tx.Exec(q, id); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("delete project children: %w", err)
+		}
+	}
+
+	result, err := tx.Exec(`DELETE FROM projects WHERE id = ?`, id)
+	if err != nil {
+		tx.Rollback()
 		return fmt.Errorf("delete project: %w", err)
 	}
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
+		tx.Rollback()
 		return &domain.NotFoundError{Resource: "project", ID: id}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete project: %w", err)
 	}
 	return nil
 }

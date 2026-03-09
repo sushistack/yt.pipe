@@ -139,6 +139,59 @@ func (ss *ScenarioService) RegenerateSection(ctx context.Context, projectID stri
 	return newScene, nil
 }
 
+// GenerateScenarioForProject generates a scenario for an existing project.
+// Unlike GenerateScenario, this does not create a new project — it uses the provided one.
+func (ss *ScenarioService) GenerateScenarioForProject(ctx context.Context, project *domain.Project, scpData *workspace.SCPData) (*domain.ScenarioOutput, error) {
+	// Convert facts to FactTag slice for LLM
+	var factTags []domain.FactTag
+	for k, v := range scpData.Facts.Facts {
+		factTags = append(factTags, domain.FactTag{Key: k, Content: v})
+	}
+
+	// Build metadata from meta.json
+	metadata := map[string]string{
+		"title":        scpData.Meta.Title,
+		"object_class": scpData.Meta.ObjectClass,
+		"series":       scpData.Meta.Series,
+	}
+
+	// Generate scenario via LLM plugin
+	scenario, err := ss.llm.GenerateScenario(ctx, scpData.SCPID, scpData.MainText, factTags, metadata)
+	if err != nil {
+		return nil, fmt.Errorf("scenario: llm generation: %w", err)
+	}
+
+	// Save scenario JSON
+	scenarioJSON, err := json.MarshalIndent(scenario, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("scenario: marshal output: %w", err)
+	}
+	scenarioPath := filepath.Join(project.WorkspacePath, "scenario.json")
+	if err := workspace.WriteFileAtomic(scenarioPath, scenarioJSON); err != nil {
+		return nil, fmt.Errorf("scenario: save json: %w", err)
+	}
+
+	// Save scenario markdown for human review
+	md := renderScenarioMarkdown(scenario)
+	mdPath := filepath.Join(project.WorkspacePath, "scenario.md")
+	if err := workspace.WriteFileAtomic(mdPath, []byte(md)); err != nil {
+		return nil, fmt.Errorf("scenario: save markdown: %w", err)
+	}
+
+	// Update scene count
+	project.SceneCount = len(scenario.Scenes)
+	if err := ss.store.UpdateProject(project); err != nil {
+		return nil, fmt.Errorf("scenario: update scene count: %w", err)
+	}
+
+	// Transition to scenario_review
+	if _, err := ss.projectSvc.TransitionProject(ctx, project.ID, domain.StatusScenarioReview); err != nil {
+		return nil, fmt.Errorf("scenario: transition to review: %w", err)
+	}
+
+	return scenario, nil
+}
+
 // ApproveScenario transitions a project from scenario_review to approved.
 func (ss *ScenarioService) ApproveScenario(ctx context.Context, projectID string) (*domain.Project, error) {
 	return ss.projectSvc.TransitionProject(ctx, projectID, domain.StatusApproved)

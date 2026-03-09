@@ -16,9 +16,51 @@ type WebhookEvent struct {
 	Event         string `json:"event"`
 	ProjectID     string `json:"project_id"`
 	SCPID         string `json:"scp_id"`
-	PreviousState string `json:"previous_state"`
-	NewState      string `json:"new_state"`
+	PreviousState string `json:"previous_state,omitempty"`
+	NewState      string `json:"new_state,omitempty"`
 	Timestamp     string `json:"timestamp"`
+}
+
+// JobCompleteEvent represents a job_complete webhook payload (flat JSON for n8n).
+type JobCompleteEvent struct {
+	Event     string `json:"event"`
+	ProjectID string `json:"project_id"`
+	SCPID     string `json:"scp_id"`
+	JobID     string `json:"job_id"`
+	JobType   string `json:"job_type"`
+	Result    string `json:"result"`
+	Timestamp string `json:"timestamp"`
+}
+
+// JobFailedEvent represents a job_failed webhook payload (flat JSON for n8n).
+type JobFailedEvent struct {
+	Event       string `json:"event"`
+	ProjectID   string `json:"project_id"`
+	SCPID       string `json:"scp_id"`
+	JobID       string `json:"job_id"`
+	JobType     string `json:"job_type"`
+	Error       string `json:"error"`
+	FailedScene int    `json:"failed_scene"`
+	Timestamp   string `json:"timestamp"`
+}
+
+// SceneApprovedEvent represents a scene_approved webhook payload (flat JSON for n8n).
+type SceneApprovedEvent struct {
+	Event     string `json:"event"`
+	ProjectID string `json:"project_id"`
+	SCPID     string `json:"scp_id"`
+	SceneNum  int    `json:"scene_num"`
+	AssetType string `json:"asset_type"`
+	Timestamp string `json:"timestamp"`
+}
+
+// AllApprovedEvent represents an all_approved webhook payload (flat JSON for n8n).
+type AllApprovedEvent struct {
+	Event     string `json:"event"`
+	ProjectID string `json:"project_id"`
+	SCPID     string `json:"scp_id"`
+	AssetType string `json:"asset_type"`
+	Timestamp string `json:"timestamp"`
 }
 
 // WebhookNotifier sends webhook notifications on state changes.
@@ -69,14 +111,83 @@ func (wn *WebhookNotifier) NotifyStateChange(projectID, scpID, previousState, ne
 		NewState:      newState,
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
 	}
+	wn.fanOut(event)
+}
 
+// NotifyJobComplete sends a job_complete event to all configured webhook URLs.
+func (wn *WebhookNotifier) NotifyJobComplete(projectID, scpID, jobID, jobType, result string) {
+	if wn == nil {
+		return
+	}
+	event := JobCompleteEvent{
+		Event:     "job_complete",
+		ProjectID: projectID,
+		SCPID:     scpID,
+		JobID:     jobID,
+		JobType:   jobType,
+		Result:    result,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+	wn.fanOut(event)
+}
+
+// NotifyJobFailed sends a job_failed event to all configured webhook URLs.
+func (wn *WebhookNotifier) NotifyJobFailed(projectID, scpID, jobID, jobType, errMsg string, failedScene int) {
+	if wn == nil {
+		return
+	}
+	event := JobFailedEvent{
+		Event:       "job_failed",
+		ProjectID:   projectID,
+		SCPID:       scpID,
+		JobID:       jobID,
+		JobType:     jobType,
+		Error:       errMsg,
+		FailedScene: failedScene,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+	}
+	wn.fanOut(event)
+}
+
+// NotifySceneApproved sends a scene_approved event to all configured webhook URLs.
+func (wn *WebhookNotifier) NotifySceneApproved(projectID, scpID string, sceneNum int, assetType string) {
+	if wn == nil {
+		return
+	}
+	event := SceneApprovedEvent{
+		Event:     "scene_approved",
+		ProjectID: projectID,
+		SCPID:     scpID,
+		SceneNum:  sceneNum,
+		AssetType: assetType,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+	wn.fanOut(event)
+}
+
+// NotifyAllApproved sends an all_approved event to all configured webhook URLs.
+func (wn *WebhookNotifier) NotifyAllApproved(projectID, scpID, assetType string) {
+	if wn == nil {
+		return
+	}
+	event := AllApprovedEvent{
+		Event:     "all_approved",
+		ProjectID: projectID,
+		SCPID:     scpID,
+		AssetType: assetType,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+	wn.fanOut(event)
+}
+
+// fanOut marshals the event and sends to all configured URLs independently.
+func (wn *WebhookNotifier) fanOut(event interface{}) {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		slog.Error("webhook: marshal event", "error", err)
 		return
 	}
 
-	// Fan-out: send to each URL independently
 	var wg sync.WaitGroup
 	for _, url := range wn.urls {
 		wg.Add(1)
@@ -85,7 +196,7 @@ func (wn *WebhookNotifier) NotifyStateChange(projectID, scpID, previousState, ne
 			wn.sendWithRetry(u, payload)
 		}(url)
 	}
-	// Don't wait — fire and forget so webhook failures never block the pipeline
+	// Fire and forget — don't wait
 }
 
 func (wn *WebhookNotifier) sendWithRetry(url string, payload []byte) {

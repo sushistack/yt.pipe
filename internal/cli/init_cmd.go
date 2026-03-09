@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/sushistack/yt.pipe/internal/service"
+	"github.com/sushistack/yt.pipe/internal/store"
 )
 
 // lineReader wraps a bufio.Reader to implement io.Reader that returns data
@@ -276,6 +278,16 @@ func runWizard(r io.Reader, w io.Writer, force bool) error {
 	fmt.Fprintf(w, "Configuration written to %s\n", configPath)
 	fmt.Fprintln(w, "")
 
+	// Install default prompt templates
+	if installed, installErr := installDefaultTemplates(configDir); installErr != nil {
+		fmt.Fprintf(w, "Warning: failed to install default templates: %v\n", installErr)
+	} else if installed > 0 {
+		fmt.Fprintf(w, "Installed %d default prompt templates.\n", installed)
+	} else {
+		fmt.Fprintln(w, "Default prompt templates already installed, skipping.")
+	}
+	fmt.Fprintln(w, "")
+
 	// Display summary
 	displaySummary(w, result, configPath)
 
@@ -342,8 +354,19 @@ func runWizardNonInteractive(cmd *cobra.Command, force bool) error {
 		return err
 	}
 
+	w := cmd.OutOrStdout()
+
+	// Install default prompt templates
+	if installed, installErr := installDefaultTemplates(configDir); installErr != nil {
+		fmt.Fprintf(w, "Warning: failed to install default templates: %v\n", installErr)
+	} else if installed > 0 {
+		fmt.Fprintf(w, "Installed %d default prompt templates.\n", installed)
+	} else {
+		fmt.Fprintln(w, "Default prompt templates already installed, skipping.")
+	}
+
 	// Display summary via cobra's writer (testable)
-	displaySummary(cmd.OutOrStdout(), result, configPath)
+	displaySummary(w, result, configPath)
 
 	return nil
 }
@@ -512,6 +535,19 @@ func maskKey(key string) string {
 		return "****"
 	}
 	return key[:4] + "****"
+}
+
+// installDefaultTemplates opens the database in configDir and installs default templates.
+func installDefaultTemplates(configDir string) (int, error) {
+	dbPath := filepath.Join(configDir, "yt-pipe.db")
+	db, err := store.New(dbPath)
+	if err != nil {
+		return 0, fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+
+	svc := service.NewTemplateService(db)
+	return svc.InstallDefaults()
 }
 
 // displayPath returns the path or "(not set)" if empty.

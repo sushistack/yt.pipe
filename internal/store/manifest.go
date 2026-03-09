@@ -38,8 +38,9 @@ func (s *Store) GetManifest(projectID string, sceneNum int) (*domain.SceneManife
 	if err != nil {
 		return nil, fmt.Errorf("get manifest: %w", err)
 	}
-	if parsed, err := time.Parse(time.RFC3339, updatedAt); err == nil {
-		m.UpdatedAt = parsed
+	m.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse manifest updated_at: %w", err)
 	}
 	return m, nil
 }
@@ -62,8 +63,9 @@ func (s *Store) ListManifestsByProject(projectID string) ([]*domain.SceneManifes
 		if err := rows.Scan(&m.ProjectID, &m.SceneNum, &m.ContentHash, &m.ImageHash, &m.AudioHash, &m.SubtitleHash, &m.Status, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan manifest: %w", err)
 		}
-		if parsed, err := time.Parse(time.RFC3339, updatedAt); err == nil {
-			m.UpdatedAt = parsed
+		m.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse manifest updated_at: %w", err)
 		}
 		manifests = append(manifests, m)
 	}

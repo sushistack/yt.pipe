@@ -13,10 +13,11 @@ type Config struct {
 	TTS           TTSConfig      `mapstructure:"tts"`
 	Output        OutputConfig   `mapstructure:"output"`
 	Webhooks      WebhookConfig  `mapstructure:"webhooks"`
-	GlossaryPath  string         `mapstructure:"glossary_path"`
-	TemplatesPath string         `mapstructure:"templates_path"`
-	LogLevel      string         `mapstructure:"log_level"`
-	LogFormat     string         `mapstructure:"log_format"`
+	JobRetentionDays int            `mapstructure:"job_retention_days"`
+	GlossaryPath     string         `mapstructure:"glossary_path"`
+	TemplatesPath    string         `mapstructure:"templates_path"`
+	LogLevel         string         `mapstructure:"log_level"`
+	LogFormat        string         `mapstructure:"log_format"`
 }
 
 // WebhookConfig holds webhook notification settings.

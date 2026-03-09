@@ -10,9 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sushistack/yt.pipe/internal/api"
-	"github.com/sushistack/yt.pipe/internal/store"
 	"github.com/spf13/cobra"
+	"github.com/sushistack/yt.pipe/internal/api"
+	"github.com/sushistack/yt.pipe/internal/glossary"
+	"github.com/sushistack/yt.pipe/internal/plugin/output"
+	"github.com/sushistack/yt.pipe/internal/service"
+	"github.com/sushistack/yt.pipe/internal/store"
 )
 
 var serveCmd = &cobra.Command{
@@ -52,8 +55,57 @@ func runServeCmd(cmd *cobra.Command, _ []string) error {
 	}
 	defer db.Close()
 
+	// Initialize plugins with graceful degradation
+	plugins := createPluginsGraceful(cfg)
+
+	logger := slog.Default()
+
+	// Load glossary if configured
+	var g *glossary.Glossary
+	if c.GlossaryPath != "" {
+		g = glossary.LoadFromFile(c.GlossaryPath)
+	}
+
+	// Shared ProjectService instance for all services
+	projectSvc := service.NewProjectService(db)
+
+	// Build server options with initialized services
+	opts := []api.ServerOption{
+		api.WithRegistry(pluginRegistry),
+		api.WithPluginStatus(plugins.Status),
+	}
+
+	if plugins.LLM != nil {
+		scenarioSvc := service.NewScenarioService(db, plugins.LLM, projectSvc)
+		opts = append(opts, api.WithScenarioService(scenarioSvc))
+	}
+	if plugins.ImageGen != nil {
+		imageGenSvc := service.NewImageGenService(plugins.ImageGen, db, logger)
+		opts = append(opts, api.WithImageGenService(imageGenSvc))
+	}
+	if plugins.TTS != nil {
+		ttsSvc := service.NewTTSService(plugins.TTS, g, db, logger)
+		opts = append(opts, api.WithTTSService(ttsSvc))
+	}
+
+	// Output assembler is always available (built-in CapCut)
+	assemblerSvc := service.NewAssemblerService(plugins.Output, projectSvc)
+	// Apply canvas config
+	canvas := output.DefaultCanvasConfig()
+	if c.Output.CanvasWidth > 0 {
+		canvas.Width = c.Output.CanvasWidth
+	}
+	if c.Output.CanvasHeight > 0 {
+		canvas.Height = c.Output.CanvasHeight
+	}
+	if c.Output.FPS > 0 {
+		canvas.FPS = float64(c.Output.FPS)
+	}
+	assemblerSvc.WithConfig(c.Output.TemplatePath, c.Output.MetaPath, canvas)
+	opts = append(opts, api.WithAssemblerService(assemblerSvc))
+
 	// Create and start server
-	srv := api.NewServer(db, c)
+	srv := api.NewServer(db, c, opts...)
 
 	// Graceful shutdown on SIGTERM/SIGINT
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

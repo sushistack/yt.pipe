@@ -24,8 +24,9 @@ var runCmd = &cobra.Command{
 
 func init() {
 	runCmd.Flags().Bool("dry-run", false, "verify pipeline flow without making real API calls")
-	runCmd.Flags().String("resume", "", "resume pipeline from project ID (after scenario approval)")
+	runCmd.Flags().String("resume", "", "resume pipeline from project ID (after approval)")
 	runCmd.Flags().Bool("auto-approve", false, "skip scenario approval pause and continue automatically")
+	runCmd.Flags().Bool("skip-approval", false, "skip per-scene image/TTS approval (auto-approve all assets)")
 	runCmd.Flags().Bool("force", false, "clear checkpoints and start pipeline from scratch")
 	rootCmd.AddCommand(runCmd)
 }
@@ -100,10 +101,12 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 	tracker := pipeline.NewProgressTracker(cmd.ErrOrStderr())
 	runner.ProgressFunc = tracker.OnProgress
 
+	skipApproval, _ := cmd.Flags().GetBool("skip-approval")
+
 	// Check if resuming from approval
 	resumeID, _ := cmd.Flags().GetString("resume")
 	if resumeID != "" {
-		result, err := runner.Resume(cmd.Context(), resumeID)
+		result, err := runner.ResumeWithOptions(cmd.Context(), resumeID, skipApproval)
 		if err != nil {
 			cmd.SilenceUsage = true
 			return err
@@ -115,8 +118,9 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 	autoApprove, _ := cmd.Flags().GetBool("auto-approve")
 	force, _ := cmd.Flags().GetBool("force")
 	result, err := runner.RunWithOptions(cmd.Context(), scpID, pipeline.RunOptions{
-		AutoApprove: autoApprove,
-		Force:       force,
+		AutoApprove:  autoApprove,
+		SkipApproval: skipApproval,
+		Force:        force,
 	})
 	if err != nil {
 		cmd.SilenceUsage = true
@@ -160,9 +164,22 @@ func outputRunResult(cmd *cobra.Command, result *pipeline.RunResult) error {
 
 	if result.PausedAt != "" {
 		fmt.Fprintf(w, "Pipeline paused at %s.\n", result.PausedAt)
-		fmt.Fprintf(w, "Review the scenario, then resume with:\n")
-		fmt.Fprintf(w, "  yt-pipe scenario approve <project-id>\n")
-		fmt.Fprintf(w, "  yt-pipe run %s --resume %s\n\n", result.SCPID, result.ProjectID)
+		switch result.PausedAt {
+		case "image_review":
+			fmt.Fprintf(w, "Review images, then approve each scene:\n")
+			fmt.Fprintf(w, "  yt-pipe scenes approve %s --type image --scene <num>\n", result.ProjectID)
+			fmt.Fprintf(w, "After all images approved, resume with:\n")
+			fmt.Fprintf(w, "  yt-pipe run %s --resume %s\n\n", result.SCPID, result.ProjectID)
+		case "tts_review":
+			fmt.Fprintf(w, "Review TTS audio, then approve each scene:\n")
+			fmt.Fprintf(w, "  yt-pipe scenes approve %s --type tts --scene <num>\n", result.ProjectID)
+			fmt.Fprintf(w, "After all TTS approved, resume with:\n")
+			fmt.Fprintf(w, "  yt-pipe run %s --resume %s\n\n", result.SCPID, result.ProjectID)
+		default:
+			fmt.Fprintf(w, "Review the scenario, then resume with:\n")
+			fmt.Fprintf(w, "  yt-pipe scenario approve <project-id>\n")
+			fmt.Fprintf(w, "  yt-pipe run %s --resume %s\n\n", result.SCPID, result.ProjectID)
+		}
 	} else if result.Status == "complete" {
 		fmt.Fprintln(w, "Pipeline completed successfully.")
 		if result.APICalls > 0 {

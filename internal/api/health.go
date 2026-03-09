@@ -5,11 +5,20 @@ import (
 	"os"
 )
 
-// handleHealth returns server health status.
+// handleHealth returns server health status including plugin availability.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	WriteJSON(w, r, http.StatusOK, map[string]string{
-		"status":  "ok",
+	status := "ok"
+	for _, available := range s.pluginStatus {
+		if !available {
+			status = "degraded"
+			break
+		}
+	}
+
+	WriteJSON(w, r, http.StatusOK, map[string]interface{}{
+		"status":  status,
 		"version": s.version,
+		"plugins": s.pluginStatus,
 	})
 }
 
