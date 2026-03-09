@@ -8,6 +8,14 @@ stepsCompleted:
   - step-02-design-epics-phase2
   - step-03-create-stories-phase2
   - step-04-final-validation-phase2
+  - step-01-validate-prerequisites-fr45-61
+  - step-02-design-epics-fr45-61
+  - step-03-create-stories-fr45-61
+  - step-04-final-validation-fr45-61
+  - step-01-validate-prerequisites-epic18
+  - step-02-design-epics-epic18
+  - step-03-create-stories-epic18
+  - step-04-final-validation-epic18
 inputDocuments:
   - _bmad-output/planning-artifacts/prd.md
   - _bmad-output/planning-artifacts/architecture.md
@@ -85,7 +93,37 @@ This document provides the complete epic and story breakdown for youtube.pipelin
 - FR39: System can support approval wait state in async workflows. Applies a default 72-hour approval timeout with notification on expiry
 - FR40: System can return consistent JSON response structure (status, data, error, timestamp, requestId)
 
-**Total: 44 Functional Requirements**
+**Prompt Template Management (4)**
+- FR45: Creator can register, view, update, and delete prompt templates by category (scenario, image, tts, caption)
+- FR46: System can track prompt template change history up to 10 versions and rollback to a specific version. Rollback does not affect projects (projects preserve snapshot at time of use)
+- FR47: Creator can override global prompt templates per-project for customization
+- FR61: System can auto-install a default prompt template set (scenario/image/tts/caption) during initial setup. Migrates proven prompts from video.pipeline as initial template library
+
+**Character Consistency (3)**
+- FR48: Creator can create and edit per-SCP-entity character ID cards (visual description, style guide, reference image prompt)
+- FR49: System can persistently store character ID cards as presets and reuse them across projects
+- FR50: System can auto-match registered character ID card entity names in scene scenario text during per-scene image generation, assembling consistent visual prompts. Matching uses string matching based on canonical name + aliases registered in ID card
+
+**TTS Mood & VC (2 + 1 Phase 2)**
+- FR51: Creator can register and manage TTS mood presets (horror, documentary, tension, calm, etc.). Each preset includes speed, emotion, and pitch parameters, implemented based on Qwen3-TTS official docs
+- FR52: Creator can assign TTS mood presets per scene. When unassigned, LLM-based scenario mood analysis auto-maps presets; auto-mapped results are presented to creator for confirmation/modification before finalization
+- FR53: *(Phase 2)* System can optionally support VC (Voice Cloning) — reference voice registration, VC-based TTS synthesis. Falls back to default TTS on engines without VC support. Implemented via plugin interface
+
+**Scene Approval Workflow (3)**
+- FR54: System can perform per-scene generate-preview-approve/regenerate workflow during image generation. Controls API billing and enables per-scene quality verification
+- FR55: System can perform per-scene synthesize-preview-approve/re-synthesize workflow during TTS synthesis
+- FR56: Creator can view a per-scene scenario text-image-narration mapping dashboard to verify each scene's complete asset composition
+
+**BGM Management (4)**
+- FR57: Creator can register, classify, and tag BGM files by mood (horror, tension, mystery, action, etc.) in a BGM preset library
+- FR58: System can auto-recommend BGMs per scene/section via LLM-based scenario mood analysis. Recommendations are presented to creator for confirmation/modification, with candidates based on mood tag matching within the library
+- FR59: System can auto-place BGMs in CapCut projects (volume control, fade-in/out, narration-section volume ducking). Ducking ratio (default -12dB) and fade length (default 2s) are adjustable via global/project settings
+- FR60: System can manage license metadata (license type, source, credit text) for BGM files at registration time, and auto-include BGM credits in video description during CapCut project assembly
+
+**Prompt Migration (1)**
+- FR61: (covered above under Prompt Template Management)
+
+**Total: 61 Functional Requirements (FR53 deferred to Phase 2)**
 
 ### NonFunctional Requirements
 
@@ -226,6 +264,25 @@ This document provides the complete epic and story breakdown for youtube.pipelin
 - FR43: Epic 6 - Pipeline success rate aggregation and query
 - FR44: Epic 6 - Manual intervention ratio tracking and query
 
+**Phase 3 — FR45-FR61 Enhancements (Epics 13-17):**
+- FR45: Epic 13 - Prompt template CRUD by category
+- FR46: Epic 13 - Template version tracking (10 versions) and rollback
+- FR47: Epic 13 - Per-project global template override
+- FR48: Epic 14 - Character ID card CRUD
+- FR49: Epic 14 - ID card persistent storage and cross-project preset reuse
+- FR50: Epic 14 - Per-scene entity name matching for auto character reference
+- FR51: Epic 15 - TTS mood preset CRUD
+- FR52: Epic 15 - Per-scene mood preset assignment with LLM auto-mapping
+- FR53: *(Phase 2)* - VC optional support (deferred)
+- FR54: Epic 16 - Per-scene image generate-preview-approve workflow
+- FR55: Epic 16 - Per-scene TTS synthesize-preview-approve workflow
+- FR56: Epic 16 - Scene asset mapping dashboard
+- FR57: Epic 17 - BGM preset library with mood tagging
+- FR58: Epic 17 - LLM-based BGM auto-recommendation
+- FR59: Epic 17 - CapCut BGM auto-placement (volume/fade/ducking)
+- FR60: Epic 17 - BGM license metadata and auto-credit
+- FR61: Epic 13 - Default prompt template auto-installation
+
 **Phase 2 — Concrete Plugin Implementations:**
 - FR4: Epic 8 - Gemini LLM scenario generation (concrete implementation)
 - FR5: Epic 8 - Fact-tagged scenario generation with 4-stage pipeline
@@ -314,6 +371,49 @@ Creator can assemble all generated assets (images, narration audio, subtitles) i
 Creator can run the complete pipeline from SCP data to CapCut project in a single command with checkpoint/resume, real-time progress display, and comprehensive integration test suite using `go test -tags=integration` build tags.
 **FRs covered:** FR20, FR32
 **Additional:** Integration test suite with build tag separation, E2E pipeline orchestration, checkpoint/resume across all stages
+
+### Epic 13: Prompt Template Management
+Creator can manage prompt templates (scenario/image/tts/caption) as a versioned library with CRUD, 10-version history tracking with rollback, per-project overrides, and auto-installed defaults from video.pipeline's proven prompts. Extends Epic 6's "prompt template management system" Additional into concrete FR-backed implementation.
+**FRs covered:** FR45, FR46, FR47, FR61
+**NFRs addressed:** NFR20 (module independence), NFR21 (plugin extensibility)
+**Additional:** Extends Epic 6 prompt management concept, video.pipeline prompt migration, SQLite migration 002_templates
+**Recommended execution order:** 1st (no plugin interface dependencies)
+**Stories:** 13.1-13.5 (5 stories)
+
+### Epic 14: Character ID Card System
+Creator can register per-SCP-entity visual ID cards (appearance, style guide, reference image prompts), store them persistently as reusable presets, and have the system auto-detect characters in scene text to inject consistent visual references during image generation.
+**FRs covered:** FR48, FR49, FR50
+**NFRs addressed:** NFR9 (plugin interface standardization)
+**Additional:** ImageGen plugin interface extension (CharacterRef + ImageGenOptions), canonical name + alias string matching algorithm, existing SiliconFlow implementation signature update, SQLite migration 003_characters
+**Plugin prerequisite:** ImageGen interface extension (Story 14.1) — updates existing siliconflow.go + tests
+**Recommended execution order:** 2nd (after Epic 13)
+**Stories:** 14.1-14.6 (6 stories)
+
+### Epic 15: TTS Mood Presets
+Creator can manage TTS mood presets (speed/emotion/pitch parameters based on Qwen3-TTS), assign them per-scene, or let LLM auto-analyze scenario mood and propose mappings for creator confirmation before finalization.
+**FRs covered:** FR51, FR52
+**NFRs addressed:** NFR9 (plugin interface standardization)
+**Additional:** TTS plugin interface extension (TTSOptions + MoodPreset), LLM-based mood analysis (independent implementation, not shared abstraction with Epic 17), existing DashScope implementation signature update, SQLite migration 004_mood_presets
+**Plugin prerequisite:** TTS interface extension (Story 15.1) — updates existing dashscope.go + tests
+**Recommended execution order:** 3rd (after Epic 14)
+**Stories:** 15.1-15.5 (5 stories)
+
+### Epic 16: Scene Approval Workflow
+Creator can approve/reject images and TTS per-scene with generate-preview-approve/regenerate workflow, controlling API costs and verifying quality at scene granularity. Includes state machine extension (image_review, tts_review states), `--skip-approval` bypass for backward compatibility, and a scene asset mapping dashboard.
+**FRs covered:** FR54, FR55, FR56
+**NFRs addressed:** NFR7 (checkpoint), NFR8 (data integrity)
+**Additional:** State machine update (approved → image_review → tts_review → assembling), scene_approvals table, pipeline orchestrator integration, `--skip-approval` flag for backward-compatible bypass, existing pipeline runner test updates, SQLite migration 006_scene_approvals
+**Recommended execution order:** 5th/last (highest risk — state machine change affects existing pipeline orchestrator and integration tests)
+**Stories:** 16.1-16.5 (5 stories)
+
+### Epic 17: BGM Preset Library
+Creator can manage a mood-tagged BGM library, receive LLM-based auto-recommendations per scene/section for confirmation, and have BGMs auto-placed in CapCut projects with volume/fade/ducking controls. License metadata is tracked and auto-credited in video descriptions.
+**FRs covered:** FR57, FR58, FR59, FR60
+**NFRs addressed:** NFR9 (plugin interface standardization), NFR12 (CapCut compatibility)
+**Additional:** OutputAssembler plugin interface extension (AssembleOptions + BGMAssignment + CreditEntry), LLM-based BGM recommendation (independent implementation, not shared abstraction with Epic 15), ducking/fade parameter configuration, existing CapCut assembler signature update, SQLite migration 005_bgms
+**Plugin prerequisite:** OutputAssembler interface extension (Story 17.1) — updates existing capcut.go + tests
+**Recommended execution order:** 4th (after Epic 15, before Epic 16)
+**Stories:** 17.1-17.6 (6 stories)
 
 ## Epic 1: Project Foundation & Configuration
 
@@ -2234,3 +2334,1049 @@ So that regressions are caught before they affect my production workflow.
 **Then** test results are output in standard Go test format compatible with CI reporting
 **And** a `Makefile` target `make test-integration` wraps the command: `go test -tags=integration -timeout 600s ./...`
 **And** a separate `make test` target runs only unit tests (no build tag, no API calls)
+
+## Epic 13: Prompt Template Management
+
+Creator can manage prompt templates (scenario/image/tts/caption) as a versioned library with CRUD, 10-version history tracking with rollback, per-project overrides, and auto-installed defaults from video.pipeline's proven prompts. Extends Epic 6's "prompt template management system" Additional into concrete FR-backed implementation.
+
+### Story 13.1: Prompt Template Domain Model & Database Migration
+
+As a developer,
+I want prompt template domain models and SQLite tables for templates, template versions, and project overrides,
+So that all subsequent template management features have a solid data foundation.
+
+**Acceptance Criteria:**
+
+**Given** the domain package exists
+**When** template domain models are defined
+**Then** `domain/template.go` contains: `PromptTemplate` (id, category, name, content, version, is_default, timestamps), `TemplateVersion` (id, template_id, version, content, created_at), `ProjectTemplateOverride` (project_id, template_id, content, created_at), and `TemplateCategory` enum (scenario, image, tts, caption)
+**And** category validation rejects values outside the enum
+
+**Given** the store package exists
+**When** migration `002_templates.sql` is created
+**Then** tables `prompt_templates`, `prompt_template_versions`, `project_template_overrides` are created matching the Architecture spec
+**And** indexes `idx_templates_category` and `idx_template_versions_template_id` are created
+**And** `go:embed` loads the migration and schema version is tracked
+**And** existing migrations (001) continue to work correctly
+
+### Story 13.2: Prompt Template Store — CRUD & Version Management
+
+As a developer,
+I want a template store with CRUD operations, version history tracking, and rollback capability,
+So that the service layer can manage templates with full version control.
+
+**Acceptance Criteria:**
+
+**Given** the template tables exist from Story 13.1
+**When** `store/template.go` is implemented
+**Then** `Create(template)` inserts a new template and creates version 1 in `prompt_template_versions`
+**And** `Get(id)` returns a template by ID
+**And** `List(category)` returns all templates filtered by optional category
+**And** `Update(id, content)` increments the version, saves the new content, and creates a new version record
+**And** `Delete(id)` removes the template and all its version records and project overrides
+
+**Given** a template has been updated multiple times
+**When** version history exceeds 10 entries
+**Then** the oldest version beyond 10 is automatically deleted on the next update
+**And** this satisfies FR46
+
+**Given** a template has version history
+**When** `Rollback(id, version)` is called
+**Then** the template content is restored to the specified version's content
+**And** a new version record is created (version number increments, not reverts)
+**And** this satisfies FR46
+
+**Given** a project template override exists
+**When** `SetOverride(projectID, templateID, content)` is called
+**Then** the override is stored in `project_template_overrides`
+**And** `GetOverride(projectID, templateID)` returns the project-specific content
+**And** `DeleteOverride(projectID, templateID)` removes the override
+**And** this satisfies FR47
+
+**Given** all store operations
+**When** unit tests run
+**Then** all CRUD, version management, rollback, and override operations are covered with testify assertions
+
+### Story 13.3: Prompt Template Service — Business Logic
+
+As a developer,
+I want a template service that orchestrates template CRUD, version limits, and project-scoped resolution,
+So that CLI and API layers have a clean interface for template management.
+
+**Acceptance Criteria:**
+
+**Given** the template store from Story 13.2
+**When** `service/template.go` is implemented
+**Then** `CreateTemplate(category, name, content)` validates category, generates UUID, and delegates to store
+**And** `UpdateTemplate(id, content)` retrieves the current template, delegates update to store, and enforces the 10-version limit
+**And** `RollbackTemplate(id, version)` validates version exists before delegating to store
+**And** `DeleteTemplate(id)` prevents deletion of default templates (`is_default=1`)
+
+**Given** a project has a template override
+**When** `ResolveTemplate(projectID, templateID)` is called
+**Then** the project override content is returned if it exists
+**And** the global template content is returned if no override exists
+**And** this satisfies FR47 (project-specific override with global fallback)
+
+**Given** all service operations
+**When** unit tests run with mocked store
+**Then** business rules (category validation, version limit enforcement, default template protection, resolution priority) are tested
+
+### Story 13.4: Default Template Auto-Installation
+
+As a creator,
+I want default prompt templates to be automatically installed during initial setup,
+So that I can start using the pipeline immediately with proven templates from video.pipeline.
+
+**Acceptance Criteria:**
+
+**Given** the system is being initialized for the first time (`yt-pipe init`)
+**When** the template seeding logic executes
+**Then** default templates are created for all 4 categories: scenario, image, tts, caption
+**And** each default template has `is_default=1`
+**And** template content is loaded from embedded template files (`templates/*.tmpl` or equivalent)
+**And** this satisfies FR61
+
+**Given** the system has already been initialized with default templates
+**When** `yt-pipe init` is run again
+**Then** existing templates are not overwritten or duplicated (idempotent seeding)
+**And** a log message indicates "Default templates already installed, skipping"
+
+**Given** `cli/init_cmd.go` is modified
+**When** the seeding logic is added
+**Then** it calls `service/template.go` CreateTemplate for each default template
+**And** existing init functionality (API keys, config) is not affected
+
+### Story 13.5: Prompt Template CLI Commands
+
+As a creator,
+I want CLI commands to list, view, create, update, rollback, and override prompt templates,
+So that I can manage my prompt library from the command line.
+
+**Acceptance Criteria:**
+
+**Given** the template service from Story 13.3
+**When** `yt-pipe prompt list [--category scenario|image|tts|caption]` is executed
+**Then** all templates are listed (filtered by category if specified) showing: id, name, category, version, is_default
+**And** this satisfies FR45
+
+**Given** a template exists
+**When** `yt-pipe prompt show <template-id> [--version N]` is executed
+**Then** the template content is displayed, with specific version content if `--version` is specified
+
+**Given** the creator wants to add a new template
+**When** `yt-pipe prompt create --category <cat> --name <name> --file <path>` is executed
+**Then** the template is created from the file content
+**And** version 1 is recorded
+**And** this satisfies FR45
+
+**Given** the creator wants to update a template
+**When** `yt-pipe prompt update <template-id> --file <path>` is executed
+**Then** the template content is updated and a new version is created
+**And** this satisfies FR45
+
+**Given** the creator wants to rollback
+**When** `yt-pipe prompt rollback <template-id> --version <N>` is executed
+**Then** the template is rolled back to the specified version
+**And** a confirmation message shows the rollback details
+**And** this satisfies FR46
+
+**Given** the creator wants a project-specific override
+**When** `yt-pipe prompt override <template-id> --project <project-id> --file <path>` is executed
+**Then** the project override is saved
+**And** `yt-pipe prompt override <template-id> --project <project-id> --delete` removes it
+**And** this satisfies FR47
+
+## Epic 14: Character ID Card System
+
+Creator can register per-SCP-entity visual ID cards (appearance, style guide, reference image prompts), store them persistently as reusable presets, and have the system auto-detect characters in scene text to inject consistent visual references during image generation.
+
+### Story 14.1: ImageGen Plugin Interface Extension
+
+As a developer,
+I want the ImageGen plugin interface extended with CharacterRef and ImageGenOptions parameters,
+So that image generation plugins can receive character visual references for consistent imagery.
+
+**Acceptance Criteria:**
+
+**Given** the existing ImageGen interface `Generate(ctx, prompt) (*Image, error)`
+**When** the interface is updated in `plugin/imagegen/interface.go`
+**Then** the signature becomes `Generate(ctx, prompt string, opts *ImageGenOptions) (*Image, error)`
+**And** `ImageGenOptions` struct contains `CharacterRefs []CharacterRef`
+**And** `CharacterRef` struct contains `Name string`, `VisualDescriptor string`, `ImagePromptBase string`
+**And** `opts` being `nil` is equivalent to no character references (backward compatible)
+
+**Given** the existing SiliconFlow implementation in `plugin/imagegen/siliconflow.go`
+**When** the signature is updated
+**Then** the implementation accepts `opts *ImageGenOptions` and ignores `CharacterRefs` if nil or empty (existing behavior preserved)
+**And** all existing unit tests for SiliconFlow are updated to pass the new signature
+**And** no existing functionality is broken
+
+### Story 14.2: Character Domain Model & Database Migration
+
+As a developer,
+I want character domain models and SQLite tables for storing per-SCP character ID cards,
+So that character visual presets can be persistently stored and queried.
+
+**Acceptance Criteria:**
+
+**Given** the domain package exists
+**When** `domain/character.go` is defined
+**Then** `Character` model contains: id, scp_id, canonical_name, aliases ([]string, JSON serialized), visual_descriptor, style_guide, image_prompt_base, timestamps
+**And** aliases are validated as non-empty when provided
+
+**Given** the store package exists
+**When** migration `003_characters.sql` is created
+**Then** table `characters` is created matching the Architecture spec (id, scp_id, canonical_name, aliases as TEXT/JSON, visual_descriptor, style_guide, image_prompt_base, timestamps)
+**And** index `idx_characters_scp_id` is created
+**And** existing migrations (001, 002) continue to work correctly
+
+### Story 14.3: Character Store — CRUD & Alias Search
+
+As a developer,
+I want a character store with CRUD operations and alias-based search capability,
+So that the service layer can manage character ID cards and find characters by name/alias.
+
+**Acceptance Criteria:**
+
+**Given** the characters table from Story 14.2
+**When** `store/character.go` is implemented
+**Then** `Create(character)` inserts a new character with JSON-serialized aliases
+**And** `Get(id)` returns a character by ID with deserialized aliases
+**And** `ListBySCPID(scpID)` returns all characters for a given SCP entity
+**And** `ListAll()` returns all characters (for global preset reuse across projects)
+**And** `Update(character)` updates all fields and timestamps
+**And** `Delete(id)` removes the character
+**And** this satisfies FR48, FR49
+
+**Given** characters with aliases exist
+**When** `SearchByName(name)` is called
+**Then** characters are returned where `canonical_name` matches OR `aliases` JSON array contains the search term (case-insensitive)
+**And** this supports the matching algorithm in FR50
+
+**Given** all store operations
+**When** unit tests run
+**Then** all CRUD and search operations are covered, including JSON serialization/deserialization of aliases
+
+### Story 14.4: Character Service — CRUD & Scene Text Matching
+
+As a developer,
+I want a character service that manages ID cards and matches character names in scene text,
+So that the image generation pipeline can automatically inject character visual references.
+
+**Acceptance Criteria:**
+
+**Given** the character store from Story 14.3
+**When** `service/character.go` is implemented
+**Then** `CreateCharacter(scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base)` validates inputs and delegates to store
+**And** `UpdateCharacter(id, ...)` and `DeleteCharacter(id)` delegate to store
+**And** `GetCharacter(id)` and `ListCharacters(scp_id)` delegate to store
+**And** this satisfies FR48, FR49
+
+**Given** a scene's scenario text and a project's SCP ID
+**When** `MatchCharacters(scpID, sceneText)` is called
+**Then** all characters for the SCP ID plus global characters are loaded
+**And** each character's canonical_name and each alias are checked against the scene text via case-insensitive string matching
+**And** matched characters are returned as `[]CharacterRef` (from the ImageGen plugin types)
+**And** this satisfies FR50
+
+**Given** scene text "SCP-173이 복도 끝에서 조각상처럼 서 있었다"
+**When** a character with canonical_name "SCP-173" and aliases ["조각상", "The Sculpture"] exists
+**Then** the character is matched (both "SCP-173" and "조각상" hit)
+**And** a single `CharacterRef` is returned (deduplicated)
+
+### Story 14.5: Image Service Integration — Character Auto-Reference
+
+As a developer,
+I want the image generation service to automatically inject matched character references into ImageGen plugin calls,
+So that generated images maintain character visual consistency without manual intervention.
+
+**Acceptance Criteria:**
+
+**Given** `service/image.go` exists with image generation logic
+**When** character auto-reference is integrated
+**Then** before calling `imagegen.Generate()`, the service calls `character.MatchCharacters(scpID, sceneText)`
+**And** matched characters are passed as `ImageGenOptions.CharacterRefs`
+**And** if no characters match, `opts` is passed with an empty `CharacterRefs` slice (not nil)
+
+**Given** characters are matched for a scene
+**When** the ImageGen plugin receives `CharacterRefs`
+**Then** each character's `VisualDescriptor` and `ImagePromptBase` are available for prompt composition
+**And** the image prompt incorporates character visual descriptions for consistency
+
+**Given** no character ID cards exist for the project's SCP ID
+**When** image generation runs
+**Then** the pipeline proceeds normally with empty CharacterRefs (no error, no degradation)
+
+### Story 14.6: Character CLI Commands
+
+As a creator,
+I want CLI commands to create, list, view, update, and delete character ID cards,
+So that I can manage my character visual presets from the command line.
+
+**Acceptance Criteria:**
+
+**Given** the character service from Story 14.4
+**When** `yt-pipe character create --scp-id <id> --name <canonical> --aliases <comma-separated> --visual <text-or-file> [--style <text>] [--prompt-base <text>]` is executed
+**Then** a new character ID card is created and its ID is displayed
+**And** this satisfies FR48
+
+**Given** characters exist
+**When** `yt-pipe character list [--scp-id <id>]` is executed
+**Then** characters are listed showing: id, scp_id, canonical_name, aliases count
+**And** filtered by SCP ID if specified
+
+**Given** a character exists
+**When** `yt-pipe character show <character-id>` is executed
+**Then** the full character detail is displayed: canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base
+
+**Given** a character exists
+**When** `yt-pipe character update <character-id> [--name] [--aliases] [--visual] [--style] [--prompt-base]` is executed
+**Then** only the specified fields are updated
+**And** this satisfies FR48
+
+**Given** a character exists
+**When** `yt-pipe character delete <character-id>` is executed
+**Then** the character is deleted with a confirmation prompt
+
+## Epic 15: TTS Mood Presets
+
+Creator can manage TTS mood presets (speed/emotion/pitch parameters based on Qwen3-TTS), assign them per-scene, or let LLM auto-analyze scenario mood and propose mappings for creator confirmation before finalization.
+
+### Story 15.1: TTS Plugin Interface Extension
+
+As a developer,
+I want the TTS plugin interface extended with TTSOptions and MoodPreset parameters,
+So that TTS plugins can apply mood-specific voice parameters for scene-appropriate narration.
+
+**Acceptance Criteria:**
+
+**Given** the existing TTS interface `Generate(ctx, text string) (*Audio, error)`
+**When** the interface is updated in `plugin/tts/interface.go`
+**Then** the signature becomes `Generate(ctx, text string, opts *TTSOptions) (*Audio, error)`
+**And** `TTSOptions` struct contains `MoodPreset *MoodPreset`
+**And** `MoodPreset` struct contains `Speed float64`, `Emotion string`, `Pitch float64`, `Params map[string]any`
+**And** `opts` being `nil` or `MoodPreset` being `nil` uses default TTS tone (backward compatible)
+
+**Given** the existing DashScope implementation in `plugin/tts/dashscope.go`
+**When** the signature is updated
+**Then** the implementation accepts `opts *TTSOptions` and uses default parameters when `opts` or `MoodPreset` is nil
+**And** all existing unit tests for DashScope are updated to pass the new signature
+**And** no existing functionality is broken
+
+### Story 15.2: Mood Preset Domain Model & Database Migration
+
+As a developer,
+I want mood preset domain models and SQLite tables for storing TTS mood presets and scene assignments,
+So that mood configurations can be persistently managed and assigned to scenes.
+
+**Acceptance Criteria:**
+
+**Given** the domain package exists
+**When** `domain/mood_preset.go` is defined
+**Then** `MoodPreset` model contains: id, name (unique), description, speed (float64), emotion (string), pitch (float64), params_json (map[string]any), timestamps
+**And** `SceneMoodAssignment` model contains: project_id, scene_num, preset_id, auto_mapped (bool), confirmed (bool)
+
+**Given** the store package exists
+**When** migration `004_mood_presets.sql` is created
+**Then** tables `mood_presets` and `scene_mood_assignments` are created matching the Architecture spec
+**And** `mood_presets.name` has UNIQUE constraint
+**And** `scene_mood_assignments` has composite PK (project_id, scene_num) and FK to mood_presets
+**And** existing migrations (001-003) continue to work correctly
+
+### Story 15.3: Mood Preset Store — CRUD & Scene Assignment
+
+As a developer,
+I want a mood preset store with CRUD for presets and scene assignment management,
+So that the service layer can manage presets and track per-scene mood configurations.
+
+**Acceptance Criteria:**
+
+**Given** the mood tables from Story 15.2
+**When** `store/mood_preset.go` is implemented
+**Then** `Create(preset)` inserts a new mood preset with JSON-serialized params
+**And** `Get(id)` returns a preset by ID with deserialized params
+**And** `GetByName(name)` returns a preset by unique name
+**And** `List()` returns all presets
+**And** `Update(preset)` updates all fields and timestamps
+**And** `Delete(id)` removes the preset (fails if scene assignments reference it)
+**And** this satisfies FR51
+
+**Given** scene mood assignments are needed
+**When** assignment operations are called
+**Then** `AssignToScene(projectID, sceneNum, presetID, autoMapped)` creates/updates assignment with confirmed=false
+**And** `ConfirmScene(projectID, sceneNum)` sets confirmed=true
+**And** `GetSceneAssignment(projectID, sceneNum)` returns the assignment
+**And** `ListSceneAssignments(projectID)` returns all assignments for a project
+**And** `DeleteSceneAssignment(projectID, sceneNum)` removes the assignment
+
+**Given** all store operations
+**When** unit tests run
+**Then** all CRUD, assignment, and confirmation operations are covered with testify assertions
+
+### Story 15.4: Mood Service — Preset Management & LLM Auto-Mapping
+
+As a developer,
+I want a mood service that manages presets and auto-maps moods to scenes via LLM analysis,
+So that creators get intelligent mood suggestions while retaining full control.
+
+**Acceptance Criteria:**
+
+**Given** the mood preset store from Story 15.3
+**When** `service/mood.go` is implemented
+**Then** `CreatePreset(name, description, speed, emotion, pitch, params)` validates uniqueness and delegates to store
+**And** `UpdatePreset`, `DeletePreset`, `GetPreset`, `ListPresets` delegate to store with appropriate validation
+**And** this satisfies FR51
+
+**Given** a project with an approved scenario containing multiple scenes
+**When** `AutoMapMoods(projectID, scenes []Scene)` is called
+**Then** the service sends each scene's text to the LLM plugin with a mood analysis prompt
+**And** the LLM returns a recommended mood category per scene
+**And** the service matches each recommendation to existing presets by name similarity
+**And** matched presets are assigned to scenes with `auto_mapped=true, confirmed=false`
+**And** unmatched recommendations are logged with a warning (scene left unassigned)
+**And** this satisfies FR52
+
+**Given** auto-mapped moods are pending confirmation
+**When** `GetPendingConfirmations(projectID)` is called
+**Then** all scene assignments with `confirmed=false` are returned with preset details and scene text excerpt
+
+**Given** the creator reviews auto-mapped results
+**When** `ConfirmMood(projectID, sceneNum)` is called
+**Then** the assignment is marked confirmed
+**And** `ReassignMood(projectID, sceneNum, newPresetID)` replaces the preset and marks confirmed=true
+**And** this satisfies FR52 (creator confirmation/modification before finalization)
+
+**Given** all scenes for a project have confirmed mood assignments
+**When** `AllMoodsConfirmed(projectID)` is called
+**Then** it returns true
+
+### Story 15.5: TTS Service Integration & CLI Commands
+
+As a creator,
+I want the TTS generation to apply mood presets automatically and CLI commands to manage presets and review mood mappings,
+So that narration tone matches each scene's atmosphere with my approval.
+
+**Acceptance Criteria:**
+
+**Given** `service/tts.go` exists with TTS generation logic
+**When** mood preset integration is added
+**Then** before calling `tts.Generate()`, the service retrieves the confirmed mood assignment for the scene
+**And** the assignment's preset is converted to `plugin/tts.MoodPreset` and passed via `TTSOptions`
+**And** if no mood is assigned, `opts` is passed with nil MoodPreset (default tone)
+
+**Given** the mood service from Story 15.4
+**When** `yt-pipe mood list` is executed
+**Then** all mood presets are listed showing: id, name, description, speed, emotion, pitch
+
+**Given** the creator wants to create a preset
+**When** `yt-pipe mood create --name <name> --speed <f> --emotion <str> --pitch <f> [--description <text>]` is executed
+**Then** the preset is created and its ID is displayed
+**And** this satisfies FR51
+
+**Given** the creator wants to update or delete a preset
+**When** `yt-pipe mood update <id> [--name] [--speed] [--emotion] [--pitch]` or `yt-pipe mood delete <id>` is executed
+**Then** the preset is updated or deleted accordingly
+
+**Given** a project has scenes with auto-mapped moods pending confirmation
+**When** `yt-pipe mood review <project-id>` is executed
+**Then** each scene is displayed with: scene number, text excerpt (first 50 chars), recommended preset name
+**And** the creator can confirm all (`--confirm-all`), confirm individual (`--confirm <scene-num>`), or reassign (`--reassign <scene-num> --preset <id>`)
+**And** this satisfies FR52
+
+## Epic 17: BGM Preset Library
+
+Creator can manage a mood-tagged BGM library, receive LLM-based auto-recommendations per scene/section for confirmation, and have BGMs auto-placed in CapCut projects with volume/fade/ducking controls. License metadata is tracked and auto-credited in video descriptions.
+
+### Story 17.1: OutputAssembler Plugin Interface Extension
+
+As a developer,
+I want the OutputAssembler plugin interface extended with AssembleOptions, BGMAssignment, and CreditEntry,
+So that output assembly plugins can receive BGM placement and licensing information.
+
+**Acceptance Criteria:**
+
+**Given** the existing OutputAssembler interface `Assemble(ctx, project *Project) (string, error)`
+**When** the interface is updated in `plugin/output/interface.go`
+**Then** the signature becomes `Assemble(ctx, project *Project, opts *AssembleOptions) (string, error)`
+**And** `AssembleOptions` struct contains `BGMAssignments []BGMAssignment` and `Credits []CreditEntry`
+**And** `BGMAssignment` struct contains `SceneNum int`, `FilePath string`, `VolumeDB float64`, `FadeInMs int`, `FadeOutMs int`, `DuckingDB float64`
+**And** `CreditEntry` struct contains `Type string` (e.g. "bgm", "cc-by-sa"), `Text string`
+**And** `opts` being `nil` is equivalent to no BGM and no additional credits (backward compatible)
+
+**Given** the existing CapCut implementation in `plugin/output/capcut.go`
+**When** the signature is updated
+**Then** the implementation accepts `opts *AssembleOptions` and ignores BGM/Credits if nil or empty
+**And** all existing unit tests for CapCut assembler are updated to pass the new signature
+**And** existing CC-BY-SA credit logic continues to work (now as a `CreditEntry` alongside BGM credits)
+
+### Story 17.2: BGM Domain Model & Database Migration
+
+As a developer,
+I want BGM domain models and SQLite tables for storing BGM files, mood tags, license metadata, and scene assignments,
+So that BGM library data can be persistently managed.
+
+**Acceptance Criteria:**
+
+**Given** the domain package exists
+**When** `domain/bgm.go` is defined
+**Then** `BGM` model contains: id, name, file_path, mood_tags ([]string, JSON serialized), duration_ms, license_type, license_source, credit_text, created_at
+**And** `SceneBGMAssignment` model contains: project_id, scene_num, bgm_id, volume_db, fade_in_ms, fade_out_ms, ducking_db, auto_recommended (bool), confirmed (bool)
+**And** license_type is validated against allowed values: "royalty_free", "cc_by", "cc_by_sa", "cc_by_nc", "custom"
+
+**Given** the store package exists
+**When** migration `005_bgms.sql` is created
+**Then** tables `bgms` and `scene_bgm_assignments` are created matching the Architecture spec
+**And** index `idx_bgms_mood_tags` is created
+**And** existing migrations (001-004) continue to work correctly
+
+### Story 17.3: BGM Store — CRUD, Tag Search & Scene Assignment
+
+As a developer,
+I want a BGM store with CRUD, mood tag-based search, and scene assignment management,
+So that the service layer can manage the BGM library and scene-level assignments.
+
+**Acceptance Criteria:**
+
+**Given** the BGM tables from Story 17.2
+**When** `store/bgm.go` is implemented
+**Then** `Create(bgm)` inserts a new BGM with JSON-serialized mood_tags
+**And** `Get(id)` returns a BGM by ID with deserialized mood_tags
+**And** `List()` returns all BGMs
+**And** `Update(bgm)` updates all fields
+**And** `Delete(id)` removes the BGM (fails if scene assignments reference it)
+**And** this satisfies FR57
+
+**Given** BGMs with mood tags exist
+**When** `SearchByMoodTags(tags []string)` is called
+**Then** BGMs are returned where `mood_tags` JSON array contains any of the specified tags
+**And** results are ranked by number of matching tags (most matches first)
+
+**Given** scene BGM assignments are needed
+**When** assignment operations are called
+**Then** `AssignToScene(projectID, sceneNum, bgmID, volumeDB, fadeInMs, fadeOutMs, duckingDB, autoRecommended)` creates/updates assignment with confirmed=false
+**And** `ConfirmScene(projectID, sceneNum)` sets confirmed=true
+**And** `GetSceneAssignment(projectID, sceneNum)` returns the assignment
+**And** `ListSceneAssignments(projectID)` returns all assignments for a project
+**And** default values: volumeDB=0, fadeInMs=2000, fadeOutMs=2000, duckingDB=-12
+
+**Given** all store operations
+**When** unit tests run
+**Then** all CRUD, tag search, and assignment operations are covered
+
+### Story 17.4: BGM Service — Management & LLM Auto-Recommendation
+
+As a developer,
+I want a BGM service that manages the library and auto-recommends BGMs per scene via LLM analysis,
+So that creators get intelligent BGM suggestions while retaining full control.
+
+**Acceptance Criteria:**
+
+**Given** the BGM store from Story 17.3
+**When** `service/bgm.go` is implemented
+**Then** `CreateBGM(name, filePath, moodTags, durationMs, licenseType, licenseSource, creditText)` validates file existence and license_type, delegates to store
+**And** `UpdateBGM`, `DeleteBGM`, `GetBGM`, `ListBGMs` delegate to store with appropriate validation
+**And** this satisfies FR57
+
+**Given** a project with an approved scenario containing multiple scenes
+**When** `AutoRecommendBGMs(projectID, scenes []Scene)` is called
+**Then** the service sends scene texts to the LLM plugin with a mood/atmosphere analysis prompt
+**And** the LLM returns recommended mood categories per scene/section
+**And** the service calls `store.SearchByMoodTags` with the recommended moods to find matching BGMs
+**And** top-matching BGMs are assigned to scenes with `auto_recommended=true, confirmed=false`
+**And** default ducking/fade values from config (`config/types.go`: ducking_db=-12, fade_ms=2000) are applied
+**And** this satisfies FR58
+
+**Given** auto-recommended BGMs are pending confirmation
+**When** `GetPendingConfirmations(projectID)` is called
+**Then** all scene assignments with `confirmed=false` are returned with BGM name, mood_tags, and scene text excerpt
+
+**Given** the creator reviews recommendations
+**When** `ConfirmBGM(projectID, sceneNum)` is called
+**Then** the assignment is marked confirmed
+**And** `ReassignBGM(projectID, sceneNum, newBGMID)` replaces the BGM and marks confirmed
+**And** `AdjustBGMParams(projectID, sceneNum, volumeDB, fadeInMs, fadeOutMs, duckingDB)` updates placement parameters
+**And** this satisfies FR58
+
+**Given** a BGM has license metadata
+**When** `GetCredits(projectID)` is called
+**Then** all confirmed BGM assignments' credit_text values are collected as `[]CreditEntry{Type: "bgm", Text: ...}`
+**And** this satisfies FR60
+
+### Story 17.5: CapCut Assembler Integration — BGM Placement & Credits
+
+As a developer,
+I want the CapCut assembler to place BGM tracks with volume/fade/ducking and auto-include license credits,
+So that the output project has properly configured background music and attribution.
+
+**Acceptance Criteria:**
+
+**Given** `service/assembler.go` exists with CapCut project assembly logic
+**When** BGM integration is added
+**Then** before calling `outputAssembler.Assemble()`, the service retrieves confirmed BGM assignments via `bgm.ListSceneAssignments(projectID)`
+**And** each assignment is converted to `plugin/output.BGMAssignment` with scene-specific volume, fade, and ducking params
+**And** BGM credits from `bgm.GetCredits(projectID)` are merged with existing CC-BY-SA credits as `AssembleOptions.Credits`
+
+**Given** the CapCut plugin receives `AssembleOptions` with BGM assignments
+**When** the project is assembled
+**Then** each BGM file is placed on an audio track aligned to its assigned scene's timeline position
+**And** fade-in is applied at the BGM segment start (duration = FadeInMs)
+**And** fade-out is applied at the BGM segment end (duration = FadeOutMs)
+**And** volume is reduced by DuckingDB during narration audio segments (voice-over ducking)
+**And** base volume is set to VolumeDB relative to 0dB
+**And** this satisfies FR59
+
+**Given** the CapCut project includes BGM credits
+**When** the `description.txt` is generated
+**Then** BGM credits are appended after the existing CC-BY-SA notice
+**And** format: "🎵 BGM Credits:\n- {credit_text}\n- {credit_text}\n..."
+**And** this satisfies FR60
+
+**Given** no BGM assignments exist for a project
+**When** the assembler runs
+**Then** the project is assembled without BGM tracks (existing behavior, no error)
+
+### Story 17.6: BGM CLI Commands
+
+As a creator,
+I want CLI commands to manage BGM library, review recommendations, and adjust placement parameters,
+So that I can control background music from the command line.
+
+**Acceptance Criteria:**
+
+**Given** the BGM service from Story 17.4
+**When** `yt-pipe bgm list [--mood <tag>]` is executed
+**Then** all BGMs are listed (filtered by mood tag if specified) showing: id, name, mood_tags, license_type, duration
+**And** this satisfies FR57
+
+**Given** the creator wants to add a BGM
+**When** `yt-pipe bgm add --name <name> --file <path> --moods <comma-separated-tags> --license-type <type> --credit <text> [--source <url>]` is executed
+**Then** the BGM is registered and its ID is displayed
+**And** file existence is validated before registration
+**And** this satisfies FR57, FR60
+
+**Given** a BGM exists
+**When** `yt-pipe bgm show <bgm-id>` is executed
+**Then** full details are displayed: name, file_path, mood_tags, duration, license_type, license_source, credit_text
+
+**Given** a BGM exists
+**When** `yt-pipe bgm update <bgm-id> [--name] [--moods] [--license-type] [--credit]` or `yt-pipe bgm delete <bgm-id>` is executed
+**Then** the BGM is updated or deleted accordingly
+
+**Given** a project has scenes with auto-recommended BGMs pending confirmation
+**When** `yt-pipe bgm review <project-id>` is executed
+**Then** each scene is displayed with: scene number, text excerpt, recommended BGM name, mood_tags, volume/fade/ducking params
+**And** the creator can confirm all (`--confirm-all`), confirm individual (`--confirm <scene-num>`), reassign (`--reassign <scene-num> --bgm <id>`), or adjust params (`--adjust <scene-num> --volume <dB> --fade-in <ms> --fade-out <ms> --ducking <dB>`)
+**And** this satisfies FR58
+
+## Epic 16: Scene Approval Workflow
+
+Creator can approve/reject images and TTS per-scene with generate-preview-approve/regenerate workflow, controlling API costs and verifying quality at scene granularity. Includes state machine extension (image_review, tts_review states), `--skip-approval` bypass for backward compatibility, and a scene asset mapping dashboard.
+
+### Story 16.1: State Machine Extension & Scene Approval Domain Model
+
+As a developer,
+I want the project state machine extended with image_review and tts_review states, plus a scene approval domain model and database migration,
+So that the pipeline can pause for per-scene approval at each asset generation stage.
+
+**Acceptance Criteria:**
+
+**Given** `domain/project.go` contains the state transition map
+**When** the state machine is updated
+**Then** allowed transitions become: `pending → scenario_review → approved → image_review → tts_review → assembling → complete`
+**And** the old `generating_assets` state is replaced by `image_review` and `tts_review`
+**And** `--skip-approval` flag support: when enabled, `image_review` and `tts_review` are auto-transitioned (all scenes auto-approved), preserving backward compatibility with existing pipeline behavior
+**And** existing unit tests for state transitions are updated to reflect the new states
+**And** tests verify both approval and skip-approval paths
+
+**Given** the domain package exists
+**When** `domain/scene_approval.go` is defined
+**Then** `SceneApproval` model contains: project_id, scene_num, asset_type (enum: "image", "tts"), status (enum: "pending", "generated", "approved", "rejected"), attempts (int), updated_at
+**And** per-scene status flow: `pending → generated → approved` or `pending → generated → rejected → generated → approved`
+
+**Given** the store package exists
+**When** migration `006_scene_approvals.sql` is created
+**Then** table `scene_approvals` is created matching the Architecture spec with composite PK (project_id, scene_num, asset_type)
+**And** index `idx_scene_approvals_project` is created
+**And** existing migrations (001-005) continue to work correctly
+
+### Story 16.2: Scene Approval Store
+
+As a developer,
+I want a scene approval store with CRUD operations for tracking per-scene approval status,
+So that the service layer can manage the approval workflow state.
+
+**Acceptance Criteria:**
+
+**Given** the scene_approvals table from Story 16.1
+**When** `store/scene_approval.go` is implemented
+**Then** `Init(projectID, sceneNum, assetType)` creates an approval record with status="pending", attempts=0
+**And** `MarkGenerated(projectID, sceneNum, assetType)` sets status="generated" and increments attempts
+**And** `Approve(projectID, sceneNum, assetType)` sets status="approved"
+**And** `Reject(projectID, sceneNum, assetType)` sets status="rejected"
+**And** `Get(projectID, sceneNum, assetType)` returns the approval record
+**And** `ListByProject(projectID, assetType)` returns all approvals for a project filtered by asset type
+
+**Given** approval records exist for a project
+**When** `AllApproved(projectID, assetType)` is called
+**Then** it returns true only if every scene for the given asset type has status="approved"
+**And** this is the gate condition for state machine transition (image_review → tts_review, tts_review → assembling)
+
+**Given** all store operations
+**When** unit tests run
+**Then** all status transitions, query operations, and the AllApproved gate are covered
+
+### Story 16.3: Approval Service — Per-Scene Workflow Orchestration
+
+As a developer,
+I want an approval service that orchestrates per-scene generate-preview-approve/reject/regenerate cycles,
+So that creators can control quality and costs at scene granularity.
+
+**Acceptance Criteria:**
+
+**Given** the scene approval store from Story 16.2
+**When** `service/approval.go` is implemented
+**Then** `InitApprovals(projectID, sceneCount, assetType)` initializes approval records for all scenes with status="pending"
+**And** `MarkGenerated(projectID, sceneNum, assetType)` delegates to store after validating current status is "pending" or "rejected"
+**And** `ApproveScene(projectID, sceneNum, assetType)` validates current status is "generated" before approving
+**And** `RejectScene(projectID, sceneNum, assetType)` validates current status is "generated" before rejecting
+**And** this satisfies FR54 (image), FR55 (TTS)
+
+**Given** the creator is in image_review state
+**When** `GenerateAndPreviewScene(projectID, sceneNum, "image")` is called
+**Then** the service triggers image generation for the single scene
+**And** marks the scene as "generated"
+**And** returns the generated image path for preview
+**And** the creator can then approve or reject via `ApproveScene`/`RejectScene`
+
+**Given** a scene is rejected
+**When** `RegenerateScene(projectID, sceneNum, assetType)` is called
+**Then** the scene status resets to "pending", the asset is regenerated, and status moves to "generated"
+**And** the attempts counter increments
+
+**Given** `--skip-approval` mode is active
+**When** `AutoApproveAll(projectID, assetType)` is called
+**Then** all scenes are immediately set to "approved" without individual preview
+**And** a log warning is emitted: "Skip-approval enabled: all {assetType} scenes auto-approved"
+
+### Story 16.4: Pipeline Orchestrator Integration
+
+As a developer,
+I want the pipeline orchestrator to integrate image_review and tts_review stages with per-scene approval gates,
+So that the end-to-end pipeline pauses for creator approval at each asset generation phase.
+
+**Acceptance Criteria:**
+
+**Given** `service/pipeline.go` contains the pipeline orchestrator
+**When** the image generation stage completes for a scene
+**Then** the orchestrator transitions the project to `image_review` state
+**And** for each scene: generates image → marks "generated" → waits for approval
+**And** when `AllApproved(projectID, "image")` returns true, transitions to `tts_review`
+
+**Given** the project is in `tts_review` state
+**When** TTS generation stage processes scenes
+**Then** for each scene: synthesizes TTS → marks "generated" → waits for approval
+**And** when `AllApproved(projectID, "tts")` returns true, transitions to `assembling`
+
+**Given** `--skip-approval` flag is set on the pipeline command
+**When** the pipeline reaches image_review or tts_review
+**Then** `AutoApproveAll` is called and the pipeline proceeds without pausing
+**And** this preserves backward compatibility with existing pipeline behavior (Epic 12)
+
+**Given** the pipeline is interrupted during approval
+**When** `yt-pipe run <SCP-ID>` is re-executed
+**Then** the orchestrator detects the current state (image_review or tts_review)
+**And** resumes from the last unapproved scene (already approved scenes are skipped)
+**And** existing checkpoint/resume logic (Epic 5) continues to work
+
+**Given** existing pipeline integration tests
+**When** the new states are added
+**Then** existing tests are updated to either use `--skip-approval` or include approval steps
+**And** new tests verify the approval flow and state transitions
+
+### Story 16.5: Scene Asset Mapping Dashboard
+
+As a creator,
+I want a scene-level dashboard showing text, image, and narration mapping per scene,
+So that I can verify each scene's complete asset composition at a glance.
+
+**Acceptance Criteria:**
+
+**Given** a project with generated assets
+**When** `yt-pipe scenes <project-id>` is executed
+**Then** a table/list is displayed for each scene showing:
+- Scene number
+- Scenario text excerpt (first 80 characters)
+- Image status (pending/generated/approved/rejected) + file path if exists
+- TTS status (pending/generated/approved/rejected) + file path if exists
+- Mood preset name (if assigned)
+- BGM name (if assigned)
+**And** this satisfies FR56
+
+**Given** the creator wants detail for a specific scene
+**When** `yt-pipe scenes <project-id> --scene <num>` is executed
+**Then** full details are displayed: complete scenario text, image preview path, TTS audio path, mood preset, BGM assignment, approval history (attempts count)
+
+**Given** the project is in image_review or tts_review state
+**When** the dashboard is displayed
+**Then** scenes pending approval are highlighted (e.g., with a `[PENDING]` marker)
+**And** the total approval progress is shown: "Images: 7/10 approved, TTS: 3/10 approved"
+
+**Given** the dashboard is called via API endpoint
+**When** `GET /api/projects/{id}/scenes` is requested
+**Then** the same data is returned as JSON with consistent response structure (FR40)
+
+## Epic 18: n8n-Ready API Execution Layer
+
+**Goal:** n8n 워크플로우 오케스트레이터가 REST API를 순차 호출하여 전체 파이프라인(시나리오 생성 → 이미지 → TTS → 조립)을 stage별로 제어하고 모니터링할 수 있도록 API 실행 로직을 완성한다. CLI에서 검증된 플러그인 초기화 패턴을 API Server에 동일하게 적용하고, 스텁 핸들러를 실제 서비스 호출로 교체한다.
+
+**FRs covered:** FR10, FR11, FR12, FR13, FR15, FR17, FR22, FR30, FR37, FR39, FR54, FR55, FR56
+**NFRs addressed:** NFR3, NFR9, NFR11, NFR22
+
+### FR Coverage Map
+
+```
+FR10 (Image generation plugin invocation)        → Story 18.3
+FR11 (Selective image regeneration)               → Story 18.3
+FR12 (Prompt modification + regeneration)         → Story 18.4
+FR13 (TTS synthesis with mood presets)            → Story 18.3
+FR15 (Selective narration re-synthesis)           → Story 18.3
+FR17 (CapCut project assembly)                    → Story 18.4
+FR22 (Project state machine extension)            → Story 18.6
+FR30 (Webhook notification extension)             → Story 18.5
+FR37 (Independent API endpoints)                  → Story 18.1
+FR39 (Async approval wait)                        → Story 18.2
+FR54 (Per-scene image approval)                   → Story 18.6
+FR55 (Per-scene TTS approval)                     → Story 18.6
+FR56 (Scene asset dashboard)                      → Story 18.7
+NFR3  (API response < 1 second)                   → Story 18.1–18.7 (all)
+NFR9  (Plugin interface standardization)          → Story 18.1
+NFR11 (n8n-compatible JSON)                       → Story 18.1–18.7 (all)
+NFR22 (Status query with progress/elapsed)        → Story 18.2
+```
+
+### Dependency Graph
+
+```
+18.1 (Service Init)
+ ├── 18.2 (Job Lifecycle)
+ │    └── 18.3 (Image/TTS Handlers)
+ │         └── 18.4 (Assembly + Prompt)
+ ├── 18.5 (Webhook) — independent
+ └── 18.6 (Pipeline Run) ← requires 18.1–18.5
+      └── 18.7 (Scene Dashboard) — independent after 18.6
+```
+
+### Story 18.1: Server Plugin Injection and Service Initialization
+
+As a n8n workflow orchestrator,
+I want the API server to have fully initialized plugins and services,
+So that API endpoints can execute real pipeline operations instead of returning stubs.
+
+**Acceptance Criteria:**
+
+**Given** the `serve` command is executed with valid configuration
+**When** the API server starts
+**Then** plugins (LLM, ImageGen, TTS, Output) are created from config using the same pattern as CLI's `run` command
+**And** services (ImageGenService, TTSService, AssemblerService) are initialized with the plugin instances
+**And** services are injected into the Server struct via ServerOption functions
+
+**Given** a plugin fails to initialize (e.g., invalid API key)
+**When** the server startup proceeds
+**Then** the server logs a warning for the failed plugin
+**And** the `/health` endpoint reports the degraded plugin status
+**And** endpoints depending on the failed plugin return `502 API_UPSTREAM_ERROR`
+
+**Given** the server is running with initialized services
+**When** `GET /health` is called
+**Then** the response includes plugin availability status for each plugin type (llm, imagegen, tts, output)
+**And** response time is under 1 second (NFR3)
+
+### Story 18.2: Job Lifecycle Management with DB Persistence
+
+As a n8n workflow orchestrator,
+I want job status to be persisted in the database and queryable after server restarts,
+So that I can reliably track long-running async operations via polling.
+
+**Acceptance Criteria:**
+
+**Given** a background job (image/tts/pipeline) is started via API
+**When** the job progresses or completes
+**Then** the job record in DB is updated with current status, progress percentage, and elapsed time
+**And** the in-memory jobManager stays in sync with DB state
+
+**Given** the API server is restarted while a job was running
+**When** `GET /api/v1/projects/{id}/status` is called
+**Then** the response falls back to the DB job record when no in-memory job exists
+**And** stale jobs (running status but server restarted) are marked as `failed` with error "server restarted"
+
+**Given** a job completes or fails
+**When** `GET /api/v1/jobs/{jobId}` is called
+**Then** the response includes status, progress (0-100), result, error message, started_at, completed_at, and elapsed_sec
+**And** the response conforms to n8n-compatible JSON structure (NFR11)
+
+**Given** jobs older than a configurable retention period (default 7 days) exist
+**When** a periodic cleanup runs (on server start or configurable interval)
+**Then** completed/failed jobs beyond retention are purged from DB
+**And** running jobs are never purged
+
+### Story 18.3: Image and TTS Generation Handler Execution Logic
+
+As a n8n workflow orchestrator,
+I want `POST /images/generate` and `POST /tts/generate` to actually execute generation in the background,
+So that I can trigger real asset creation via API and track completion via job polling or webhook.
+
+**Acceptance Criteria:**
+
+**Given** a project in `approved` or `image_review` state with initialized ImageGenService
+**When** `POST /api/v1/projects/{id}/images/generate` is called with `{ "scenes": [3, 5] }`
+**Then** a job record is created in DB with status `running` and jobId is returned within 1 second (NFR3)
+**And** a background goroutine calls ImageGenService for each specified scene
+**And** job progress is updated in DB as each scene completes (e.g., 50% after 1 of 2 scenes)
+**And** on completion, job status is set to `complete` with result paths
+
+**Given** scenes array is empty or omitted
+**When** `POST /api/v1/projects/{id}/images/generate` is called
+**Then** all scenes in the project are generated
+
+**Given** a project in `approved` or `tts_review` state with initialized TTSService
+**When** `POST /api/v1/projects/{id}/tts/generate` is called with `{ "scenes": [1, 2, 3] }`
+**Then** a job record is created and TTS generation executes in background with per-scene progress tracking
+**And** generated audio file paths are stored in the job result
+
+**Given** a generation fails for a specific scene (e.g., upstream API error)
+**When** the background goroutine encounters the error
+**Then** the job status is set to `failed` with the error message and failed scene number
+**And** successfully generated scenes are preserved (not rolled back)
+**And** the project state remains unchanged (allowing retry of failed scenes only)
+
+**Given** a generation request is made while another generation job is already running for the same project and same type
+**When** the duplicate request arrives
+**Then** the response returns `409 CONFLICT` with message indicating an active job exists
+**And** the active job's jobId is included in the error response for reference
+
+### Story 18.4: Assembly Endpoint and Prompt Update Persistence
+
+As a n8n workflow orchestrator,
+I want a `POST /assemble` endpoint that triggers real CapCut project assembly, and `PUT /prompt` that persists changes via workspace manager,
+So that I can complete the final pipeline stage and modify scene prompts via API.
+
+**Acceptance Criteria:**
+
+**Given** a project with all scenes having approved images and TTS
+**When** `POST /api/v1/projects/{id}/assemble` is called
+**Then** a job record is created and returned within 1 second (NFR3)
+**And** a background goroutine calls AssemblerService to build the CapCut project
+**And** on completion, job result includes the output project file path
+**And** the project state transitions to `complete`
+
+**Given** a project where not all scenes have approved assets
+**When** `POST /api/v1/projects/{id}/assemble` is called
+**Then** the response returns `409 INVALID_STATE` with a message listing unapproved scenes
+
+**Given** a valid project and scene number
+**When** `PUT /api/v1/projects/{id}/scenes/{num}/prompt` is called with `{ "prompt": "new prompt text" }`
+**Then** the prompt is persisted via workspace manager to the scene's directory
+**And** the scene's content hash is invalidated for incremental build detection
+**And** the response confirms the update with scene number and updated timestamp
+
+**Given** an invalid scene number or nonexistent project
+**When** `PUT /api/v1/projects/{id}/scenes/{num}/prompt` is called
+**Then** the appropriate error response is returned (404 or 400)
+
+### Story 18.5: Webhook Event Extension
+
+As a n8n workflow orchestrator,
+I want to receive `job_complete`, `job_failed`, and `scene_approved` webhook events,
+So that I can react to pipeline events in real-time without polling.
+
+**Acceptance Criteria:**
+
+**Given** a webhook URL is configured and a background job completes successfully
+**When** the job status transitions to `complete`
+**Then** a `job_complete` event is sent with payload `{ event, project_id, scp_id, job_id, job_type, result, timestamp }`
+**And** delivery follows existing retry logic (max 3 attempts, exponential backoff)
+**And** the payload is a flat JSON object parseable by n8n HTTP Request node (NFR11)
+
+**Given** a background job fails
+**When** the job status transitions to `failed`
+**Then** a `job_failed` event is sent with payload `{ event, project_id, scp_id, job_id, job_type, error, failed_scene, timestamp }`
+
+**Given** a scene is approved via `POST /projects/{id}/scenes/{num}/approve`
+**When** the approval is persisted
+**Then** a `scene_approved` event is sent with payload `{ event, project_id, scp_id, scene_num, asset_type, timestamp }`
+**And** if all scenes of a given asset type are now approved, an additional `all_approved` event is sent with `{ event, project_id, scp_id, asset_type, timestamp }`
+
+**Given** the WebhookNotifier is nil (no URLs configured)
+**When** any event fires
+**Then** no error occurs and the operation proceeds normally (no-op pattern preserved)
+
+### Story 18.6: Pipeline Run Handler with Stage-Based Execution
+
+As a n8n workflow orchestrator,
+I want `POST /projects/{id}/run` to execute scenario generation and pause at `scenario_review` by default,
+So that n8n can control subsequent stages individually while CLI users can optionally run the full pipeline.
+
+**Acceptance Criteria:**
+
+**Given** a project in `pending` state with all services initialized
+**When** `POST /api/v1/projects/{id}/run` is called with default options (no mode specified)
+**Then** a job record is created and returned within 1 second
+**And** a background goroutine executes scenario generation via LLM service
+**And** on scenario completion, project state transitions to `scenario_review`
+**And** the job status is set to `waiting_approval` with stage `scenario_review`
+**And** a `state_change` webhook event fires
+
+**Given** `POST /api/v1/projects/{id}/run` is called with `{ "mode": "full" }`
+**When** the pipeline executes
+**Then** a `pipeline.Runner` is created with the Server's plugin registry and services
+**And** the runner executes the full pipeline with progress callback updating the job record
+**And** at `scenario_review`, the pipeline blocks until `POST /approve` is called or 72-hour timeout expires (FR39)
+**And** project state transitions follow the full state machine (pending → scenario_review → approved → image_review → tts_review → assembling → complete)
+**And** webhook events fire at each state transition
+
+**Given** `POST /projects/{id}/run` is called with `{ "dryRun": true }`
+**When** the pipeline executes
+**Then** no external API calls are made (LLM, ImageGen, TTS)
+**And** the pipeline validates flow, data availability, and configuration
+**And** the job completes with result `dry-run complete`
+
+**Given** the pipeline fails at any stage
+**When** the error is caught
+**Then** the job status is set to `failed` with error details and failed stage
+**And** a `job_failed` webhook event is fired
+**And** intermediate artifacts from completed stages are preserved (NFR7)
+
+### Story 18.7: Scene Dashboard Enhancement for n8n Polling
+
+As a n8n workflow orchestrator,
+I want the scene dashboard API to include per-scene approval flags and aggregate status,
+So that I can poll a single endpoint to determine if all assets are approved and the next stage can proceed.
+
+**Acceptance Criteria:**
+
+**Given** a project with scenes in various approval states
+**When** `GET /api/v1/projects/{id}/scenes` is called
+**Then** each scene includes `image_approved` (bool), `tts_approved` (bool), `prompt` (string), and `assets` (object with image/audio/subtitle paths)
+**And** the response includes aggregate flags: `all_images_approved`, `all_tts_approved`, `all_approved`
+**And** the response includes counts: `approved_image_count`, `approved_tts_count`, `total_scenes`
+
+**Given** n8n polls the scene dashboard after a scene approval
+**When** all images are approved but some TTS are pending
+**Then** `all_images_approved` is `true`, `all_tts_approved` is `false`, `all_approved` is `false`
+
+**Given** all scenes have both image and TTS approved
+**When** `GET /api/v1/projects/{id}/scenes` is called
+**Then** `all_approved` is `true`
+**And** this signals to n8n that `POST /assemble` can be called
+
+**Given** a scene is rejected via `POST /projects/{id}/scenes/{num}/reject`
+**When** the rejection includes `{ "asset_type": "image", "reason": "wrong style" }`
+**Then** that scene's `image_approved` is reset to `false`
+**And** the aggregate `all_images_approved` and `all_approved` are recalculated
+**And** the response conforms to n8n-compatible flat JSON structure (NFR11)
+
+**Given** a scene is rejected, then regenerated via `POST /images/generate`, then re-approved
+**When** the full reject → regenerate → approve cycle completes
+**Then** the scene's `image_approved` is `true`
+**And** aggregate flags are correctly recalculated at each step

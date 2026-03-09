@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-03-08 (updated)
+generated: 2026-03-09 (epic-18 added)
 project: youtube.pipeline
 project_key: NOKEY
 tracking_system: file-system
@@ -49,7 +49,7 @@ development_status:
   1-5-dry-run-mode-configuration-verification: done
   1-6-docker-packaging-deployment: done
   1-7-project-state-machine-transitions: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   # Epic 2: SCP Data & Scenario Generation
   epic-2: done
@@ -59,7 +59,7 @@ development_status:
   2-4-scenario-generation-with-fact-tagging: done
   2-5-fact-coverage-verification: done
   2-6-scenario-review-edit-approval: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   # Epic 3: Visual & Audio Asset Generation
   epic-3: done
@@ -68,14 +68,14 @@ development_status:
   3-3-tts-narration-pronunciation: done
   3-4-timing-resolver: done
   3-5-subtitle-generation: done
-  epic-3-retrospective: optional
+  epic-3-retrospective: done
 
   # Epic 4: CapCut Project Assembly
   epic-4: done
   4-1-capcut-format-poc-validation: done
   4-2-capcut-project-assembly: done
   4-3-copyright-licensing-automation: done
-  epic-4-retrospective: optional
+  epic-4-retrospective: done
 
   # Epic 5: Pipeline Orchestration & Reliability
   epic-5: done
@@ -85,7 +85,7 @@ development_status:
   5-4-scene-dependency-chain-stale-invalidation: done
   5-5-checkpoint-resume-error-recovery: done
   5-6-retry-reliability-hardening: done
-  epic-5-retrospective: optional
+  epic-5-retrospective: done
 
   # Epic 6: Observability, Quality & Operational Excellence
   epic-6: done
@@ -93,7 +93,7 @@ development_status:
   6-2-prompt-template-management-versioning: done
   6-3-quality-feedback-pipeline-metrics: done
   6-4-project-cleanup-disk-management: done
-  epic-6-retrospective: optional
+  epic-6-retrospective: done
 
   # Epic 7: REST API & External Integration
   epic-7: done
@@ -104,7 +104,7 @@ development_status:
   7-5-configuration-plugin-management-api: done
   7-6-webhook-notifications: done
   7-7-api-authentication-middleware: done
-  epic-7-retrospective: optional
+  epic-7-retrospective: done
 
   # Epic 8: LLM Plugin — Gemini Scenario Generation
   epic-8: done
@@ -115,7 +115,7 @@ development_status:
   8-5-scp-glossary-aware-generation: done
   8-6-llm-fallback-chain: done
   8-7-minimal-e2e-smoke-test: done
-  epic-8-retrospective: optional
+  epic-8-retrospective: done
 
   # Epic 9: ImageGen Plugin — SiliconFlow FLUX Image Generation
   epic-9: done
@@ -124,7 +124,7 @@ development_status:
   9-3-frozen-descriptor-protocol-implementation: done
   9-4-scene-image-generation-pipeline: done
   9-5-selective-scene-image-regeneration: done
-  epic-9-retrospective: optional
+  epic-9-retrospective: done
 
   # Epic 10: TTS Plugin — DashScope CosyVoice Narration
   epic-10: done
@@ -133,14 +133,14 @@ development_status:
   10-3-voice-cloning-via-config-level-voiceid: done
   10-4-cosyvoice-flash-model-subtitle-generation: done
   10-5-narration-generation-pipeline: done
-  epic-10-retrospective: optional
+  epic-10-retrospective: done
 
   # Epic 11: Output Plugin — CapCut Project Assembly
   epic-11: done
   11-1-capcut-assembler-concrete-implementation: done
   11-2-timing-resolver-narration-driven-scene-synchronization: done
   11-3-copyright-licensing-metadata-integration: done
-  epic-11-retrospective: optional
+  epic-11-retrospective: done
 
   # Epic 12: End-to-End Pipeline Integration
   epic-12: done
@@ -148,4 +148,75 @@ development_status:
   12-2-cross-stage-checkpoint-resume: done
   12-3-multi-stage-pipeline-progress-dashboard: done
   12-4-integration-test-suite: done
-  epic-12-retrospective: optional
+  epic-12-retrospective: done
+
+  # Epic 13: Prompt Template Management (FR45-FR47, FR61)
+  # Priority: 1 — Independent, no plugin interface changes
+  # Dependencies: None (builds on existing template infrastructure from Epic 6)
+  epic-13: done
+  13-1-prompt-template-domain-model-database-migration: done
+  13-2-prompt-template-store-crud-version-management: done
+  13-3-prompt-template-service-business-logic: done
+  13-4-default-template-auto-installation: done
+  13-5-prompt-template-cli-commands: done
+  epic-13-retrospective: done
+
+  # Epic 14: Character ID Card System (FR48-FR50)
+  # Priority: 2 — ImageGen interface extension, enables visual consistency
+  # Dependencies: Epic 9 (done), Epic 13 migration ordering (002 → 003)
+  epic-14: done
+  14-1-imagegen-plugin-interface-extension: done
+  14-2-character-domain-model-database-migration: done
+  14-3-character-store-crud-alias-search: done
+  14-4-character-service-crud-scene-text-matching: done
+  14-5-image-service-integration-character-auto-reference: done
+  14-6-character-cli-commands: done
+  epic-14-retrospective: done
+
+  # Epic 15: TTS Mood Presets (FR51-FR52)
+  # Priority: 3 — TTS interface extension, LLM-based auto-mapping
+  # Dependencies: Epic 10 (done), Epic 8 (done), Epic 14 migration ordering (003 → 004)
+  epic-15: done
+  15-1-tts-plugin-interface-extension: done
+  15-2-mood-preset-domain-model-database-migration: done
+  15-3-mood-preset-store-crud-scene-assignment: done
+  15-4-mood-service-preset-management-llm-auto-mapping: done
+  15-5-tts-service-integration-cli-commands: done
+  epic-15-retrospective: done
+
+  # Epic 17: BGM Preset Library (FR57-FR60)
+  # Priority: 4 — OutputAssembler interface extension, follows Epic 15 pattern
+  # Dependencies: Epic 11 (done), Epic 8 (done), Epic 15 (done), migration ordering (005 → 006)
+  epic-17: done
+  17-1-outputassembler-plugin-interface-extension: done
+  17-2-bgm-domain-model-database-migration: done
+  17-3-bgm-store-crud-tag-search-scene-assignment: done
+  17-4-bgm-service-management-llm-auto-recommendation: done
+  17-5-capcut-assembler-integration-bgm-placement-credits: done
+  17-6-bgm-cli-commands: done
+  epic-17-retrospective: done
+
+  # Epic 16: Scene Approval Workflow (FR53-FR56)
+  # Priority: 5 (HIGHEST RISK) — State machine change + pipeline orchestrator integration
+  # Dependencies: Epic 1/5/12 (done), Epic 13-15/17 migration ordering (005 → 006)
+  # Risk: Modifies core state machine (pending→...→complete), pipeline flow, checkpoint/resume
+  epic-16: done
+  16-1-state-machine-extension-scene-approval-domain-model: done
+  16-2-scene-approval-store: done
+  16-3-approval-service-per-scene-workflow-orchestration: done
+  16-4-pipeline-orchestrator-integration: done
+  16-5-scene-asset-mapping-dashboard: done
+  epic-16-retrospective: done
+
+  # Epic 18: n8n-Ready API Execution Layer (FR10-FR17, FR22, FR30, FR37, FR39, FR54-FR56)
+  # Priority: Next — Completes API execution layer for n8n workflow integration
+  # Dependencies: Epic 7 (API stubs, done), Epic 8-12 (services/plugins, done), Epic 16 (scene approval, done)
+  epic-18: done
+  18-1-server-plugin-injection-and-service-initialization: done
+  18-2-job-lifecycle-management-with-db-persistence: done
+  18-3-image-and-tts-generation-handler-execution-logic: done
+  18-4-assembly-endpoint-and-prompt-update-persistence: done
+  18-5-webhook-event-extension: done
+  18-6-pipeline-run-handler-with-stage-based-execution: done
+  18-7-scene-dashboard-enhancement-for-n8n-polling: done
+  epic-18-retrospective: done

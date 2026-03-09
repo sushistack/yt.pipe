@@ -22,7 +22,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 ### Requirements Overview
 
 **Functional Requirements:**
-44개 FR이 8개 카테고리로 구성. 핵심은 SCP ID 입력 → CapCut 프로젝트 출력의 end-to-end 파이프라인이며, CLI + REST API 이중 인터페이스로 동일한 서비스 레이어를 공유한다. 씬(Scene)이 파이프라인의 기본 처리 단위이자 자기 완결적 에셋 번들(이미지, 오디오, 자막, 메타데이터)로, 증분 빌드와 부분 재생성의 근간이 된다.
+61개 FR이 14개 카테고리로 구성. 핵심은 SCP ID 입력 → CapCut 프로젝트 출력의 end-to-end 파이프라인이며, CLI + REST API 이중 인터페이스로 동일한 서비스 레이어를 공유한다. 씬(Scene)이 파이프라인의 기본 처리 단위이자 자기 완결적 에셋 번들(이미지, 오디오, 자막, 메타데이터)로, 증분 빌드와 부분 재생성의 근간이 된다. FR45-61(2026-03-09 추가)은 프롬프트 템플릿 관리, 캐릭터 ID카드, TTS 분위기 프리셋, 씬별 승인 워크플로우, BGM 프리셋 라이브러리, 프롬프트 마이그레이션 6개 영역을 포함한다.
 
 **Non-Functional Requirements:**
 24개 NFR이 7개 카테고리로 구성. 아키텍처를 형성하는 핵심 NFR: 플러그인 인터페이스 표준화(NFR9), 모듈 간 결합도 최소화(NFR20), 기존 코드 변경 없는 플러그인 추가(NFR21), 외부 API 없이 테스트 가능(NFR23), Docker 패키징(NFR13), 비정상 종료 시 데이터 무결성(NFR8).
@@ -34,7 +34,7 @@ PRD 검증에서 지적된 7건의 구현 누출(FR5 팩트 태깅 포맷, NFR9 
 
 - Primary domain: CLI Tool + API Backend (워크플로우 오케스트레이션)
 - Complexity level: Medium
-- Estimated architectural components: ~13
+- Estimated architectural components: ~17 (FR45-61 추가로 4개 증가)
 - 가장 복잡한 컴포넌트: 파이프라인 오케스트레이터 — 상태 머신, 증분 빌드 판단, 단계 간 의존성 관리, 체크포인트를 모두 담당하며 아키텍처에서 가장 신중하게 다뤄져야 할 부분
 
 ### Technical Constraints & Dependencies
@@ -78,7 +78,7 @@ PRD 검증에서 지적된 7건의 구현 누출(FR5 팩트 태깅 포맷, NFR9 
 - **시나리오 출력 스키마가 모듈 간 계약** — 시나리오의 구조화된 출력(narration, visualDescription, factTags, mood)이 이미지 프롬프트, TTS, 팩트 검증, 자막 4개 소비자의 입력 계약
 - **검증 게이트 인터페이스** — 단계 간 검증 게이트가 공통 인터페이스(validate() → pass/fail/warn)를 따르되, 구현은 단계별 특화(스키마 검증, 팩트 커버리지, 산출물 무결성)
 - **스타일 설정의 횡단 영향** — 글로벌 스타일 프리셋이 이미지 프롬프트, TTS, CapCut, 시나리오 4개 모듈에 영향. 설정 구조에 style 네임스페이스 확보
-- **이미지 생성과 TTS는 병렬 가능** — 둘 다 시나리오에만 의존하므로 시나리오 승인 후 동시 실행 가능. 자막은 TTS 타이밍에 의존하므로 TTS 완료 후. 조립은 모든 에셋 완료 후. 상태 머신에 generating 하위 상태(images/tts/subtitles) 반영
+- **이미지 생성과 TTS는 순차 실행으로 변경** — FR54-55 씬별 승인 워크플로우 도입으로 이미지 생성(image_review) → TTS 생성(tts_review) 순차 실행. 각 단계에서 크리에이터가 씬 단위로 승인/재생성을 판단하므로 병렬 실행 불가. 상태 머신: `approved → image_review → tts_review → assembling → complete`
 - **씬 모델 MVP 단순화** — MVP에서 1씬 = 1이미지 + 1나레이션 구간. Phase 2 확장을 위해 씬 모델에 확장 포인트(예: imageCount) 보존
 - **플러그인 4종** — LLM, TTS, ImageGen, OutputAssembler. CapCut은 OutputAssembler의 기본 구현체, FFmpeg/JSON 타임라인이 대체 구현
 - **MVP 동시성 제약** — MVP는 단일 파이프라인 실행만 보장. 동시 실행은 Phase 2 배치 프로세싱에서 해결. n8n에서 동시 트리거 시 큐잉 또는 거부 정책 필요
@@ -231,7 +231,7 @@ youtube.pipeline/
 - SQLite Option B (aggressive): 프로젝트 상태 + 씬 매니페스트 + 실행 이력 + 비용 로그 통합
 - Job 테이블 기반 비동기 작업 관리 (Option A)
 - 플러그인 4종 인터페이스 정의 (LLM, TTS, ImageGen, OutputAssembler)
-- 상태 머신 오케스트레이션 (pending → scenario_review → approved → generating_assets → assembling → complete)
+- 상태 머신 오케스트레이션 (pending → scenario_review → approved → image_review → tts_review → assembling → complete) — FR22 확장: `image_review`, `tts_review` 상태 추가로 씬별 승인 워크플로우 지원
 
 **Important Decisions (Shape Architecture):**
 - Store(SQLite 메타데이터) / Workspace(파일시스템 에셋) 분리
@@ -670,21 +670,26 @@ SCP Data (filesystem) → workspace/scp_data.go
 
 ### Requirements Coverage Validation ✅
 
-**FR 커버리지 (44개 FR — 전수 확인):**
+**FR 커버리지 (61개 FR — 전수 확인):**
 
 | FR 범위 | 아키텍처 커버리지 | 상태 |
 |---------|------------------|------|
-| FR1-5 SCP 데이터 | `workspace/scp_data.go` + `glossary/` | ✅ |
-| FR6-11 시나리오 | `service/scenario.go` + `plugin/llm/` + `domain/scenario.go` | ✅ |
-| FR12-16 이미지 | `service/image.go` + `plugin/imagegen/` | ✅ |
-| FR17-19 TTS | `service/tts.go` + `service/timing.go` + `plugin/tts/` | ✅ |
-| FR20-21 출력 조립 | `service/assembler.go` + `plugin/output/capcut.go` | ✅ |
-| FR22-25 프로젝트 관리 | `domain/project.go` (상태 머신) + `store/` + `domain/manifest.go` | ✅ |
-| FR26-29 CLI | `cli/` (8개 커맨드 파일) | ✅ |
-| FR30-33 API | `api/handlers/` (5개 핸들러) + `middleware/` | ✅ |
-| FR34-37 설정 | `config/` (Viper 5단계) | ✅ |
-| FR38-40 증분 빌드 | `domain/manifest.go` + `service/pipeline.go` | ✅ |
-| FR41-44 기타 | slog 로깅, Docker, 에러 코드 | ✅ |
+| FR1-3 SCP 데이터 | `workspace/scp_data.go` + `glossary/` | ✅ |
+| FR4-8 시나리오 | `service/scenario.go` + `plugin/llm/` + `domain/scenario.go` | ✅ |
+| FR9-12 이미지 | `service/image.go` + `plugin/imagegen/` | ✅ |
+| FR13-16 TTS & 자막 | `service/tts.go` + `service/timing.go` + `plugin/tts/` | ✅ |
+| FR17-19 출력 조립 | `service/assembler.go` + `plugin/output/capcut.go` | ✅ |
+| FR20-30 파이프라인 제어 | `domain/project.go` + `store/` + `service/pipeline.go` | ✅ |
+| FR31-36 설정 | `config/` (Viper 5단계) + `cli/init_cmd.go` | ✅ |
+| FR37-40 API | `api/handlers/` + `middleware/` | ✅ |
+| FR42-44 모니터링 | slog 로깅, 성공률 집계 | ✅ |
+| FR45-47 프롬프트 템플릿 | `service/template.go` + `store/template.go` + `domain/template.go` | ✅ |
+| FR48-50 캐릭터 ID카드 | `service/character.go` + `store/character.go` + `domain/character.go` | ✅ |
+| FR51-52 TTS 분위기 | `service/mood.go` + `store/mood_preset.go` + `plugin/tts/` 확장 | ✅ |
+| FR53 VC | Phase 2 — TTS 플러그인 옵셔널 인터페이스 예약 | ⏳ |
+| FR54-56 씬별 승인 | `service/approval.go` + `store/scene_approval.go` + 상태 머신 확장 | ✅ |
+| FR57-60 BGM | `service/bgm.go` + `store/bgm.go` + `plugin/output/capcut.go` 확장 | ✅ |
+| FR61 마이그레이션 | `cli/init_cmd.go` + `store/template.go` 시딩 | ✅ |
 
 **NFR 커버리지 (핵심 7개):**
 
@@ -768,3 +773,366 @@ SCP Data (filesystem) → workspace/scp_data.go
 **First Implementation Priority:**
 0. CapCut PoC 검증 (기존 video.pipeline 템플릿 기반)
 1. 프로젝트 스캐폴딩 + `go mod init` + 디렉토리 구조 생성
+
+---
+
+## Incremental Update: FR45-FR61 (2026-03-09)
+
+> 이 섹션은 PRD에 FR45-FR61이 추가된 후 아키텍처 증분 업데이트를 기록한다.
+> 핵심 아키텍처 결정(Go, Cobra, Chi, SQLite, 플러그인 패턴, 의존 방향)은 변경 없음.
+> 기존 구조 위에 모듈 추가/확장으로 해결.
+
+### State Machine Update (FR22 확장)
+
+**기존:**
+```
+pending → scenario_review → approved → generating_assets → assembling → complete
+```
+
+**변경:**
+```
+pending → scenario_review → approved → image_review → tts_review → assembling → complete
+```
+
+- `image_review`: 씬별 이미지 생성-미리보기-승인/재생성 워크플로우 (FR54)
+- `tts_review`: 씬별 TTS 합성-미리듣기-승인/재합성 워크플로우 (FR55)
+- 각 상태에서 개별 씬의 승인 상태를 `scene_approvals` 테이블로 추적
+- 모든 씬이 승인되면 다음 상태로 자동 전이
+
+**씬 승인 상태 모델:**
+```
+per scene: pending → generated → approved | rejected → (regenerated → approved)
+```
+
+### New SQLite Tables
+
+기존 마이그레이션에 이어 추가:
+
+**`002_templates.sql`** (FR45-47, FR61):
+```sql
+CREATE TABLE prompt_templates (
+    id          TEXT PRIMARY KEY,
+    category    TEXT NOT NULL CHECK(category IN ('scenario','image','tts','caption')),
+    name        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    version     INTEGER NOT NULL DEFAULT 1,
+    is_default  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE prompt_template_versions (
+    id          TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL REFERENCES prompt_templates(id),
+    version     INTEGER NOT NULL,
+    content     TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+-- 최근 10개 버전만 보존, 초과 시 가장 오래된 버전 삭제
+
+CREATE TABLE project_template_overrides (
+    project_id  TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    PRIMARY KEY (project_id, template_id)
+);
+
+CREATE INDEX idx_templates_category ON prompt_templates(category);
+CREATE INDEX idx_template_versions_template_id ON prompt_template_versions(template_id);
+```
+
+**`003_characters.sql`** (FR48-50):
+```sql
+CREATE TABLE characters (
+    id                TEXT PRIMARY KEY,
+    scp_id            TEXT NOT NULL,
+    canonical_name    TEXT NOT NULL,
+    aliases           TEXT,          -- JSON array: ["SCP-173", "조각상", "The Sculpture"]
+    visual_descriptor TEXT NOT NULL, -- 외형 묘사 텍스트
+    style_guide       TEXT,          -- 스타일 가이드
+    image_prompt_base TEXT,          -- 참조 이미지 프롬프트 기반
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+
+CREATE INDEX idx_characters_scp_id ON characters(scp_id);
+```
+
+**`004_mood_presets.sql`** (FR51-52):
+```sql
+CREATE TABLE mood_presets (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT,
+    speed       REAL,     -- TTS 속도 배율
+    emotion     TEXT,     -- 감정 파라미터 (Qwen3-TTS 기반)
+    pitch       REAL,     -- 피치 조절
+    params_json TEXT,     -- 추가 TTS 파라미터 (JSON)
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE scene_mood_assignments (
+    project_id  TEXT NOT NULL,
+    scene_num   INTEGER NOT NULL,
+    preset_id   TEXT NOT NULL REFERENCES mood_presets(id),
+    auto_mapped INTEGER NOT NULL DEFAULT 0, -- 1=LLM 자동 매핑, 0=수동 지정
+    confirmed   INTEGER NOT NULL DEFAULT 0, -- 크리에이터 확인 여부
+    PRIMARY KEY (project_id, scene_num)
+);
+```
+
+**`005_bgms.sql`** (FR57-60):
+```sql
+CREATE TABLE bgms (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    file_path     TEXT NOT NULL,
+    mood_tags     TEXT NOT NULL,  -- JSON array: ["horror", "tension", "mystery"]
+    duration_ms   INTEGER,
+    license_type  TEXT NOT NULL,  -- "royalty_free", "cc_by", etc.
+    license_source TEXT,
+    credit_text   TEXT NOT NULL,  -- 영상 설명에 포함될 크레딧
+    created_at    TEXT NOT NULL
+);
+
+CREATE TABLE scene_bgm_assignments (
+    project_id  TEXT NOT NULL,
+    scene_num   INTEGER NOT NULL,
+    bgm_id      TEXT NOT NULL REFERENCES bgms(id),
+    volume_db   REAL NOT NULL DEFAULT 0,
+    fade_in_ms  INTEGER NOT NULL DEFAULT 2000,
+    fade_out_ms INTEGER NOT NULL DEFAULT 2000,
+    ducking_db  REAL NOT NULL DEFAULT -12,
+    auto_recommended INTEGER NOT NULL DEFAULT 0,
+    confirmed   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (project_id, scene_num)
+);
+
+CREATE INDEX idx_bgms_mood_tags ON bgms(mood_tags);
+```
+
+**`006_scene_approvals.sql`** (FR54-55):
+```sql
+CREATE TABLE scene_approvals (
+    project_id  TEXT NOT NULL,
+    scene_num   INTEGER NOT NULL,
+    asset_type  TEXT NOT NULL CHECK(asset_type IN ('image', 'tts')),
+    status      TEXT NOT NULL CHECK(status IN ('pending','generated','approved','rejected')),
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (project_id, scene_num, asset_type)
+);
+
+CREATE INDEX idx_scene_approvals_project ON scene_approvals(project_id, asset_type);
+```
+
+### New & Modified Files
+
+**새 도메인 모델 (`domain/`):**
+```
+domain/
+├── template.go          # PromptTemplate, TemplateVersion, TemplateCategory 타입
+├── character.go         # Character 모델 (canonical_name, aliases, visual_descriptor)
+├── mood_preset.go       # MoodPreset 모델 (speed, emotion, pitch, params)
+├── bgm.go              # BGM 모델 (mood_tags, license, credit)
+└── scene_approval.go   # SceneApproval 모델 (asset_type, status, attempts)
+```
+
+**새 저장소 (`store/`):**
+```
+store/
+├── template.go          # 템플릿 CRUD + 버전 관리 + 롤백 + 오버라이드
+├── character.go         # 캐릭터 ID카드 CRUD + 별칭 검색
+├── mood_preset.go       # 분위기 프리셋 CRUD + 씬 할당
+├── bgm.go              # BGM CRUD + 태그 검색 + 씬 할당
+├── scene_approval.go   # 씬별 승인 상태 CRUD
+└── migrations/
+    ├── 002_templates.sql
+    ├── 003_characters.sql
+    ├── 004_mood_presets.sql
+    ├── 005_bgms.sql
+    └── 006_scene_approvals.sql
+```
+
+**새 서비스 (`service/`):**
+```
+service/
+├── template.go          # 템플릿 CRUD + 버전 관리 + 프로젝트 오버라이드
+├── character.go         # ID카드 CRUD + 씬 텍스트에서 개체명 매칭
+├── mood.go             # 분위기 프리셋 관리 + LLM 기반 자동 매핑
+├── bgm.go              # BGM 관리 + LLM 기반 자동 추천
+└── approval.go         # 씬별 승인 워크플로우 오케스트레이션
+```
+
+**새 CLI 커맨드 (`cli/`):**
+```
+cli/
+├── prompt.go            # yt-pipe prompt list/show
+├── character.go         # yt-pipe character create/list
+└── bgm.go              # yt-pipe bgm list/assign
+```
+
+**수정되는 기존 파일:**
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `domain/project.go` | 상태 전이 맵에 `image_review`, `tts_review` 추가 |
+| `plugin/tts/interface.go` | `MoodPreset` 파라미터 추가 — `Generate(ctx, text, mood *MoodPreset) (Audio, error)` |
+| `plugin/imagegen/interface.go` | `CharacterRefs` 파라미터 추가 — `Generate(ctx, prompt, chars []CharacterRef) (Image, error)` |
+| `plugin/output/capcut.go` | BGM 트랙 배치 로직 추가 (볼륨, 페이드, 덕킹) + BGM 크레딧 포함 |
+| `service/pipeline.go` | 오케스트레이터에 `image_review` → `tts_review` 단계 추가, 승인 대기 로직 |
+| `service/image.go` | 캐릭터 ID카드 자동 참조 로직 (개체명 매칭) 추가 |
+| `service/tts.go` | 분위기 프리셋 적용 로직 추가 |
+| `service/assembler.go` | BGM 배치 + 라이선스 크레딧 포함 |
+| `cli/init_cmd.go` | 기본 프롬프트 템플릿 시딩 로직 추가 (FR61) |
+| `config/types.go` | BGM 기본 설정 추가 (ducking_db, fade_ms) |
+
+### Plugin Interface Changes
+
+**TTS Interface (확장):**
+```go
+// 기존
+type TTS interface {
+    Generate(ctx context.Context, text string) (*Audio, error)
+}
+
+// 변경
+type TTS interface {
+    Generate(ctx context.Context, text string, opts *TTSOptions) (*Audio, error)
+}
+
+type TTSOptions struct {
+    MoodPreset *MoodPreset // nil이면 기본 톤 사용
+}
+
+type MoodPreset struct {
+    Speed   float64
+    Emotion string
+    Pitch   float64
+    Params  map[string]any // TTS 엔진별 추가 파라미터
+}
+```
+
+**ImageGen Interface (확장):**
+```go
+// 기존
+type ImageGen interface {
+    Generate(ctx context.Context, prompt string) (*Image, error)
+}
+
+// 변경
+type ImageGen interface {
+    Generate(ctx context.Context, prompt string, opts *ImageGenOptions) (*Image, error)
+}
+
+type ImageGenOptions struct {
+    CharacterRefs []CharacterRef // 빈 슬라이스면 캐릭터 참조 없음
+}
+
+type CharacterRef struct {
+    Name            string
+    VisualDescriptor string
+    ImagePromptBase  string
+}
+```
+
+**OutputAssembler Interface (확장):**
+```go
+// 기존
+type OutputAssembler interface {
+    Assemble(ctx context.Context, project *Project) (string, error)
+}
+
+// 변경
+type OutputAssembler interface {
+    Assemble(ctx context.Context, project *Project, opts *AssembleOptions) (string, error)
+}
+
+type AssembleOptions struct {
+    BGMAssignments []BGMAssignment
+    Credits        []CreditEntry // CC-BY-SA + BGM 크레딧
+}
+
+type BGMAssignment struct {
+    SceneNum  int
+    FilePath  string
+    VolumeDB  float64
+    FadeInMs  int
+    FadeOutMs int
+    DuckingDB float64
+}
+```
+
+### Character Matching Algorithm (FR50)
+
+씬별 이미지 생성 시 캐릭터 자동 참조 로직:
+
+```
+1. characters 테이블에서 프로젝트 SCP ID에 해당하는 캐릭터 + 글로벌 캐릭터 로드
+2. 각 캐릭터의 canonical_name + aliases 목록 구성
+3. 씬 시나리오 텍스트에서 각 이름/별칭 문자열 매칭
+4. 매칭된 캐릭터의 CharacterRef를 ImageGenOptions에 포함
+5. 이미지 생성 플러그인이 visual_descriptor + image_prompt_base를 프롬프트에 합성
+```
+
+### Updated Requirements to Structure Mapping
+
+| PRD FR 카테고리 | 주요 패키지 | 핵심 파일 |
+|-----------------|------------|----------|
+| SCP 데이터 처리 (FR1-3) | `workspace/`, `glossary/` | `scp_data.go`, `glossary.go` |
+| 시나리오 생성 (FR4-8) | `service/`, `plugin/llm/` | `scenario.go`, `openai.go` |
+| 이미지 생성 (FR9-12) | `service/`, `plugin/imagegen/` | `image.go`, `siliconflow.go` |
+| TTS & 자막 (FR13-16) | `service/`, `plugin/tts/` | `tts.go`, `timing.go` |
+| CapCut 조립 (FR17-19) | `service/`, `plugin/output/` | `assembler.go`, `capcut.go` |
+| 파이프라인 제어 (FR20-30, 42-44) | `service/`, `store/`, `domain/` | `pipeline.go`, `project.go` |
+| 설정 & 플러그인 (FR31-36) | `config/`, `cli/` | `config.go`, `init_cmd.go` |
+| API 인터페이스 (FR37-40) | `api/` | `handlers/*.go`, `routes.go` |
+| **프롬프트 템플릿 (FR45-47, 61)** | **`service/`, `store/`, `domain/`, `cli/`** | **`template.go`, `prompt.go`** |
+| **캐릭터 ID카드 (FR48-50)** | **`service/`, `store/`, `domain/`, `cli/`** | **`character.go`** |
+| **TTS 분위기 (FR51-52)** | **`service/`, `store/`, `domain/`, `plugin/tts/`** | **`mood.go`, `mood_preset.go`** |
+| **씬별 승인 (FR54-56)** | **`service/`, `store/`, `domain/`** | **`approval.go`, `scene_approval.go`** |
+| **BGM 관리 (FR57-60)** | **`service/`, `store/`, `domain/`, `cli/`, `plugin/output/`** | **`bgm.go`** |
+
+### Updated Data Flow
+
+```
+SCP Data (filesystem) → workspace/scp_data.go
+    → service/scenario.go (+ plugin/llm/) → 시나리오 생성
+        → service/character.go → 씬별 캐릭터 매칭
+        → service/mood.go (+ plugin/llm/) → 씬별 분위기 자동 매핑 → 크리에이터 확인
+        → service/approval.go [image_review]
+            → service/image.go (+ plugin/imagegen/ + CharacterRefs) → 씬별 이미지 생성-승인
+        → service/approval.go [tts_review]
+            → service/tts.go (+ plugin/tts/ + MoodPreset) → 씬별 TTS 생성-승인
+                → service/timing.go → 타이밍 해석
+                → service/subtitle.go → 자막 생성
+        → service/bgm.go (+ plugin/llm/) → BGM 자동 추천 → 크리에이터 확인
+        → service/assembler.go (+ plugin/output/ + BGMAssignments) → CapCut 프로젝트
+```
+
+### Updated Package Count & Dependencies
+
+**패키지 수:** 10개 → 10개 (변경 없음, 기존 패키지 내 파일 추가)
+
+**새로운 의존 관계 (기존 규칙 준수):**
+```
+service/template.go   → store/, domain/
+service/character.go  → store/, domain/
+service/mood.go       → store/, domain/, plugin/llm/ (분위기 분석용)
+service/bgm.go        → store/, domain/, plugin/llm/ (BGM 추천용)
+service/approval.go   → store/, domain/
+service/image.go      → store/character (캐릭터 참조 조회)
+service/tts.go        → store/mood_preset (분위기 프리셋 조회)
+service/assembler.go  → store/bgm (BGM 할당 조회)
+```
+
+모든 새 의존 관계는 기존 의존 방향(`service/` → `store/`, `domain/`, `plugin/`)을 준수한다.
+
+### Deferred Decisions Update
+
+기존 Deferred에 추가:
+- FR53 VC(Voice Cloning) → Phase 2 (TTS 플러그인 인터페이스에 옵셔널 `VoiceCloner` 인터페이스 예약)
+- 프롬프트 A/B 테스트 → Phase 2
+- BGM 자동 작곡/생성 → Phase 3
