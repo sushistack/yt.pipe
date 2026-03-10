@@ -17,7 +17,7 @@ import (
 func TestWebhookNotifier_NilSafe(t *testing.T) {
 	// Nil notifier should be a no-op
 	var wn *api.WebhookNotifier
-	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved")
+	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved", "")
 	// No panic = pass
 }
 
@@ -44,7 +44,7 @@ func TestWebhookNotifier_SendsPayload(t *testing.T) {
 	})
 	require.NotNil(t, wn)
 
-	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "scenario_review")
+	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "scenario_review", "/review/proj-1?token=abc")
 
 	// Wait briefly for async delivery
 	time.Sleep(100 * time.Millisecond)
@@ -55,6 +55,7 @@ func TestWebhookNotifier_SendsPayload(t *testing.T) {
 	assert.Equal(t, "SCP-173", lastEvent.SCPID)
 	assert.Equal(t, "pending", lastEvent.PreviousState)
 	assert.Equal(t, "scenario_review", lastEvent.NewState)
+	assert.Equal(t, "/review/proj-1?token=abc", lastEvent.ReviewURL)
 }
 
 func TestWebhookNotifier_FanOut(t *testing.T) {
@@ -78,7 +79,7 @@ func TestWebhookNotifier_FanOut(t *testing.T) {
 		RetryMaxAttempts: 1,
 	})
 
-	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved")
+	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved", "")
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Equal(t, int32(1), count1.Load())
@@ -104,7 +105,7 @@ func TestWebhookNotifier_RetryOnFailure(t *testing.T) {
 		RetryMaxAttempts: 3,
 	})
 
-	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved")
+	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved", "")
 	time.Sleep(10 * time.Second) // Allow retries with backoff
 
 	assert.Equal(t, int32(3), attempts.Load())
@@ -113,11 +114,11 @@ func TestWebhookNotifier_RetryOnFailure(t *testing.T) {
 func TestWebhookNotifier_NilSafe_AllMethods(t *testing.T) {
 	// All Notify methods on nil notifier should be no-ops (no panic)
 	var wn *api.WebhookNotifier
-	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved")
-	wn.NotifyJobComplete("proj-1", "SCP-173", "job-1", "image_generate", "ok")
-	wn.NotifyJobFailed("proj-1", "SCP-173", "job-1", "tts_generate", "err", 3)
-	wn.NotifySceneApproved("proj-1", "SCP-173", 1, "image")
-	wn.NotifyAllApproved("proj-1", "SCP-173", "image")
+	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved", "")
+	wn.NotifyJobComplete("proj-1", "SCP-173", "job-1", "image_generate", "ok", "")
+	wn.NotifyJobFailed("proj-1", "SCP-173", "job-1", "tts_generate", "err", 3, "")
+	wn.NotifySceneApproved("proj-1", "SCP-173", 1, "image", "")
+	wn.NotifyAllApproved("proj-1", "SCP-173", "image", "")
 }
 
 func TestWebhookNotifier_JobComplete(t *testing.T) {
@@ -136,7 +137,7 @@ func TestWebhookNotifier_JobComplete(t *testing.T) {
 	})
 	require.NotNil(t, wn)
 
-	wn.NotifyJobComplete("proj-1", "SCP-173", "job-42", "image_generate", "/path/to/output")
+	wn.NotifyJobComplete("proj-1", "SCP-173", "job-42", "image_generate", "/path/to/output", "")
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Equal(t, "job_complete", lastBody["event"])
@@ -163,7 +164,7 @@ func TestWebhookNotifier_JobFailed(t *testing.T) {
 		RetryMaxAttempts: 1,
 	})
 
-	wn.NotifyJobFailed("proj-1", "SCP-173", "job-99", "tts_generate", "scene 3: timeout", 3)
+	wn.NotifyJobFailed("proj-1", "SCP-173", "job-99", "tts_generate", "scene 3: timeout", 3, "")
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Equal(t, "job_failed", lastBody["event"])
@@ -191,7 +192,7 @@ func TestWebhookNotifier_SceneApproved(t *testing.T) {
 		RetryMaxAttempts: 1,
 	})
 
-	wn.NotifySceneApproved("proj-1", "SCP-173", 5, "image")
+	wn.NotifySceneApproved("proj-1", "SCP-173", 5, "image", "")
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Equal(t, "scene_approved", lastBody["event"])
@@ -217,7 +218,7 @@ func TestWebhookNotifier_AllApproved(t *testing.T) {
 		RetryMaxAttempts: 1,
 	})
 
-	wn.NotifyAllApproved("proj-1", "SCP-173", "tts")
+	wn.NotifyAllApproved("proj-1", "SCP-173", "tts", "")
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Equal(t, "all_approved", lastBody["event"])
@@ -245,10 +246,10 @@ func TestWebhookNotifier_FlatJSON(t *testing.T) {
 
 	// Test each event type for flat structure
 	events := []func(){
-		func() { wn.NotifyJobComplete("p", "s", "j", "t", "r") },
-		func() { wn.NotifyJobFailed("p", "s", "j", "t", "e", 1) },
-		func() { wn.NotifySceneApproved("p", "s", 1, "image") },
-		func() { wn.NotifyAllApproved("p", "s", "image") },
+		func() { wn.NotifyJobComplete("p", "s", "j", "t", "r", "") },
+		func() { wn.NotifyJobFailed("p", "s", "j", "t", "e", 1, "") },
+		func() { wn.NotifySceneApproved("p", "s", 1, "image", "") },
+		func() { wn.NotifyAllApproved("p", "s", "image", "") },
 	}
 
 	for i, fire := range events {
@@ -275,7 +276,7 @@ func TestWebhookNotifier_FailureDoesNotBlock(t *testing.T) {
 	})
 
 	start := time.Now()
-	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved")
+	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved", "")
 	elapsed := time.Since(start)
 
 	// NotifyStateChange should return nearly instantly (fire-and-forget)

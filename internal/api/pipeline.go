@@ -218,7 +218,7 @@ func (s *Server) executePipeline(ctx context.Context, job *runningJob, project *
 		slog.Info("dry-run pipeline started", "project_id", project.ID)
 		job.setStatus(JobStatusComplete)
 		s.updateJobRecord(job.JobID, JobStatusComplete, 100, "dry-run complete", "")
-		s.webhooks.NotifyJobComplete(project.ID, project.SCPID, job.JobID, jobType, "dry-run complete")
+		s.webhooks.NotifyJobComplete(project.ID, project.SCPID, job.JobID, jobType, "dry-run complete", BuildReviewURL(project.ID, project.ReviewToken))
 		return
 	}
 
@@ -240,7 +240,7 @@ func (s *Server) executeScenarioOnly(ctx context.Context, job *runningJob, proje
 		slog.Error("scenario service not available", "project_id", project.ID)
 		job.setStatus(JobStatusFailed)
 		s.updateJobRecord(job.JobID, JobStatusFailed, 0, "", "scenario service not configured")
-		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, job.JobID, "pipeline_run", "scenario service not configured", 0)
+		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, job.JobID, "pipeline_run", "scenario service not configured", 0, BuildReviewURL(project.ID, project.ReviewToken))
 		return
 	}
 
@@ -250,7 +250,7 @@ func (s *Server) executeScenarioOnly(ctx context.Context, job *runningJob, proje
 		slog.Error("failed to load SCP data", "project_id", project.ID, "error", err)
 		job.setStatus(JobStatusFailed)
 		s.updateJobRecord(job.JobID, JobStatusFailed, 0, "", "load SCP data: "+err.Error())
-		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, job.JobID, "pipeline_run", err.Error(), 0)
+		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, job.JobID, "pipeline_run", err.Error(), 0, BuildReviewURL(project.ID, project.ReviewToken))
 		return
 	}
 
@@ -270,7 +270,7 @@ func (s *Server) executeScenarioOnly(ctx context.Context, job *runningJob, proje
 		slog.Error("scenario generation failed", "project_id", project.ID, "error", err)
 		job.setStatus(JobStatusFailed)
 		s.updateJobRecord(job.JobID, JobStatusFailed, 0, "", "scenario generation: "+err.Error())
-		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, job.JobID, "pipeline_run", err.Error(), 0)
+		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, job.JobID, "pipeline_run", err.Error(), 0, BuildReviewURL(project.ID, project.ReviewToken))
 		return
 	}
 
@@ -283,7 +283,7 @@ func (s *Server) executeScenarioOnly(ctx context.Context, job *runningJob, proje
 	s.updateJobRecord(job.JobID, JobStatusWaitingApproval, 100, "scenario_review", "")
 
 	// Fire state_change webhook
-	s.webhooks.NotifyStateChange(project.ID, project.SCPID, previousState, domain.StatusScenarioReview)
+	s.webhooks.NotifyStateChange(project.ID, project.SCPID, previousState, domain.StatusScenarioReview, BuildReviewURL(project.ID, project.ReviewToken))
 
 	slog.Info("scenario generation complete, waiting for approval",
 		"project_id", project.ID, "scp_id", project.SCPID)
@@ -295,7 +295,7 @@ func (s *Server) executeFullPipeline(ctx context.Context, job *runningJob, proje
 		slog.Error("pipeline runner not available", "project_id", project.ID)
 		job.setStatus(JobStatusFailed)
 		s.updateJobRecord(job.JobID, JobStatusFailed, 0, "", "pipeline runner not configured")
-		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, job.JobID, "pipeline_run", "pipeline runner not configured", 0)
+		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, job.JobID, "pipeline_run", "pipeline runner not configured", 0, BuildReviewURL(project.ID, project.ReviewToken))
 		return
 	}
 
@@ -325,13 +325,13 @@ func (s *Server) executeFullPipeline(ctx context.Context, job *runningJob, proje
 			"project_id", project.ID, "error", err, "failed_stage", failedStage)
 		job.setStatus(JobStatusFailed)
 		s.updateJobRecord(job.JobID, JobStatusFailed, 0, "", err.Error())
-		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, job.JobID, "pipeline_run", err.Error(), 0)
+		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, job.JobID, "pipeline_run", err.Error(), 0, BuildReviewURL(project.ID, project.ReviewToken))
 		return
 	}
 
 	job.setStatus(JobStatusComplete)
 	s.updateJobRecord(job.JobID, JobStatusComplete, 100, result.Status, "")
-	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, job.JobID, "pipeline_run", result.Status)
+	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, job.JobID, "pipeline_run", result.Status, BuildReviewURL(project.ID, project.ReviewToken))
 
 	slog.Info("full pipeline complete",
 		"project_id", project.ID, "scp_id", project.SCPID,
@@ -511,7 +511,7 @@ func (s *Server) handleApprovePipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fire webhook notification
-	s.webhooks.NotifyStateChange(projectID, project.SCPID, previousState, domain.StatusApproved)
+	s.webhooks.NotifyStateChange(projectID, project.SCPID, previousState, domain.StatusApproved, BuildReviewURL(projectID, project.ReviewToken))
 
 	WriteJSON(w, r, http.StatusOK, toProjectResponse(updated))
 }

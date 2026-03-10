@@ -72,12 +72,13 @@ func (s *Server) handleApproveScene(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fire scene_approved webhook
-	s.webhooks.NotifySceneApproved(projectID, project.SCPID, sceneNum, assetType)
+	reviewURL := BuildReviewURL(projectID, project.ReviewToken)
+	s.webhooks.NotifySceneApproved(projectID, project.SCPID, sceneNum, assetType, reviewURL)
 
 	// Check if all scenes of this asset type are now approved
 	allApproved, err := s.store.AllApproved(projectID, assetType)
 	if err == nil && allApproved {
-		s.webhooks.NotifyAllApproved(projectID, project.SCPID, assetType)
+		s.webhooks.NotifyAllApproved(projectID, project.SCPID, assetType, reviewURL)
 	}
 
 	WriteJSON(w, r, http.StatusOK, map[string]interface{}{

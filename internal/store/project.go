@@ -8,36 +8,17 @@ import (
 	"github.com/sushistack/yt.pipe/internal/domain"
 )
 
-// CreateProject inserts a new project
-func (s *Store) CreateProject(p *domain.Project) error {
-	now := time.Now().UTC()
-	_, err := s.db.Exec(
-		`INSERT INTO projects (id, scp_id, status, scene_count, workspace_path, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.SCPID, p.Status, p.SceneCount, p.WorkspacePath,
-		now.Format(time.RFC3339), now.Format(time.RFC3339),
-	)
-	if err != nil {
-		return fmt.Errorf("create project: %w", err)
-	}
-	p.CreatedAt = now
-	p.UpdatedAt = now
-	return nil
-}
-
-// GetProject retrieves a project by ID
-func (s *Store) GetProject(id string) (*domain.Project, error) {
+// scanProject scans a project row into a domain.Project.
+func scanProject(scanner interface{ Scan(...interface{}) error }) (*domain.Project, error) {
 	p := &domain.Project{}
 	var createdAt, updatedAt string
-	err := s.db.QueryRow(
-		`SELECT id, scp_id, status, scene_count, workspace_path, created_at, updated_at
-		 FROM projects WHERE id = ?`, id,
-	).Scan(&p.ID, &p.SCPID, &p.Status, &p.SceneCount, &p.WorkspacePath, &createdAt, &updatedAt)
-	if err == sql.ErrNoRows {
-		return nil, &domain.NotFoundError{Resource: "project", ID: id}
-	}
+	var reviewToken sql.NullString
+	err := scanner.Scan(&p.ID, &p.SCPID, &p.Status, &p.SceneCount, &p.WorkspacePath, &reviewToken, &createdAt, &updatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("get project: %w", err)
+		return nil, err
+	}
+	if reviewToken.Valid {
+		p.ReviewToken = reviewToken.String
 	}
 	p.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
 	if err != nil {
@@ -50,11 +31,47 @@ func (s *Store) GetProject(id string) (*domain.Project, error) {
 	return p, nil
 }
 
+const projectColumns = `id, scp_id, status, scene_count, workspace_path, review_token, created_at, updated_at`
+
+// CreateProject inserts a new project
+func (s *Store) CreateProject(p *domain.Project) error {
+	now := time.Now().UTC()
+	var reviewToken interface{}
+	if p.ReviewToken != "" {
+		reviewToken = p.ReviewToken
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO projects (id, scp_id, status, scene_count, workspace_path, review_token, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.SCPID, p.Status, p.SceneCount, p.WorkspacePath, reviewToken,
+		now.Format(time.RFC3339), now.Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("create project: %w", err)
+	}
+	p.CreatedAt = now
+	p.UpdatedAt = now
+	return nil
+}
+
+// GetProject retrieves a project by ID
+func (s *Store) GetProject(id string) (*domain.Project, error) {
+	p, err := scanProject(s.db.QueryRow(
+		`SELECT `+projectColumns+` FROM projects WHERE id = ?`, id,
+	))
+	if err == sql.ErrNoRows {
+		return nil, &domain.NotFoundError{Resource: "project", ID: id}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+	return p, nil
+}
+
 // ListProjects returns all projects
 func (s *Store) ListProjects() ([]*domain.Project, error) {
 	rows, err := s.db.Query(
-		`SELECT id, scp_id, status, scene_count, workspace_path, created_at, updated_at
-		 FROM projects ORDER BY created_at DESC`,
+		`SELECT `+projectColumns+` FROM projects ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
@@ -63,18 +80,9 @@ func (s *Store) ListProjects() ([]*domain.Project, error) {
 
 	var projects []*domain.Project
 	for rows.Next() {
-		p := &domain.Project{}
-		var createdAt, updatedAt string
-		if err := rows.Scan(&p.ID, &p.SCPID, &p.Status, &p.SceneCount, &p.WorkspacePath, &createdAt, &updatedAt); err != nil {
+		p, err := scanProject(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan project: %w", err)
-		}
-		p.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
-		if err != nil {
-			return nil, fmt.Errorf("parse project created_at: %w", err)
-		}
-		p.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
-		if err != nil {
-			return nil, fmt.Errorf("parse project updated_at: %w", err)
 		}
 		projects = append(projects, p)
 	}
@@ -92,6 +100,7 @@ func (s *Store) DeleteProject(id string) error {
 	for _, q := range []string{
 		`DELETE FROM execution_logs WHERE project_id = ?`,
 		`DELETE FROM scene_manifests WHERE project_id = ?`,
+		`DELETE FROM scene_approvals WHERE project_id = ?`,
 		`DELETE FROM jobs WHERE project_id = ?`,
 	} {
 		if _, err := tx.Exec(q, id); err != nil {
@@ -139,7 +148,7 @@ func (s *Store) ListProjectsFiltered(state, scpID string, limit, offset int) ([]
 	}
 
 	// Query with pagination
-	query := "SELECT id, scp_id, status, scene_count, workspace_path, created_at, updated_at FROM projects WHERE 1=1" + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	query := "SELECT " + projectColumns + " FROM projects WHERE 1=1" + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
 	rows, err := s.db.Query(query, args...)
@@ -150,18 +159,9 @@ func (s *Store) ListProjectsFiltered(state, scpID string, limit, offset int) ([]
 
 	var projects []*domain.Project
 	for rows.Next() {
-		p := &domain.Project{}
-		var createdAt, updatedAt string
-		if err := rows.Scan(&p.ID, &p.SCPID, &p.Status, &p.SceneCount, &p.WorkspacePath, &createdAt, &updatedAt); err != nil {
+		p, err := scanProject(rows)
+		if err != nil {
 			return nil, 0, fmt.Errorf("scan project: %w", err)
-		}
-		p.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
-		if err != nil {
-			return nil, 0, fmt.Errorf("parse project created_at: %w", err)
-		}
-		p.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
-		if err != nil {
-			return nil, 0, fmt.Errorf("parse project updated_at: %w", err)
 		}
 		projects = append(projects, p)
 	}
@@ -171,10 +171,14 @@ func (s *Store) ListProjectsFiltered(state, scpID string, limit, offset int) ([]
 // UpdateProject updates an existing project
 func (s *Store) UpdateProject(p *domain.Project) error {
 	now := time.Now().UTC()
+	var reviewToken interface{}
+	if p.ReviewToken != "" {
+		reviewToken = p.ReviewToken
+	}
 	result, err := s.db.Exec(
-		`UPDATE projects SET scp_id=?, status=?, scene_count=?, workspace_path=?, updated_at=?
+		`UPDATE projects SET scp_id=?, status=?, scene_count=?, workspace_path=?, review_token=?, updated_at=?
 		 WHERE id=?`,
-		p.SCPID, p.Status, p.SceneCount, p.WorkspacePath, now.Format(time.RFC3339), p.ID,
+		p.SCPID, p.Status, p.SceneCount, p.WorkspacePath, reviewToken, now.Format(time.RFC3339), p.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
@@ -184,5 +188,37 @@ func (s *Store) UpdateProject(p *domain.Project) error {
 		return &domain.NotFoundError{Resource: "project", ID: p.ID}
 	}
 	p.UpdatedAt = now
+	return nil
+}
+
+// ListProjectsWithNullToken returns IDs of projects that have no review_token.
+func (s *Store) ListProjectsWithNullToken() ([]string, error) {
+	rows, err := s.db.Query(`SELECT id FROM projects WHERE review_token IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("list null token projects: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan project id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// SetReviewToken sets the review_token for a project.
+func (s *Store) SetReviewToken(projectID, token string) error {
+	result, err := s.db.Exec(`UPDATE projects SET review_token=? WHERE id=?`, token, projectID)
+	if err != nil {
+		return fmt.Errorf("set review token: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return &domain.NotFoundError{Resource: "project", ID: projectID}
+	}
 	return nil
 }

@@ -141,6 +141,62 @@ func (s *Store) AllApproved(projectID, assetType string) (bool, error) {
 	return total == approved, nil
 }
 
+// DeleteSceneApprovals deletes all approval records for a specific scene.
+func (s *Store) DeleteSceneApprovals(projectID string, sceneNum int) error {
+	_, err := s.db.Exec(
+		`DELETE FROM scene_approvals WHERE project_id = ? AND scene_num = ?`,
+		projectID, sceneNum,
+	)
+	if err != nil {
+		return fmt.Errorf("delete scene approvals: %w", err)
+	}
+	return nil
+}
+
+// DeleteSceneManifest deletes the manifest record for a specific scene.
+func (s *Store) DeleteSceneManifest(projectID string, sceneNum int) error {
+	_, err := s.db.Exec(
+		`DELETE FROM scene_manifests WHERE project_id = ? AND scene_num = ?`,
+		projectID, sceneNum,
+	)
+	if err != nil {
+		return fmt.Errorf("delete scene manifest: %w", err)
+	}
+	return nil
+}
+
+// BulkApproveGenerated sets all "generated" scene approvals to "approved" for a project+assetType.
+// Returns the count of approved and skipped scenes.
+func (s *Store) BulkApproveGenerated(projectID, assetType string) (approved int64, err error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, err := s.db.Exec(
+		`UPDATE scene_approvals SET status = ?, updated_at = ?
+		 WHERE project_id = ? AND asset_type = ? AND status = ?`,
+		domain.ApprovalApproved, now, projectID, assetType, domain.ApprovalGenerated,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("bulk approve generated: %w", err)
+	}
+	approved, _ = result.RowsAffected()
+	return approved, nil
+}
+
+// MaxSceneNum returns the maximum scene number for a project's approvals.
+func (s *Store) MaxSceneNum(projectID string) (int, error) {
+	var maxNum sql.NullInt64
+	err := s.db.QueryRow(
+		`SELECT MAX(scene_num) FROM scene_approvals WHERE project_id = ?`,
+		projectID,
+	).Scan(&maxNum)
+	if err != nil {
+		return 0, fmt.Errorf("max scene num: %w", err)
+	}
+	if !maxNum.Valid {
+		return 0, nil
+	}
+	return int(maxNum.Int64), nil
+}
+
 // BulkApproveAll sets all scene approvals for a project+assetType to "approved".
 // Used by --skip-approval mode.
 func (s *Store) BulkApproveAll(projectID, assetType string) (int64, error) {

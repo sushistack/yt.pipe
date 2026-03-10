@@ -177,7 +177,7 @@ func TestApproveScene_InvalidTransition(t *testing.T) {
 
 	var resp api.Response
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "invalid_transition", resp.Error.Code)
+	assert.Equal(t, "CONFLICT", resp.Error.Code)
 }
 
 func TestApproveScene_TTS(t *testing.T) {

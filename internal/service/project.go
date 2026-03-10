@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -34,11 +35,27 @@ func (ps *ProjectService) CreateProject(_ context.Context, scpID, workspacePath 
 		SCPID:         scpID,
 		Status:        domain.StatusPending,
 		WorkspacePath: workspacePath,
+		ReviewToken:   uuid.New().String(),
 	}
 	if err := ps.store.CreateProject(p); err != nil {
 		return nil, fmt.Errorf("service: create project: %w", err)
 	}
 	return p, nil
+}
+
+// BackfillReviewTokens generates review tokens for existing projects that have none.
+func (ps *ProjectService) BackfillReviewTokens(_ context.Context) (int, error) {
+	ids, err := ps.store.ListProjectsWithNullToken()
+	if err != nil {
+		return 0, fmt.Errorf("service: list null token projects: %w", err)
+	}
+	for _, id := range ids {
+		token := uuid.New().String()
+		if err := ps.store.SetReviewToken(id, token); err != nil {
+			return 0, fmt.Errorf("service: backfill token for %s: %w", id, err)
+		}
+	}
+	return len(ids), nil
 }
 
 // GetProject retrieves a project by ID.
@@ -65,10 +82,14 @@ func (ps *ProjectService) TransitionProject(_ context.Context, projectID, newSta
 	// Load project within transaction for serialized access
 	var p domain.Project
 	var createdAt, updatedAt string
+	var reviewToken sql.NullString
 	err = tx.QueryRow(
-		`SELECT id, scp_id, status, scene_count, workspace_path, created_at, updated_at
+		`SELECT id, scp_id, status, scene_count, workspace_path, review_token, created_at, updated_at
 		 FROM projects WHERE id = ?`, projectID,
-	).Scan(&p.ID, &p.SCPID, &p.Status, &p.SceneCount, &p.WorkspacePath, &createdAt, &updatedAt)
+	).Scan(&p.ID, &p.SCPID, &p.Status, &p.SceneCount, &p.WorkspacePath, &reviewToken, &createdAt, &updatedAt)
+	if reviewToken.Valid {
+		p.ReviewToken = reviewToken.String
+	}
 	if err != nil {
 		return nil, &domain.NotFoundError{Resource: "project", ID: projectID}
 	}

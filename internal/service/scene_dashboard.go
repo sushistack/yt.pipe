@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/sushistack/yt.pipe/internal/domain"
@@ -22,6 +23,7 @@ type SceneDashboardEntry struct {
 	TTSAttempts   int    `json:"tts_attempts"`
 	TTSApproved   bool   `json:"tts_approved"`
 	Prompt        string `json:"prompt"`
+	ImagePrompt   string `json:"image_prompt,omitempty"`
 	Assets        *SceneAssets `json:"assets"`
 	MoodPreset    string `json:"mood_preset,omitempty"`
 	BGMName       string `json:"bgm_name,omitempty"`
@@ -140,6 +142,12 @@ func (svc *SceneDashboardService) GetDashboard(projectID string) (*SceneDashboar
 			ImagePath:    imgPath,
 			AudioPath:    audioPath,
 			SubtitlePath: subtitlePath,
+		}
+
+		// Load image prompt from prompt.txt if it exists
+		promptPath := filepath.Join(sceneDir, "prompt.txt")
+		if data, err := os.ReadFile(promptPath); err == nil {
+			entry.ImagePrompt = string(data)
 		}
 
 		// Scene prompt/narration text

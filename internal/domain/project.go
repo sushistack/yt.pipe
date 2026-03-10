@@ -9,6 +9,7 @@ type Project struct {
 	Status        string
 	SceneCount    int
 	WorkspacePath string
+	ReviewToken   string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

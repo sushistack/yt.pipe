@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"time"
@@ -15,6 +17,9 @@ import (
 	"github.com/sushistack/yt.pipe/internal/store"
 )
 
+//go:embed templates/*
+var templatesFS embed.FS
+
 // Version can be set at build time via ldflags.
 var Version = "dev"
 
@@ -25,6 +30,7 @@ type Server struct {
 	store           *store.Store
 	cfg             *config.Config
 	projectSvc      *service.ProjectService
+	reviewSvc       *service.ReviewService
 	scenarioSvc     *service.ScenarioService
 	imageGenSvc     *service.ImageGenService
 	ttsSvc          *service.TTSService
@@ -33,6 +39,8 @@ type Server struct {
 	registry        *plugin.Registry
 	pipelineRunner  *pipeline.Runner
 	webhooks        *WebhookNotifier
+	reviewTmpl      *template.Template
+	reviewCSS       template.CSS
 	pluginStatus    map[string]bool
 	version         string
 	workspacePath   string
@@ -82,6 +90,7 @@ func NewServer(st *store.Store, cfg *config.Config, opts ...ServerOption) *Serve
 		store:         st,
 		cfg:           cfg,
 		projectSvc:    service.NewProjectService(st),
+		reviewSvc:     service.NewReviewService(st, slog.Default()),
 		jobs:          newJobManager(),
 		registry:      plugin.NewRegistry(),
 		webhooks:      NewWebhookNotifier(cfg.Webhooks),
@@ -92,8 +101,49 @@ func NewServer(st *store.Store, cfg *config.Config, opts ...ServerOption) *Serve
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	// Parse review template
+	s.initReviewTemplate()
+
 	s.setupRouter()
 	return s
+}
+
+func (s *Server) initReviewTemplate() {
+	funcMap := template.FuncMap{
+		"progressPercent": func(d *service.SceneDashboard) int {
+			if d.TotalScenes == 0 {
+				return 0
+			}
+			total := d.TotalScenes * 2 // image + TTS per scene
+			approved := d.ApprovedImageCount + d.ApprovedTTSCount
+			return approved * 100 / total
+		},
+	}
+
+	// Load CSS content for inline embedding
+	cssData, err := templatesFS.ReadFile("templates/styles.css")
+	if err != nil {
+		slog.Warn("failed to load review styles.css", "error", err)
+		cssData = []byte("")
+	}
+
+	htmlData, err := templatesFS.ReadFile("templates/review.html")
+	if err != nil {
+		slog.Warn("failed to load review.html template", "error", err)
+		return
+	}
+
+	// The template uses {{.StylesCSS}} to inline the CSS
+	tmpl, err := template.New("review.html").Funcs(funcMap).Parse(string(htmlData))
+	if err != nil {
+		slog.Error("failed to parse review template", "error", err)
+		return
+	}
+
+	s.reviewTmpl = tmpl
+	s.reviewCSS = template.CSS(cssData)
+	slog.Info("review template loaded successfully")
 }
 
 func (s *Server) setupRouter() {
@@ -115,6 +165,9 @@ func (s *Server) setupRouter() {
 	r.Get("/health", s.handleHealth)
 	r.Get("/ready", s.handleReady)
 
+	// Review page (auth via review token, exempt from Bearer in AuthMiddleware)
+	r.Get("/review/{project_id}", s.handleReviewPage)
+
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
 		// Projects
@@ -129,10 +182,21 @@ func (s *Server) setupRouter() {
 		r.Post("/projects/{id}/cancel", s.handleCancelPipeline)
 		r.Post("/projects/{id}/approve", s.handleApprovePipeline)
 
-		// Scene dashboard & approval
+		// Scene dashboard & approval (dual auth: Bearer or review token)
 		r.Get("/projects/{id}/scenes", s.handleGetScenes)
-		r.Post("/projects/{id}/scenes/{num}/approve", s.handleApproveScene)
+		r.Post("/projects/{id}/scenes/{num}/approve", s.handleReviewApproveScene)
 		r.Post("/projects/{id}/scenes/{num}/reject", s.handleRejectScene)
+
+		// Review-specific routes (review token auth)
+		r.Get("/projects/{id}/scenes/{num}/image", s.handleServeImage)
+		r.Get("/projects/{id}/scenes/{num}/audio", s.handleServeAudio)
+		r.Patch("/projects/{id}/scenes/{num}/narration", s.handleUpdateNarration)
+		r.Post("/projects/{id}/scenes", s.handleAddScene)
+		r.Delete("/projects/{id}/scenes/{num}", s.handleDeleteScene)
+		r.Post("/projects/{id}/approve-all", s.handleApproveAll)
+
+		// Token rotation (Bearer auth only, NOT review-token accessible)
+		r.Post("/projects/{id}/review-token/rotate", s.handleRotateReviewToken)
 
 		// Asset management
 		r.Post("/projects/{id}/images/generate", s.handleGenerateImages)

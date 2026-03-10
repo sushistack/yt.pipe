@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -18,6 +19,7 @@ type WebhookEvent struct {
 	SCPID         string `json:"scp_id"`
 	PreviousState string `json:"previous_state,omitempty"`
 	NewState      string `json:"new_state,omitempty"`
+	ReviewURL     string `json:"review_url,omitempty"`
 	Timestamp     string `json:"timestamp"`
 }
 
@@ -29,6 +31,7 @@ type JobCompleteEvent struct {
 	JobID     string `json:"job_id"`
 	JobType   string `json:"job_type"`
 	Result    string `json:"result"`
+	ReviewURL string `json:"review_url,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -41,6 +44,7 @@ type JobFailedEvent struct {
 	JobType     string `json:"job_type"`
 	Error       string `json:"error"`
 	FailedScene int    `json:"failed_scene"`
+	ReviewURL   string `json:"review_url,omitempty"`
 	Timestamp   string `json:"timestamp"`
 }
 
@@ -51,6 +55,7 @@ type SceneApprovedEvent struct {
 	SCPID     string `json:"scp_id"`
 	SceneNum  int    `json:"scene_num"`
 	AssetType string `json:"asset_type"`
+	ReviewURL string `json:"review_url,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -60,6 +65,7 @@ type AllApprovedEvent struct {
 	ProjectID string `json:"project_id"`
 	SCPID     string `json:"scp_id"`
 	AssetType string `json:"asset_type"`
+	ReviewURL string `json:"review_url,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -98,7 +104,7 @@ func NewWebhookNotifier(cfg config.WebhookConfig) *WebhookNotifier {
 // NotifyStateChange sends a state change event to all configured webhook URLs.
 // Each URL is notified independently (fan-out). Failures are logged but don't
 // block the caller.
-func (wn *WebhookNotifier) NotifyStateChange(projectID, scpID, previousState, newState string) {
+func (wn *WebhookNotifier) NotifyStateChange(projectID, scpID, previousState, newState, reviewURL string) {
 	if wn == nil {
 		return
 	}
@@ -109,13 +115,14 @@ func (wn *WebhookNotifier) NotifyStateChange(projectID, scpID, previousState, ne
 		SCPID:         scpID,
 		PreviousState: previousState,
 		NewState:      newState,
+		ReviewURL:     reviewURL,
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
 	}
 	wn.fanOut(event)
 }
 
 // NotifyJobComplete sends a job_complete event to all configured webhook URLs.
-func (wn *WebhookNotifier) NotifyJobComplete(projectID, scpID, jobID, jobType, result string) {
+func (wn *WebhookNotifier) NotifyJobComplete(projectID, scpID, jobID, jobType, result, reviewURL string) {
 	if wn == nil {
 		return
 	}
@@ -126,13 +133,14 @@ func (wn *WebhookNotifier) NotifyJobComplete(projectID, scpID, jobID, jobType, r
 		JobID:     jobID,
 		JobType:   jobType,
 		Result:    result,
+		ReviewURL: reviewURL,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 	wn.fanOut(event)
 }
 
 // NotifyJobFailed sends a job_failed event to all configured webhook URLs.
-func (wn *WebhookNotifier) NotifyJobFailed(projectID, scpID, jobID, jobType, errMsg string, failedScene int) {
+func (wn *WebhookNotifier) NotifyJobFailed(projectID, scpID, jobID, jobType, errMsg string, failedScene int, reviewURL string) {
 	if wn == nil {
 		return
 	}
@@ -144,13 +152,14 @@ func (wn *WebhookNotifier) NotifyJobFailed(projectID, scpID, jobID, jobType, err
 		JobType:     jobType,
 		Error:       errMsg,
 		FailedScene: failedScene,
+		ReviewURL:   reviewURL,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
 	wn.fanOut(event)
 }
 
 // NotifySceneApproved sends a scene_approved event to all configured webhook URLs.
-func (wn *WebhookNotifier) NotifySceneApproved(projectID, scpID string, sceneNum int, assetType string) {
+func (wn *WebhookNotifier) NotifySceneApproved(projectID, scpID string, sceneNum int, assetType, reviewURL string) {
 	if wn == nil {
 		return
 	}
@@ -160,13 +169,14 @@ func (wn *WebhookNotifier) NotifySceneApproved(projectID, scpID string, sceneNum
 		SCPID:     scpID,
 		SceneNum:  sceneNum,
 		AssetType: assetType,
+		ReviewURL: reviewURL,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 	wn.fanOut(event)
 }
 
 // NotifyAllApproved sends an all_approved event to all configured webhook URLs.
-func (wn *WebhookNotifier) NotifyAllApproved(projectID, scpID, assetType string) {
+func (wn *WebhookNotifier) NotifyAllApproved(projectID, scpID, assetType, reviewURL string) {
 	if wn == nil {
 		return
 	}
@@ -175,9 +185,18 @@ func (wn *WebhookNotifier) NotifyAllApproved(projectID, scpID, assetType string)
 		ProjectID: projectID,
 		SCPID:     scpID,
 		AssetType: assetType,
+		ReviewURL: reviewURL,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 	wn.fanOut(event)
+}
+
+// BuildReviewURL constructs the review URL for a project.
+func BuildReviewURL(projectID, reviewToken string) string {
+	if reviewToken == "" {
+		return ""
+	}
+	return fmt.Sprintf("/review/%s?token=%s", projectID, reviewToken)
 }
 
 // fanOut marshals the event and sends to all configured URLs independently.
