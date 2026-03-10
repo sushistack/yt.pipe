@@ -18,10 +18,10 @@ import (
 )
 
 const (
-	defaultDashScopeEndpoint = "https://dashscope.aliyuncs.com"
-	defaultDashScopeModel    = "cosyvoice-v1"
+	defaultDashScopeEndpoint = "https://dashscope-intl.aliyuncs.com"
+	defaultDashScopeModel    = "cosyvoice-v3-plus"
 	defaultDashScopeFormat   = "mp3"
-	defaultDashScopeVoice    = "longxiaochun"
+	defaultDashScopeVoice    = "longanyang"
 
 	voiceClonePrefix = "cosyvoice-clone-"
 )

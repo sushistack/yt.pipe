@@ -107,13 +107,13 @@ tts:
   # Env: YTP_TTS_API_KEY
   # api_key: ""
 
-  # Model name (qwen3-tts for Qwen3 TTS)
+  # Model name (CosyVoice v3-plus for multilingual TTS)
   # Env: YTP_TTS_MODEL
-  model: "qwen3-tts"
+  model: "cosyvoice-v3-plus"
 
-  # Voice name (provider-specific)
+  # Voice name (provider-specific, e.g., "longanyang")
   # Env: YTP_TTS_VOICE
-  voice: ""
+  voice: "longanyang"
 
   # Speech speed multiplier (1.0 = normal)
   # Env: YTP_TTS_SPEED
