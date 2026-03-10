@@ -1,3 +1,4 @@
+# Local development
 services:
   yt-pipe:
     build: .
@@ -19,7 +20,7 @@ services:
     env_file:
       - path: .env
         required: false
-    command: ["serve"]
+    command: ["serve", "--config", "/config/config.yaml"]
     healthcheck:
       test: ["CMD", "/yt-pipe", "config", "validate"]
       interval: 30s

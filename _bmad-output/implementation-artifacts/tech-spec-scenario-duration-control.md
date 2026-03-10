@@ -5,7 +5,7 @@ created: '2026-03-10'
 status: 'ready-for-dev'
 stepsCompleted: [1, 2, 3, 4]
 tech_stack: ['Go 1.25.7', 'cobra CLI v1.10.2', 'chi/v5 REST API', 'text/template', 'SQLite (modernc)', 'testify v1.11.1', 'mockery v2']
-files_to_modify: ['internal/config/types.go', 'internal/config/config.go', 'internal/domain/scenario.go', 'internal/plugin/llm/interface.go', 'internal/plugin/llm/openai.go', 'internal/service/scenario_pipeline.go', 'internal/service/scenario.go', 'internal/api/pipeline.go', 'internal/cli/stage_cmds.go', 'internal/cli/run_cmd.go', 'templates/scenario/02_structure.md', 'internal/service/scenario_test.go']
+files_to_modify: ['internal/config/types.go', 'internal/config/config.go', 'internal/domain/scenario.go', 'internal/plugin/llm/interface.go', 'internal/plugin/llm/openai.go', 'internal/service/scenario_pipeline.go', 'internal/service/scenario.go', 'internal/api/pipeline.go', 'internal/cli/stage_cmds.go', 'internal/cli/run_cmd.go', 'internal/cli/serve_cmd.go', 'internal/cli/config_cmd.go', 'internal/pipeline/runner.go', 'templates/scenario/02_structure.md', 'internal/service/scenario_test.go']
 code_patterns: ['mapstructure tags for config', 'plugin interface + factory registry', '4-stage pipeline with checkpoint JSON', 'domain error types (ValidationError)', 'options struct pattern (not variadic)', 'strings.ReplaceAll for template placeholders']
 test_patterns: ['*_test.go same package', 'setupTestXxx(t) helper with t.Helper()', 'testify assert/require', 'mockery-generated mocks in internal/mocks', ':memory: SQLite for tests']
 ---
@@ -22,14 +22,14 @@ Scenario generation is currently locked to a fixed duration (default 10 minutes 
 
 ### Solution
 
-Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scenario`) and CLI (`yt-pipe generate scenario --length`). API accepts minutes (float64), internally converted to seconds for consistency with `AudioDuration` and timeline systems. No separate "short mode" — duration value alone drives prompt guideline selection (≤1 min triggers short-form guidelines automatically). Introduce a `ScenarioOptions` struct for extensibility (future `Angle` parameter). Enhance the Stage 2 Structure LLM prompt with duration-tiered scene count and narrative structure guidelines. Support scenario regeneration by reusing Stage 1 (Research) results and re-running from Stage 2. API response includes `estimated_duration_sec` total for user judgment.
+Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/run`) and CLI (`yt-pipe scenario generate --length`). API and CLI accept minutes (float64); internal pipeline and prompts also use minutes. The `estimated_duration_sec` output fields use seconds for consistency with `Scene.AudioDuration` and timeline systems. No separate "short mode" — duration value alone drives prompt guideline selection (≤1 min triggers short-form guidelines automatically). Introduce a `ScenarioOptions` struct with `Length *float64` (pointer for nil/set distinction) for extensibility (future `Angle` parameter). Enhance the Stage 2 Structure LLM prompt with duration-tiered scene count and narrative structure guidelines. Support scenario regeneration (only from `scenario_review` state) by reusing Stage 1 (Research) results and re-running from Stage 2. API response includes `estimated_duration_sec` total for user judgment.
 
 ### Scope
 
 **In Scope:**
-- API & CLI `length` parameter (float64 minutes, range 0.5–20, default 5)
+- API & CLI `length` parameter (float64 minutes, range 0.5–20, default 10 from config)
 - `ScenarioOptions` struct (extensible for future `Angle` parameter)
-- Internal duration unit: seconds (API accepts minutes, converts internally)
+- Internal duration unit: minutes throughout pipeline and prompts; `estimated_duration_sec` output fields in seconds for consistency with `AudioDuration`
 - Duration-tiered guidelines in Stage 2 Structure prompt (scene count, 4-act proportions, narration density)
 - Scenario regeneration: reuse Stage 1 (Research), re-run Stage 2+ with new length
 - Input validation (min 0.5 min, max 20 min)
@@ -52,7 +52,7 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
 - **Two code paths for scenario generation**: Pipeline path (`ScenarioPipeline.Run`) and Direct path (`LLM.GenerateScenario`) — both need duration support
 - Stage 2 Structure template already receives `{target_duration}` placeholder via `strings.ReplaceAll` (line 251 of scenario_pipeline.go)
 - Stage 2 template already expects `estimated_duration_sec` per scene in JSON output, but domain model doesn't capture it
-- State machine: `pending → scenario_review → approved → image_review → tts_review → assembling → complete`
+- State machine: `pending → scenario_review → approved → image_review → tts_review → assembling → complete` (also `generating_assets` state exists)
 - API response envelope: `api.Response{Success, Data, Error, Timestamp, RequestID}`
 - CLI: one command per file, commands call service layer
 - Options structs used throughout (not variadic functional options)
@@ -65,7 +65,10 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
 | `internal/config/types.go` | `ScenarioConfig.TargetDurationMin` (int) | L63-67 |
 | `internal/config/config.go` | Default value `v.SetDefault("scenario.target_duration_min", 10)` | L156 |
 | `internal/service/scenario_pipeline.go` | `ScenarioPipelineConfig` struct, `Run()`, Stage 2 `{target_duration}` replacement | L29-34, L88-116, L251 |
-| `internal/service/scenario.go` | `GenerateScenarioForProject()` — calls LLM without duration param | L142-193 |
+| `internal/service/scenario.go` | `GenerateScenario()` (L29-85) and `GenerateScenarioForProject()` (L142-193) — both call LLM without duration param | L29-85, L142-193 |
+| `internal/cli/serve_cmd.go` | `NewScenarioService` construction — no config passed | L79 |
+| `internal/cli/config_cmd.go` | `fmt.Sprintf("%d", cfg.Scenario.TargetDurationMin)` — int format, needs float64 update | L128 |
+| `internal/pipeline/runner.go` | `runScenarioGenerate()` calls `scenarioSvc.GenerateScenario()` — needs opts | L714-736 |
 | `internal/plugin/llm/interface.go` | `LLM.GenerateScenario()` signature — no duration param | L34-44 |
 | `internal/plugin/llm/openai.go` | `buildScenarioPrompt()` — no duration guidance | L247-274, L313-334 |
 | `internal/domain/scenario.go` | `ScenarioOutput`, `SceneScript` — no `EstimatedDurationSec` | L4-18 |
@@ -80,13 +83,18 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
 ### Technical Decisions
 
 - **No separate "short mode"**: Duration value alone drives behavior — ≤1 min auto-applies short-form prompt guidelines, no API mode flag needed
-- **Config field name preserved**: `TargetDurationMin` (int→float64 only), YAML key `scenario.target_duration_min` and env `YTP_SCENARIO_TARGET_DURATION_MIN` unchanged for backward compatibility. Conversion to seconds (`*60`) happens at service layer ingress.
-- **`ScenarioOptions` struct**: New domain struct with `Length float64` (minutes) field, extensible for future `Angle string` parameter. Passed through pipeline.
+- **Config field name preserved**: `TargetDurationMin` (int→float64 only), YAML key `scenario.target_duration_min` and env `YTP_SCENARIO_TARGET_DURATION_MIN` unchanged for backward compatibility. Also update `config_cmd.go` format string from `%d` to `%.1f`. No minutes→seconds conversion needed at service layer — pipeline uses minutes throughout; only `estimated_duration_sec` output uses seconds.
+- **`ScenarioOptions` struct**: New domain struct with `Length *float64` (pointer, minutes) field, extensible for future `Angle string` parameter. Pointer type avoids Go zero-value ambiguity: `nil` = use config default, non-nil = explicit value. Passed through pipeline.
 - **LLM interface change**: `GenerateScenario(..., opts domain.ScenarioOptions)` — breaking change, requires mockery regeneration.
 - **`ScenarioOutput.TotalEstimatedDurationSec float64`**: Dedicated field (not Metadata map) for type safety. Sum of per-scene `EstimatedDurationSec`.
 - **Direct path deprecation direction**: Both Pipeline and Direct paths updated for now; future consolidation into Pipeline-only noted.
 - **Prompt strategy**: Single prompt template with embedded duration-tier guideline table (not separate templates per duration). Tiers: ≤1min (3-5 scenes, hook+core), 1-5min (8-15 scenes, 4-act), 5-10min (15-25 scenes, 4-act full), 10-20min (25-35 scenes, subplots)
-- **Default**: 5 minutes (changed from current 10 min default)
+- **Default preserved at 10 minutes**: Keep current default (10 min) for backward compatibility. Changing default is a behavioral breaking change for existing users who rely on implicit default. Users who want shorter videos should explicitly pass `--length` or `length` in the API body.
+- **Duration unit consistency**: All external interfaces (API, CLI, config YAML) use **minutes**. Internal pipeline and prompt templates also use minutes via `{target_duration}`. The `estimated_duration_sec` fields in domain models use seconds for consistency with `Scene.AudioDuration` and timeline systems. No minutes→seconds conversion needed except for `estimated_duration_sec` computation.
+- **Prompt duration guidance — single source of truth**: Duration-tier guidelines live ONLY in the Stage 2 template (`templates/scenario/02_structure.md`) for the Pipeline path. The Direct path (`openai.go buildScenarioPrompt`) receives `opts.Length` and injects a minimal "target X minutes" instruction — NOT a duplicate tier table. This avoids conflicting guidance between two sources.
+- **Regeneration state rules**: Regeneration is only allowed when the project is in `scenario_review` state (user has seen the scenario but wants a different length). Regeneration transitions the project back through `scenario_review` after completion. Projects in `approved` or later states cannot regenerate (must create a new project or reset manually).
+- **Concurrency protection for regeneration**: The `regenerate` mode reuses the existing `jobManager` duplicate-execution check. If a pipeline job is already running for the project, regeneration is rejected with HTTP 409 Conflict.
+- **`ScenarioService` config injection**: `ScenarioService` currently has no config field. Add `config config.ScenarioConfig` field and update `NewScenarioService` to accept it. All callers (`serve_cmd.go`, `stage_cmds.go`, `runner.go`) must pass config.
 - **Regeneration**: Reuse Stage 1 (Research) checkpoint, invalidate Stage 2+ checkpoints, re-run pipeline. SCP research data is length-agnostic.
 - **Duration is a target, not a guarantee**: LLM generates approximate structure; actual video length depends on TTS output. API response includes `estimated_duration_sec` for user judgment.
 
@@ -99,10 +107,12 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
 - [ ] Task 1: Add `ScenarioOptions` struct and update domain models
   - File: `internal/domain/scenario.go`
   - Action:
-    - Add `ScenarioOptions` struct: `Length float64` (minutes, 0 = use config default), placeholder `Angle string` field (unused)
-    - Add `EstimatedDurationSec float64` field to `SceneScript`
-    - Add `TotalEstimatedDurationSec float64` field to `ScenarioOutput`
-    - Add validation method `func (o ScenarioOptions) Validate() error` returning `ValidationError` for out-of-range (< 0.5 or > 20, unless 0 for default)
+    - Add `ScenarioOptions` struct: `Length *float64` (pointer, minutes; nil = use config default), placeholder `Angle string` field (unused)
+    - Using `*float64` instead of `float64` avoids the Go zero-value ambiguity — `nil` means "not set" (use config default), while `*float64` pointing to 0.5 means "explicitly 0.5 minutes"
+    - Add helper `func (o ScenarioOptions) LengthOrDefault(configDefault float64) float64` that returns `*o.Length` if non-nil, else `configDefault`
+    - Add `EstimatedDurationSec float64 \`json:"estimated_duration_sec"\`` field to `SceneScript`
+    - Add `TotalEstimatedDurationSec float64 \`json:"total_estimated_duration_sec"\`` field to `ScenarioOutput`
+    - Add validation method `func (o ScenarioOptions) Validate() error` returning `ValidationError`: if `Length` is non-nil and value is < 0.5 or > 20, return error
   - Notes: Domain layer — stdlib + uuid only, no internal imports
 
 - [ ] Task 2: Change config type from int to float64
@@ -110,10 +120,11 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
   - Action: Change `TargetDurationMin int` → `TargetDurationMin float64` in `ScenarioConfig`
   - Notes: `mapstructure:"target_duration_min"` tag unchanged. YAML key stays `scenario.target_duration_min`.
 
-- [ ] Task 3: Update default value
+- [ ] Task 3: Update default value type (keep value)
   - File: `internal/config/config.go`
-  - Action: Change `v.SetDefault("scenario.target_duration_min", 10)` → `v.SetDefault("scenario.target_duration_min", 5.0)`
-  - Notes: Default changes from 10 min to 5 min
+  - Action: Change `v.SetDefault("scenario.target_duration_min", 10)` → `v.SetDefault("scenario.target_duration_min", 10.0)`
+  - Notes: Keep default at 10 min for backward compatibility. Only change type from int literal to float64 literal.
+  - Also update `internal/cli/config_cmd.go` L128: change `fmt.Sprintf("%d", ...)` → `fmt.Sprintf("%.1f", ...)` for float64 formatting
 
 #### Layer 2: Plugin Interface (depends on Task 1)
 
@@ -129,9 +140,9 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
   - File: `internal/plugin/llm/openai.go`
   - Action:
     - Update `GenerateScenario` method signature to accept `opts domain.ScenarioOptions`
-    - Update `buildScenarioPrompt` to accept `targetDurationMin float64` and include duration-tiered guidance in the prompt text
-    - Duration tier logic: ≤1min → "short-form, 3-5 scenes, hook+core only"; 1-5min → "8-15 scenes, 4-act structure"; 5-10min → "15-25 scenes, full 4-act with transitions"; 10-20min → "25-35 scenes, subplots and deeper exploration"
-  - Notes: `opts.Length` is minutes; if 0, caller should have resolved default before calling
+    - Update `buildScenarioPrompt` to accept `targetDurationMin float64` and inject a single line: `"Target video duration: X minutes. Structure scenes accordingly."`
+    - Do NOT include the full duration-tier table here — that lives only in the Stage 2 template (Task 13) to maintain a single source of truth
+  - Notes: `opts.Length` is minutes; if 0, caller should have resolved default before calling. The Direct path gets minimal duration guidance; the Pipeline path (Stage 2 template) gets the full tier table.
 
 - [ ] Task 6: Regenerate mocks
   - File: `internal/mocks/` (auto-generated)
@@ -144,21 +155,37 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
   - File: `internal/service/scenario_pipeline.go`
   - Action:
     - Change `ScenarioPipelineConfig.TargetDurationMin` from `int` to `float64`
-    - Update `NewScenarioPipeline` default fallback: `if cfg.TargetDurationMin <= 0 { cfg.TargetDurationMin = 5.0 }`
+    - Update `NewScenarioPipeline` default fallback: `if cfg.TargetDurationMin <= 0 { cfg.TargetDurationMin = 10.0 }`
     - Update Stage 2 placeholder replacement to use `fmt.Sprintf("%.1f", sp.config.TargetDurationMin)` instead of `%d`
     - Add `ScenarioOptions` parameter to `Run()` method signature; pass `opts.Length` to override `sp.config.TargetDurationMin` when non-zero
-  - Notes: Pipeline path — `{target_duration}` placeholder already exists in Stage 2 template
+    - Update `parseScenarioFromWriting` (L374-420): add `EstimatedDurationSec float64 \`json:"estimated_duration_sec"\`` to the anonymous struct's scene fields, and map it to `domain.SceneScript.EstimatedDurationSec`
+    - After parsing all scenes, compute `scenario.TotalEstimatedDurationSec` as the sum of per-scene `EstimatedDurationSec`
+  - Notes: Pipeline path — `{target_duration}` placeholder already exists in Stage 2 template. The parsing fix is critical: without it, LLM-generated `estimated_duration_sec` values are silently dropped.
 
-- [ ] Task 8: Update scenario service to pass options
+- [ ] Task 8: Add config to ScenarioService and update both generation methods
   - File: `internal/service/scenario.go`
   - Action:
-    - Add `opts domain.ScenarioOptions` parameter to `GenerateScenarioForProject` signature
-    - Resolve default: if `opts.Length == 0`, set `opts.Length = ss.config.Scenario.TargetDurationMin`
-    - Validate via `opts.Validate()`
-    - Pass `opts` to both `ss.llm.GenerateScenario()` and `pipeline.Run()` calls
-    - After scenario generation, compute `TotalEstimatedDurationSec` from scene sum
-    - Persist `opts.Length` in `ScenarioOutput.Metadata["target_duration_min"]`
-  - Notes: Service layer does minutes→seconds conversion when needed internally
+    - Add `scenarioCfg config.ScenarioConfig` field to `ScenarioService` struct
+    - Update `NewScenarioService(s *store.Store, l llm.LLM, ps *ProjectService, cfg config.ScenarioConfig)` to accept and store config
+    - Update `GenerateScenario` (L29-85) signature to accept `opts domain.ScenarioOptions`
+      - Resolve default via `opts.LengthOrDefault(ss.scenarioCfg.TargetDurationMin)`
+      - Validate via `opts.Validate()`
+      - Pass `opts` to `ss.llm.GenerateScenario()` call
+      - Persist resolved length in `ScenarioOutput.Metadata["target_duration_min"]`
+    - Update `GenerateScenarioForProject` (L142-193) signature to accept `opts domain.ScenarioOptions`
+      - Same default resolution and validation as above
+      - Pass `opts` to `ss.llm.GenerateScenario()` call
+      - Persist resolved length in `ScenarioOutput.Metadata["target_duration_min"]`
+    - Note: `ScenarioService` does NOT call `pipeline.Run()` — that is handled by `pipeline.Runner` separately
+  - Notes: This task requires updating ALL callers of `NewScenarioService` (see Task 8b)
+
+- [ ] Task 8b: Update all `NewScenarioService` callers to pass config
+  - Files: `internal/cli/serve_cmd.go` (L79), `internal/cli/stage_cmds.go` (L151), `internal/pipeline/runner.go` (L719, L224)
+  - Action:
+    - Each call site already has access to `config.Config` — pass `cfg.Scenario` as the new parameter
+    - `internal/pipeline/runner.go` L726: update `scenarioSvc.GenerateScenario(ctx, scpData, projectPath)` to pass `domain.ScenarioOptions{Length: r.opts.Length}` (add `Length *float64` field to `RunOptions` struct; nil for default)
+    - `internal/api/pipeline.go` L268: update `s.scenarioSvc.GenerateScenarioForProject(ctx, project, scpData)` to pass `opts` constructed from request body
+  - Notes: Compile errors will guide completeness — every call site of `NewScenarioService` and `GenerateScenario`/`GenerateScenarioForProject` must be updated
 
 - [ ] Task 9: Add regeneration support with selective stage invalidation
   - File: `internal/service/scenario_pipeline.go`
@@ -166,18 +193,24 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
     - Add `Regenerate(ctx, scpData, workspacePath, opts ScenarioOptions) (*PipelineResult, error)` method
     - Logic: keep `{stagesDir}/01_research.json` checkpoint, delete `02_structure.json`, `03_writing.json`, `04_review.json`
     - Call existing `Run()` with new options — pipeline checkpoint logic will skip Stage 1 (exists) and re-run Stage 2+
+  - State validation: Regeneration is ONLY allowed when project status is `scenario_review`. Return `domain.TransitionError` for any other state.
   - Notes: SCP research data is length-agnostic; only structure/writing/review depend on duration
 
 #### Layer 4: API & CLI (depends on Tasks 7, 8)
 
-- [ ] Task 10: Add `length` to API request body
+- [ ] Task 10: Add `length` to API request body and update execution paths
   - File: `internal/api/pipeline.go`
   - Action:
     - Add `Length float64 \`json:"length"\`` field to `handleRunPipeline` request body struct
-    - Construct `domain.ScenarioOptions{Length: body.Length}` and pass to service
-    - Include `TotalEstimatedDurationSec` in API response data
-    - Add `regenerate` mode option alongside existing `scenario` and `full` modes
-  - Notes: `length` is optional (0 = use config default). Validation happens in domain layer.
+    - Add `RunModeRegenerate = "regenerate"` constant and update mode validation (L162) to allow `"scenario"`, `"full"`, or `"regenerate"`
+    - Construct `domain.ScenarioOptions{Length: body.Length}` and pass through execution paths
+    - Update `executeScenarioOnly` (L238-290) to accept and pass `opts` to `s.scenarioSvc.GenerateScenarioForProject(ctx, project, scpData, opts)`
+    - Update `executePipeline` (L205-234) to accept `opts` and pass to `executeScenarioOnly`/`executeFullPipeline`
+    - Update `go s.executePipeline(...)` call at L194 to include `opts`
+    - Add `regenerate` mode handler in `executePipeline` switch: validate project is in `scenario_review` state, call `ScenarioPipeline.Regenerate()`, return error if wrong state
+    - The `regenerate` mode reuses existing `jobManager` duplicate-execution check (L168-171) — no additional concurrency logic needed
+    - Include `TotalEstimatedDurationSec` and `target_duration_min` in scenario completion response
+  - Notes: `length` is optional (0 = use config default). Validation happens in domain layer. The `regenerate` mode is only valid when project is in `scenario_review` state.
 
 - [ ] Task 11: Add `--length` CLI flag
   - File: `internal/cli/stage_cmds.go`
@@ -219,18 +252,19 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
 - [ ] Task 14: Update existing scenario tests
   - File: `internal/service/scenario_test.go`
   - Action:
-    - Update all `GenerateScenarioForProject` calls to pass `domain.ScenarioOptions{}`
-    - Update mock expectations for new `GenerateScenario` signature
-    - Add test: default length resolution (opts.Length=0 → config default)
-    - Add test: custom length passed through to LLM
-    - Add test: validation error for out-of-range length
-  - Notes: Use testify assert/require, setupTestXxx pattern
+    - Update `NewScenarioService` calls to pass `config.ScenarioConfig{TargetDurationMin: 10.0}`
+    - Update all `GenerateScenario` and `GenerateScenarioForProject` calls to pass `domain.ScenarioOptions{}`
+    - Update mock expectations for new `GenerateScenario` LLM interface signature (with opts param)
+    - Add test: default length resolution (opts.Length=nil → config default 10.0)
+    - Add test: custom length (`Length: ptrFloat64(5.0)`) passed through to LLM
+    - Add test: validation error for out-of-range length (Length: ptrFloat64(0.3))
+  - Notes: Use testify assert/require, setupTestXxx pattern. Add `ptrFloat64` test helper.
 
 - [ ] Task 15: Add config type change test
   - File: `internal/config/config_test.go`
   - Action:
     - Verify `TargetDurationMin` loads as float64
-    - Verify default is 5.0
+    - Verify default is 10.0
     - Verify YAML `target_duration_min: 0.5` parses correctly
   - Notes: If config_test.go doesn't exist, add tests to nearest existing test file
 
@@ -240,19 +274,23 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
     - Test: POST with `{"mode":"scenario","length":5}` → passes ScenarioOptions to service
     - Test: POST with `{"mode":"scenario","length":0.3}` → returns ValidationError (below 0.5)
     - Test: POST with `{"mode":"scenario","length":25}` → returns ValidationError (above 20)
-    - Test: POST with `{"mode":"scenario"}` (no length) → uses default
+    - Test: POST with `{"mode":"scenario"}` (no length) → uses config default (Length=nil)
+    - Test: POST with `{"mode":"regenerate","length":3}` on project in `scenario_review` → triggers regeneration
+    - Test: POST with `{"mode":"regenerate"}` on project in `approved` → returns 409 Conflict
   - Notes: Follow existing API test patterns
 
 ### Acceptance Criteria
 
 - [ ] AC 1: Given a user sends `POST /api/projects/{id}/run` with `{"mode":"scenario","length":5}`, when the scenario is generated, then the LLM receives a prompt with "5-minute documentary" guidance and 8-15 scene target.
 - [ ] AC 2: Given a user sends `POST /api/projects/{id}/run` with `{"mode":"scenario","length":0.5}`, when the scenario is generated, then the LLM receives short-form guidance (3-5 scenes, hook+core only).
-- [ ] AC 3: Given a user sends `POST /api/projects/{id}/run` with `{"mode":"scenario"}` (no length), when the scenario is generated, then the config default (5 min) is used.
+- [ ] AC 3: Given a user sends `POST /api/projects/{id}/run` with `{"mode":"scenario"}` (no length), when the scenario is generated, then the config default (10 min) is used.
 - [ ] AC 4: Given a user sends `POST /api/projects/{id}/run` with `{"mode":"scenario","length":0.3}`, when validation runs, then a 400 ValidationError is returned with message indicating min 0.5.
 - [ ] AC 5: Given a user sends `POST /api/projects/{id}/run` with `{"mode":"scenario","length":25}`, when validation runs, then a 400 ValidationError is returned with message indicating max 20.
 - [ ] AC 6: Given a user runs `yt-pipe scenario generate SCP-173 --length 1`, when the scenario is generated, then the LLM receives 1-minute short-form guidance.
 - [ ] AC 7: Given a scenario is generated with any length, when the response is returned, then `TotalEstimatedDurationSec` is populated as the sum of per-scene `EstimatedDurationSec` values.
-- [ ] AC 8: Given a project with an existing scenario (Stage 1-4 complete), when the user requests regeneration with a different length, then Stage 1 (Research) checkpoint is preserved and Stage 2-4 are re-executed with the new duration.
+- [ ] AC 8: Given a project in `scenario_review` state with an existing scenario (Stage 1-4 complete), when the user requests regeneration with a different length, then Stage 1 (Research) checkpoint is preserved and Stage 2-4 are re-executed with the new duration.
+- [ ] AC 8b: Given a project in `approved` or later state, when the user requests `{"mode":"regenerate"}`, then a 409 Conflict error is returned indicating regeneration is only allowed in `scenario_review` state.
+- [ ] AC 8c: Given a project with a running pipeline job, when the user requests `{"mode":"regenerate"}`, then a 409 Conflict error is returned (existing duplicate-execution check).
 - [ ] AC 9: Given config.yaml has `scenario.target_duration_min: 10`, when no `--length` flag or API `length` is provided, then 10 minutes is used (config override works).
 - [ ] AC 10: Given `ScenarioOutput` is serialized to JSON, when `TotalEstimatedDurationSec` and per-scene `EstimatedDurationSec` are present, then they appear in the output file.
 
@@ -263,15 +301,15 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
 - No new external libraries required
 - `mockery` CLI tool must be available for mock regeneration (already in project dev toolchain)
 - Existing `.mockery.yaml` config covers LLM interface — no config changes needed
-- All changes are backward-compatible with existing config files (YAML key unchanged, int values auto-convert to float64)
+- All changes are backward-compatible with existing config files (YAML key unchanged, default value unchanged at 10 min, int values auto-convert to float64 via mapstructure)
 
 ### Testing Strategy
 
 **Unit Tests:**
-- Domain: `ScenarioOptions.Validate()` — boundary values (0, 0.5, 1, 5, 10, 20, 20.1)
-- Config: float64 parsing, default value, env override
-- Service: options propagation, default resolution, regeneration stage skip logic
-- API: request parsing, validation error responses, response payload
+- Domain: `ScenarioOptions.Validate()` — boundary values (nil, 0.5, 1, 5, 10, 20, 20.1); `LengthOrDefault()` helper
+- Config: float64 parsing, default value 10.0, env override
+- Service: options propagation, default resolution (nil→config), config injection, regeneration stage skip logic
+- API: request parsing, validation error responses, response payload, regenerate mode state validation
 
 **Integration Tests (if applicable):**
 - Full pipeline run with different duration values (requires LLM mock)
@@ -279,16 +317,21 @@ Add a `length` parameter to both the REST API (`POST /api/projects/{scp-id}/scen
 
 **Manual Testing:**
 - Generate scenario with length=0.5, verify ~3-5 scenes
-- Generate scenario with length=5 (default), verify ~8-15 scenes
+- Generate scenario without length (default 10), verify ~15-25 scenes
+- Generate scenario with length=5, verify ~8-15 scenes
 - Generate scenario with length=15, verify ~25-30 scenes
-- Regenerate existing scenario with different length, verify Stage 1 preserved
+- Regenerate existing scenario (in `scenario_review` state) with different length, verify Stage 1 preserved
+- Attempt regeneration on `approved` project, verify 409 error
 
 ### Notes
 
 **High-risk items:**
 - LLM interface signature change is a breaking change — all callers must update simultaneously. Compile errors will guide completeness.
+- `NewScenarioService` signature change — 4 call sites (`serve_cmd.go`, `stage_cmds.go`, `runner.go` x2) must all be updated to pass config. Compile errors will guide completeness.
+- `GenerateScenario` and `GenerateScenarioForProject` BOTH need opts parameter — missing either causes compile errors. `runner.go` calls `GenerateScenario`, `pipeline.go` calls `GenerateScenarioForProject`.
 - LLM output quality for extreme durations (0.5 min, 20 min) may need prompt tuning post-implementation. The tier table is a starting point.
 - `estimated_duration_sec` from LLM is approximate — actual TTS-generated audio may vary ±30-50%. This is documented as out-of-scope.
+- `parseScenarioFromWriting` must be updated to extract `estimated_duration_sec` from LLM JSON output — without this, the field is silently dropped even though `SceneScript` has the field.
 
 **Future considerations (out of scope):**
 - Consolidate Direct path into Pipeline-only (deprecate `LLM.GenerateScenario` direct calls)

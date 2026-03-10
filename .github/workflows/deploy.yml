@@ -1,0 +1,81 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - run: go test ./...
+      - run: go vet ./...
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger deploy webhook
+        run: |
+          curl -sf -X POST "${{ secrets.DEPLOY_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "service": "yt-pipe",
+              "image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest",
+              "sha": "${{ github.sha }}",
+              "ref": "${{ github.ref_name }}",
+              "actor": "${{ github.actor }}"
+            }'
+
+      - name: Notify Discord
+        if: always()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "yt-pipe deploy"
+          description: |
+            **Status:** ${{ job.status }}
+            **Commit:** `${{ github.sha }}` — ${{ github.event.head_commit.message }}
+            **Branch:** `${{ github.ref_name }}`
+            **By:** ${{ github.actor }}
+          color: ${{ job.status == 'success' && '0x57F287' || '0xED4245' }}
+          username: "GitHub Actions"
