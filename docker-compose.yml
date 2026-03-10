@@ -15,6 +15,7 @@ services:
       - YTP_IMAGEGEN_API_KEY=${YTP_IMAGEGEN_API_KEY}
       - YTP_TTS_API_KEY=${YTP_TTS_API_KEY}
       - YTP_API_KEY=${YTP_API_KEY}
+      - YTP_API_HOST=0.0.0.0
     env_file:
       - path: .env
         required: false
