@@ -152,7 +152,7 @@ output:
 # ---------------------------------------------------------------------------
 webhooks:
   urls:
-    - "https://n8n.eli.kr"
+    - "http://n8n:5678/webhook/yt-pipe-webhook"
   timeout_seconds: 10
   retry_max_attempts: 3
 

@@ -21,14 +21,20 @@ type SCPData struct {
 }
 
 // FactsFile represents the contents of facts.json.
+// Supports both legacy format (schema_version + facts map) and
+// crawled format (flat fields like scp_id, object_class, etc.).
 type FactsFile struct {
-	SchemaVersion string            `json:"schema_version"`
-	Facts         map[string]string `json:"facts"`
+	SchemaVersion string            `json:"schema_version,omitempty"`
+	Facts         map[string]string `json:"facts,omitempty"`
+	// Crawled format fields (used as raw data for LLM)
+	RawFields map[string]interface{} `json:"-"`
 }
 
 // MetaFile represents the contents of meta.json.
+// Supports both legacy format (schema_version + structured fields) and
+// crawled format (flat fields without schema_version).
 type MetaFile struct {
-	SchemaVersion  string `json:"schema_version"`
+	SchemaVersion  string `json:"schema_version,omitempty"`
 	Title          string `json:"title"`
 	ObjectClass    string `json:"object_class"`
 	Series         string `json:"series"`
@@ -90,7 +96,13 @@ func loadFactsFile(path string) (*FactsFile, error) {
 		return nil, &domain.ValidationError{Field: "facts.json", Message: fmt.Sprintf("invalid JSON: %v", err)}
 	}
 
-	if f.SchemaVersion != ExpectedSchemaVersion {
+	// If no schema_version, treat as crawled format — store raw fields
+	if f.SchemaVersion == "" {
+		var raw map[string]interface{}
+		if err := json.Unmarshal(data, &raw); err == nil {
+			f.RawFields = raw
+		}
+	} else if f.SchemaVersion != ExpectedSchemaVersion {
 		return nil, &domain.ValidationError{
 			Field:   "facts.json",
 			Message: fmt.Sprintf("schema version mismatch: expected %s, got %s", ExpectedSchemaVersion, f.SchemaVersion),
@@ -114,7 +126,8 @@ func loadMetaFile(path string) (*MetaFile, error) {
 		return nil, &domain.ValidationError{Field: "meta.json", Message: fmt.Sprintf("invalid JSON: %v", err)}
 	}
 
-	if m.SchemaVersion != ExpectedSchemaVersion {
+	// Skip version check if no schema_version (crawled format)
+	if m.SchemaVersion != "" && m.SchemaVersion != ExpectedSchemaVersion {
 		return nil, &domain.ValidationError{
 			Field:   "meta.json",
 			Message: fmt.Sprintf("schema version mismatch: expected %s, got %s", ExpectedSchemaVersion, m.SchemaVersion),
