@@ -29,6 +29,11 @@
         </div>
         <div class="flex items-center gap-2">
             <span id="unapproved-badge" class="text-sm text-gray-500"></span>
+            {{if eq .Dashboard.ProjectStatus "scenario_review"}}
+            <button onclick="approveScenario()" class="px-3 py-2 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700 transition">
+                Approve Scenario
+            </button>
+            {{end}}
             <button onclick="approveAll('image')" class="px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition">
                 Approve All Images
             </button>
@@ -220,6 +225,15 @@ async function rejectScene(sceneNum, assetType) {
     const result = await apiFetch(API_BASE + '/scenes/' + sceneNum + '/reject?type=' + assetType, { method: 'POST' });
     if (result) {
         showToast('Scene ' + sceneNum + ' ' + assetType + ' rejected', 'success');
+        setTimeout(() => location.reload(), 500);
+    }
+}
+
+async function approveScenario() {
+    if (!confirm('Approve scenario and proceed to asset generation?')) return;
+    const result = await apiFetch(API_BASE + '/approve', { method: 'POST' });
+    if (result) {
+        showToast('Scenario approved', 'success');
         setTimeout(() => location.reload(), 500);
     }
 }
