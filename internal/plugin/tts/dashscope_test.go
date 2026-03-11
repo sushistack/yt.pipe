@@ -58,8 +58,8 @@ func TestSynthesize_Success(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if req.Model != "cosyvoice-v1" {
-			t.Errorf("expected model cosyvoice-v1, got %s", req.Model)
+		if req.Model != defaultDashScopeModel {
+			t.Errorf("expected model %s, got %s", defaultDashScopeModel, req.Model)
 		}
 
 		resp := dsResponse{

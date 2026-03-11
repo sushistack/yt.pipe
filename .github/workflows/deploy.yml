@@ -66,16 +66,22 @@ jobs:
               "actor": "${{ github.actor }}"
             }'
 
+  notify:
+    needs: [test, build-and-push, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
       - name: Notify Discord
-        if: always()
         uses: sarisia/actions-status-discord@v1
         with:
           webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
           title: "yt-pipe deploy"
           description: |
-            **Status:** ${{ job.status }}
+            **Test:** ${{ needs.test.result }}
+            **Build:** ${{ needs.build-and-push.result }}
+            **Deploy:** ${{ needs.deploy.result }}
             **Commit:** `${{ github.sha }}` — ${{ github.event.head_commit.message }}
             **Branch:** `${{ github.ref_name }}`
             **By:** ${{ github.actor }}
-          color: ${{ job.status == 'success' && '0x57F287' || '0xED4245' }}
+          color: ${{ needs.deploy.result == 'success' && '0x57F287' || '0xED4245' }}
           username: "GitHub Actions"
