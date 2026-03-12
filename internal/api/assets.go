@@ -53,8 +53,9 @@ var validImageGenStates = map[string]bool{
 
 // validTTSGenStates defines project states that allow TTS generation.
 var validTTSGenStates = map[string]bool{
-	domain.StatusApproved:  true,
-	domain.StatusTTSReview: true,
+	domain.StatusApproved:    true,
+	domain.StatusImageReview: true,
+	domain.StatusTTSReview:   true,
 }
 
 // handleGenerateImages enqueues selective image regeneration.
