@@ -31,6 +31,7 @@ type JobCompleteEvent struct {
 	JobID     string `json:"job_id"`
 	JobType   string `json:"job_type"`
 	Result    string `json:"result"`
+	NewState  string `json:"new_state,omitempty"`
 	ReviewURL string `json:"review_url,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
@@ -44,6 +45,7 @@ type JobFailedEvent struct {
 	JobType     string `json:"job_type"`
 	Error       string `json:"error"`
 	FailedScene int    `json:"failed_scene"`
+	NewState    string `json:"new_state,omitempty"`
 	ReviewURL   string `json:"review_url,omitempty"`
 	Timestamp   string `json:"timestamp"`
 }
@@ -122,7 +124,7 @@ func (wn *WebhookNotifier) NotifyStateChange(projectID, scpID, previousState, ne
 }
 
 // NotifyJobComplete sends a job_complete event to all configured webhook URLs.
-func (wn *WebhookNotifier) NotifyJobComplete(projectID, scpID, jobID, jobType, result, reviewURL string) {
+func (wn *WebhookNotifier) NotifyJobComplete(projectID, scpID, jobID, jobType, result, newState, reviewURL string) {
 	if wn == nil {
 		return
 	}
@@ -133,6 +135,7 @@ func (wn *WebhookNotifier) NotifyJobComplete(projectID, scpID, jobID, jobType, r
 		JobID:     jobID,
 		JobType:   jobType,
 		Result:    result,
+		NewState:  newState,
 		ReviewURL: reviewURL,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -140,7 +143,7 @@ func (wn *WebhookNotifier) NotifyJobComplete(projectID, scpID, jobID, jobType, r
 }
 
 // NotifyJobFailed sends a job_failed event to all configured webhook URLs.
-func (wn *WebhookNotifier) NotifyJobFailed(projectID, scpID, jobID, jobType, errMsg string, failedScene int, reviewURL string) {
+func (wn *WebhookNotifier) NotifyJobFailed(projectID, scpID, jobID, jobType, errMsg string, failedScene int, newState, reviewURL string) {
 	if wn == nil {
 		return
 	}
@@ -152,6 +155,7 @@ func (wn *WebhookNotifier) NotifyJobFailed(projectID, scpID, jobID, jobType, err
 		JobType:     jobType,
 		Error:       errMsg,
 		FailedScene: failedScene,
+		NewState:    newState,
 		ReviewURL:   reviewURL,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}

@@ -115,8 +115,8 @@ func TestWebhookNotifier_NilSafe_AllMethods(t *testing.T) {
 	// All Notify methods on nil notifier should be no-ops (no panic)
 	var wn *api.WebhookNotifier
 	wn.NotifyStateChange("proj-1", "SCP-173", "pending", "approved", "")
-	wn.NotifyJobComplete("proj-1", "SCP-173", "job-1", "image_generate", "ok", "")
-	wn.NotifyJobFailed("proj-1", "SCP-173", "job-1", "tts_generate", "err", 3, "")
+	wn.NotifyJobComplete("proj-1", "SCP-173", "job-1", "image_generate", "ok", "approved", "")
+	wn.NotifyJobFailed("proj-1", "SCP-173", "job-1", "tts_generate", "err", 3, "approved", "")
 	wn.NotifySceneApproved("proj-1", "SCP-173", 1, "image", "")
 	wn.NotifyAllApproved("proj-1", "SCP-173", "image", "")
 }
@@ -137,7 +137,7 @@ func TestWebhookNotifier_JobComplete(t *testing.T) {
 	})
 	require.NotNil(t, wn)
 
-	wn.NotifyJobComplete("proj-1", "SCP-173", "job-42", "image_generate", "/path/to/output", "")
+	wn.NotifyJobComplete("proj-1", "SCP-173", "job-42", "image_generate", "/path/to/output", "image_review", "")
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Equal(t, "job_complete", lastBody["event"])
@@ -164,7 +164,7 @@ func TestWebhookNotifier_JobFailed(t *testing.T) {
 		RetryMaxAttempts: 1,
 	})
 
-	wn.NotifyJobFailed("proj-1", "SCP-173", "job-99", "tts_generate", "scene 3: timeout", 3, "")
+	wn.NotifyJobFailed("proj-1", "SCP-173", "job-99", "tts_generate", "scene 3: timeout", 3, "image_review", "")
 	time.Sleep(100 * time.Millisecond)
 
 	assert.Equal(t, "job_failed", lastBody["event"])
@@ -246,8 +246,8 @@ func TestWebhookNotifier_FlatJSON(t *testing.T) {
 
 	// Test each event type for flat structure
 	events := []func(){
-		func() { wn.NotifyJobComplete("p", "s", "j", "t", "r", "") },
-		func() { wn.NotifyJobFailed("p", "s", "j", "t", "e", 1, "") },
+		func() { wn.NotifyJobComplete("p", "s", "j", "t", "r", "approved", "") },
+		func() { wn.NotifyJobFailed("p", "s", "j", "t", "e", 1, "approved", "") },
 		func() { wn.NotifySceneApproved("p", "s", 1, "image", "") },
 		func() { wn.NotifyAllApproved("p", "s", "image", "") },
 	}
