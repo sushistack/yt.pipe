@@ -164,6 +164,9 @@ func (s *Server) setupRouter() {
 	// Public endpoints (auth exempt via AuthMiddleware path check)
 	r.Get("/health", s.handleHealth)
 	r.Get("/ready", s.handleReady)
+	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	// Review page (auth via review token, exempt from Bearer in AuthMiddleware)
 	r.Get("/review/{project_id}", s.handleReviewPage)

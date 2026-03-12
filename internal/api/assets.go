@@ -79,9 +79,11 @@ func (s *Server) handleGenerateImages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req generateRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
-		WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
-		return
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+			WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
+			return
+		}
 	}
 
 	// Validate scene numbers
@@ -159,9 +161,11 @@ func (s *Server) handleGenerateTTS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req generateRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
-		WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
-		return
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+			WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
+			return
+		}
 	}
 
 	if err := validateSceneNumbers(req.Scenes, project.SceneCount); err != nil {
