@@ -546,6 +546,13 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 		projectPath = filepath.Join(s.workspacePath, project.ID)
 	}
 
+	// Initialize approval records for each scene
+	for _, sceneNum := range scenes {
+		if err := s.store.InitApproval(project.ID, sceneNum, domain.AssetTypeImage); err != nil {
+			slog.Warn("failed to init image approval", "project_id", project.ID, "scene_num", sceneNum, "err", err)
+		}
+	}
+
 	slog.Info("image generation started",
 		"project_id", project.ID,
 		"job_id", jobID,
@@ -602,6 +609,16 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 		)
 	}
 
+	// Mark all scenes as generated and transition project to image_review
+	for _, sceneNum := range scenes {
+		if err := s.store.MarkGenerated(project.ID, sceneNum, domain.AssetTypeImage); err != nil {
+			slog.Warn("failed to mark image generated", "project_id", project.ID, "scene_num", sceneNum, "err", err)
+		}
+	}
+	if _, err := s.projectSvc.TransitionProject(ctx, project.ID, domain.StatusImageReview); err != nil {
+		slog.Warn("failed to transition to image_review", "project_id", project.ID, "err", err)
+	}
+
 	result := strings.Join(resultPaths, ",")
 	s.updateJobRecord(jobID, JobStatusComplete, 100, result, "")
 	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, jobID, "image_generate", result, BuildReviewURL(project.ID, project.ReviewToken))
@@ -624,6 +641,13 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 	projectPath := project.WorkspacePath
 	if projectPath == "" {
 		projectPath = filepath.Join(s.workspacePath, project.ID)
+	}
+
+	// Initialize approval records for each scene
+	for _, sceneNum := range scenes {
+		if err := s.store.InitApproval(project.ID, sceneNum, domain.AssetTypeTTS); err != nil {
+			slog.Warn("failed to init tts approval", "project_id", project.ID, "scene_num", sceneNum, "err", err)
+		}
 	}
 
 	slog.Info("tts generation started",
@@ -676,6 +700,16 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 			"scene_num", sceneNum,
 			"progress", fmt.Sprintf("%d/%d", completed, total),
 		)
+	}
+
+	// Mark all scenes as generated and transition project to tts_review
+	for _, sceneNum := range scenes {
+		if err := s.store.MarkGenerated(project.ID, sceneNum, domain.AssetTypeTTS); err != nil {
+			slog.Warn("failed to mark tts generated", "project_id", project.ID, "scene_num", sceneNum, "err", err)
+		}
+	}
+	if _, err := s.projectSvc.TransitionProject(ctx, project.ID, domain.StatusTTSReview); err != nil {
+		slog.Warn("failed to transition to tts_review", "project_id", project.ID, "err", err)
 	}
 
 	result := strings.Join(resultPaths, ",")
