@@ -1,0 +1,310 @@
+{
+  "name": "Youtube Pipeline Event Listener",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "yt-pipe-webhook",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -976,
+        304
+      ],
+      "id": "fffd8226-65a0-4f0f-9d45-3e0211241400",
+      "name": "Webhook",
+      "webhookId": "34ecf554-3744-41e0-be9f-1dcbad177711"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || {};\nconst { event, asset_type, new_state } = body;\n\nlet action = 'unknown';\n\nif (event === 'all_approved' && asset_type === 'image') action = 'generate_tts';\nelse if (event === 'all_approved' && asset_type === 'tts') action = 'assemble';\nelse if (event === 'state_change' && new_state === 'approved') action = 'generate_images';\nelse if (event === 'state_change') action = 'notify';\nelse if (event === 'job_failed') action = 'notify';\n\nreturn [{ json: { body, action } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        304
+      ],
+      "id": "55f7e277-2d61-4aad-8a43-98af3d3de5a6",
+      "name": "액션 분류"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r1-generate-images",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "generate_images",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "이미지 생성"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r2-generate-tts",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "generate_tts",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "TTS 생성"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r3-assemble",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "assemble",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Capcut 조립"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r4-notify",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "notify",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Discord 알림"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -592,
+        272
+      ],
+      "id": "7f1c8b8a-2ef1-402d-b107-5280111cdcd8",
+      "name": "액션 라우터"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://yt-pipe:8080/api/v1/projects/{{ $json.body.project_id }}/images/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 9b12d4783804521fd2d8b85823fe4091ccb7ee6b34d04b36655211582765ed87"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -320,
+        80
+      ],
+      "id": "be84f6b3-98b5-4c53-814e-c7aba9c53bf2",
+      "name": "이미지 생성"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://yt-pipe:8080/api/v1/projects/{{ $json.body.project_id }}/tts/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 9b12d4783804521fd2d8b85823fe4091ccb7ee6b34d04b36655211582765ed87"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -320,
+        240
+      ],
+      "id": "a6dabfee-f37c-4fa3-a7fe-888ffaeac32d",
+      "name": "TTS 생성"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://yt-pipe:8080/api/v1/projects/{{ $json.body.project_id }}/assemble",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 9b12d4783804521fd2d8b85823fe4091ccb7ee6b34d04b36655211582765ed87"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -320,
+        400
+      ],
+      "id": "fe970848-9e89-45db-82f0-a84a22bf1bdd",
+      "name": "Capcut 조립"
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "=📝 {{ $json.body.scp_id }} 리뷰 요청 ({{ $json.body.new_state }})\n🔗 https://review.eli.kr{{ $json.body.review_url }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        560
+      ],
+      "id": "4dd5419f-28a1-484b-a89f-f4bb06971344",
+      "name": "Discord",
+      "webhookId": "77c5c0ba-1de1-41d7-82d8-3760cee49906",
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "wGSM3CtxzBR7HA46",
+          "name": "Discord Webhook account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "액션 분류",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "액션 분류": {
+      "main": [
+        [
+          {
+            "node": "액션 라우터",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "액션 라우터": {
+      "main": [
+        [
+          {
+            "node": "이미지 생성",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TTS 생성",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Capcut 조립",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "15e53e42-fc29-4c0e-96f1-38810bbff22f",
+  "meta": {
+    "instanceId": "98360857982f07913afa0b5dc09f292c1a60caac7185d0e8e62568b53da90193"
+  },
+  "id": "aCtpArB1m7hn8nmw",
+  "tags": []
+}

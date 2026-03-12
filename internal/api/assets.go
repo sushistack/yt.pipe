@@ -351,12 +351,12 @@ func (s *Server) executeAssembly(ctx context.Context, jobID string, project *dom
 	if err != nil {
 		slog.Error("assembly failed", "project_id", project.ID, "job_id", jobID, "error", err)
 		s.updateJobRecord(jobID, JobStatusFailed, 0, "", err.Error())
-		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, jobID, "assembly", err.Error(), 0, domain.StatusAssembling, BuildReviewURL(project.ID, project.ReviewToken))
+		s.webhooks.NotifyJobFailed(project.ID, project.SCPID, jobID, "assembly", err.Error(), 0, "", BuildReviewURL(project.ID, project.ReviewToken))
 		return
 	}
 
 	s.updateJobRecord(jobID, JobStatusComplete, 100, result.OutputPath, "")
-	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, jobID, "assembly", result.OutputPath, domain.StatusComplete, BuildReviewURL(project.ID, project.ReviewToken))
+	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, jobID, "assembly", result.OutputPath, "", BuildReviewURL(project.ID, project.ReviewToken))
 	slog.Info("assembly complete",
 		"project_id", project.ID,
 		"job_id", jobID,
@@ -591,7 +591,7 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 			)
 			errMsg := fmt.Sprintf("scene %d: %s", sceneNum, err.Error())
 			s.updateJobRecord(jobID, JobStatusFailed, completed*100/total, "", errMsg)
-			s.webhooks.NotifyJobFailed(project.ID, project.SCPID, jobID, "image_generate", errMsg, sceneNum, domain.StatusApproved, BuildReviewURL(project.ID, project.ReviewToken))
+			s.webhooks.NotifyJobFailed(project.ID, project.SCPID, jobID, "image_generate", errMsg, sceneNum, "", BuildReviewURL(project.ID, project.ReviewToken))
 			return
 		}
 
@@ -619,10 +619,11 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 	if _, err := s.projectSvc.TransitionProject(ctx, project.ID, domain.StatusImageReview); err != nil {
 		slog.Warn("failed to transition to image_review", "project_id", project.ID, "err", err)
 	}
+	s.webhooks.NotifyStateChange(project.ID, project.SCPID, domain.StatusApproved, domain.StatusImageReview, BuildReviewURL(project.ID, project.ReviewToken))
 
 	result := strings.Join(resultPaths, ",")
 	s.updateJobRecord(jobID, JobStatusComplete, 100, result, "")
-	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, jobID, "image_generate", result, domain.StatusImageReview, BuildReviewURL(project.ID, project.ReviewToken))
+	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, jobID, "image_generate", result, "", BuildReviewURL(project.ID, project.ReviewToken))
 	slog.Info("image generation complete", "project_id", project.ID, "job_id", jobID, "scenes_completed", completed)
 }
 
@@ -684,7 +685,7 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 			)
 			errMsg := fmt.Sprintf("scene %d: %s", sceneNum, err.Error())
 			s.updateJobRecord(jobID, JobStatusFailed, completed*100/total, "", errMsg)
-			s.webhooks.NotifyJobFailed(project.ID, project.SCPID, jobID, "tts_generate", errMsg, sceneNum, domain.StatusImageReview, BuildReviewURL(project.ID, project.ReviewToken))
+			s.webhooks.NotifyJobFailed(project.ID, project.SCPID, jobID, "tts_generate", errMsg, sceneNum, "", BuildReviewURL(project.ID, project.ReviewToken))
 			return
 		}
 
@@ -712,10 +713,11 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 	if _, err := s.projectSvc.TransitionProject(ctx, project.ID, domain.StatusTTSReview); err != nil {
 		slog.Warn("failed to transition to tts_review", "project_id", project.ID, "err", err)
 	}
+	s.webhooks.NotifyStateChange(project.ID, project.SCPID, domain.StatusImageReview, domain.StatusTTSReview, BuildReviewURL(project.ID, project.ReviewToken))
 
 	result := strings.Join(resultPaths, ",")
 	s.updateJobRecord(jobID, JobStatusComplete, 100, result, "")
-	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, jobID, "tts_generate", result, domain.StatusTTSReview, BuildReviewURL(project.ID, project.ReviewToken))
+	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, jobID, "tts_generate", result, "", BuildReviewURL(project.ID, project.ReviewToken))
 	slog.Info("tts generation complete", "project_id", project.ID, "job_id", jobID, "scenes_completed", completed)
 }
 
