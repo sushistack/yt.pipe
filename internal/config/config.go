@@ -159,8 +159,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("imagegen.endpoint", "https://api.siliconflow.com/v1")
 	v.SetDefault("imagegen.api_key", "")
 	v.SetDefault("imagegen.model", "black-forest-labs/FLUX.1-schnell")
-	v.SetDefault("imagegen.width", 1920)
-	v.SetDefault("imagegen.height", 1080)
+	v.SetDefault("imagegen.width", 1024)
+	v.SetDefault("imagegen.height", 576)
 
 	v.SetDefault("tts.provider", "dashscope")
 	v.SetDefault("tts.endpoint", "https://dashscope.aliyuncs.com")

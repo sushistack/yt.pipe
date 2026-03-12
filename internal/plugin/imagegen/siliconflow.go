@@ -20,9 +20,42 @@ import (
 const (
 	defaultSiliconFlowEndpoint = "https://api.siliconflow.com/v1"
 	defaultSiliconFlowModel    = "black-forest-labs/FLUX.1-schnell"
-	defaultImageWidth          = 1920
-	defaultImageHeight         = 1080
+	defaultImageWidth          = 1024
+	defaultImageHeight         = 576
 )
+
+// supportedImageSizes maps model prefixes to their allowed image_size values.
+// The first entry in each list is the default for that model family.
+var supportedImageSizes = map[string][]string{
+	"FLUX.1-schnell": {"1024x576", "576x1024", "1024x1024", "512x1024", "768x512", "768x1024"},
+	"FLUX.2-pro":     {"1024x576", "576x1024", "512x512", "768x1024", "1024x768"},
+	"FLUX.2-flex":    {"1024x576", "576x1024", "512x512", "768x1024", "1024x768"},
+	"FLUX.1-dev":     {"1024x576", "576x1024", "1024x1024", "960x1280", "768x1024", "720x1440", "720x1280"},
+	"FLUX-1.1-pro":   {"1024x576", "576x1024", "1024x768"},
+	"Qwen-Image":     {"1664x928", "928x1664", "1328x1328", "1472x1140", "1140x1472", "1584x1056", "1056x1584"},
+}
+
+// resolveImageSize returns a valid image_size for the given model.
+// If the requested WxH is in the model's supported list, it is used as-is.
+// Otherwise, the first (default landscape) size for that model family is returned.
+func resolveImageSize(model string, width, height int) string {
+	requested := fmt.Sprintf("%dx%d", width, height)
+
+	// Find matching model family
+	for family, sizes := range supportedImageSizes {
+		if strings.Contains(model, family) {
+			for _, s := range sizes {
+				if s == requested {
+					return requested
+				}
+			}
+			return sizes[0] // default for this family
+		}
+	}
+
+	// Unknown model — pass through as-is
+	return requested
+}
 
 // SiliconFlowProvider implements ImageGen for the SiliconFlow FLUX API.
 type SiliconFlowProvider struct {
@@ -116,10 +149,22 @@ func (p *SiliconFlowProvider) Generate(ctx context.Context, prompt string, opts 
 		model = opts.Model
 	}
 
+	imageSize := resolveImageSize(model, width, height)
+
+	// Parse back resolved dimensions for the result
+	if parts := strings.SplitN(imageSize, "x", 2); len(parts) == 2 {
+		if w, err := strconv.Atoi(parts[0]); err == nil {
+			width = w
+		}
+		if h, err := strconv.Atoi(parts[1]); err == nil {
+			height = h
+		}
+	}
+
 	reqBody := sfImageRequest{
 		Model:     model,
 		Prompt:    prompt,
-		ImageSize: fmt.Sprintf("%dx%d", width, height),
+		ImageSize: imageSize,
 		BatchSize: 1,
 	}
 	if opts.Seed != 0 {

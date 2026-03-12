@@ -49,7 +49,7 @@ func TestGenerate_Success_Base64(t *testing.T) {
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
 		assert.Equal(t, defaultSiliconFlowModel, req.Model)
 		assert.Equal(t, "a dark figure", req.Prompt)
-		assert.Equal(t, "1920x1080", req.ImageSize)
+		assert.Equal(t, "1024x576", req.ImageSize)
 		assert.Equal(t, 1, req.BatchSize)
 
 		resp := sfImageResponse{
@@ -70,8 +70,8 @@ func TestGenerate_Success_Base64(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fakeImage, result.ImageData)
 	assert.Equal(t, "png", result.Format)
-	assert.Equal(t, 1920, result.Width)
-	assert.Equal(t, 1080, result.Height)
+	assert.Equal(t, 1024, result.Width)
+	assert.Equal(t, 576, result.Height)
 }
 
 func TestGenerate_Success_URL(t *testing.T) {
@@ -99,19 +99,19 @@ func TestGenerate_Success_URL(t *testing.T) {
 
 	result, err := p.Generate(context.Background(), "test prompt", GenerateOptions{
 		Width:  512,
-		Height: 512,
+		Height: 1024,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, fakeImage, result.ImageData)
 	assert.Equal(t, 512, result.Width)
-	assert.Equal(t, 512, result.Height)
+	assert.Equal(t, 1024, result.Height)
 }
 
 func TestGenerate_CustomDimensions(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req sfImageRequest
 		json.NewDecoder(r.Body).Decode(&req)
-		assert.Equal(t, "768x768", req.ImageSize)
+		assert.Equal(t, "1024x1024", req.ImageSize) // valid FLUX.1-schnell size
 
 		b64 := base64.StdEncoding.EncodeToString([]byte("img"))
 		resp := sfImageResponse{Images: []sfImage{{URL: b64}}}
@@ -125,11 +125,11 @@ func TestGenerate_CustomDimensions(t *testing.T) {
 	})
 
 	result, err := p.Generate(context.Background(), "prompt", GenerateOptions{
-		Width:  768,
-		Height: 768,
+		Width:  1024,
+		Height: 1024,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, 768, result.Width)
+	assert.Equal(t, 1024, result.Width)
 }
 
 func TestGenerate_WithSeed(t *testing.T) {
