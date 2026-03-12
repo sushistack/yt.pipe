@@ -32,7 +32,7 @@ func validateLLMKey(ctx context.Context, provider, apiKey string) error {
 func validateImageGenKey(ctx context.Context, provider, apiKey string) error {
 	switch provider {
 	case "siliconflow":
-		return validateBearerToken(ctx, "https://api.siliconflow.cn/v1/models", apiKey, "ImageGen")
+		return validateBearerToken(ctx, "https://api.siliconflow.com/v1/models", apiKey, "ImageGen")
 	default:
 		return fmt.Errorf("init wizard: unknown ImageGen provider: %s", provider)
 	}

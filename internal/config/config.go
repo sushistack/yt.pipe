@@ -156,7 +156,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("scenario.target_duration_min", 10)
 
 	v.SetDefault("imagegen.provider", "siliconflow")
-	v.SetDefault("imagegen.endpoint", "https://api.siliconflow.cn/v1")
+	v.SetDefault("imagegen.endpoint", "https://api.siliconflow.com/v1")
 	v.SetDefault("imagegen.api_key", "")
 	v.SetDefault("imagegen.model", "black-forest-labs/FLUX.1-schnell")
 	v.SetDefault("imagegen.width", 1920)

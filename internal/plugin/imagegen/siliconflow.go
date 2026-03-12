@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	defaultSiliconFlowEndpoint = "https://api.siliconflow.cn/v1"
+	defaultSiliconFlowEndpoint = "https://api.siliconflow.com/v1"
 	defaultSiliconFlowModel    = "black-forest-labs/FLUX.1-schnell"
 	defaultImageWidth          = 1920
 	defaultImageHeight         = 1080
