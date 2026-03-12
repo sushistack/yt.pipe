@@ -25,6 +25,8 @@ var reviewScopedRoutes = map[string]bool{
 	"/api/v1/projects/{id}/scenes/{num}/narration": true,
 	// Scene CRUD
 	"/api/v1/projects/{id}/scenes": true,
+	// Scenario approve
+	"/api/v1/projects/{id}/approve": true,
 	// Bulk approve
 	"/api/v1/projects/{id}/approve-all": true,
 }
@@ -112,6 +114,7 @@ func isReviewScopedRequest(r *http.Request) bool {
 		suffix := rest[idx:]
 		// Check known review-scoped suffixes
 		return strings.HasPrefix(suffix, "/scenes") ||
+			suffix == "/approve" ||
 			suffix == "/approve-all"
 	}
 	return false
