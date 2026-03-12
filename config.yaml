@@ -92,7 +92,7 @@ imagegen:
 
   # Model name (provider-specific)
   # Env: YTP_IMAGEGEN_MODEL
-  model: "Qwen/Qwen-Image-Edit"
+  model: "black-forest-labs/FLUX.1-schnell"
 
 # ---------------------------------------------------------------------------
 # TTS Plugin (text-to-speech narration)
