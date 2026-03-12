@@ -126,7 +126,7 @@ func TestValidateMutationState_AllowedStates(t *testing.T) {
 
 	svc := NewReviewService(s, slog.Default())
 
-	for _, status := range []string{domain.StatusScenarioReview, domain.StatusApproved, domain.StatusImageReview, domain.StatusTTSReview} {
+	for _, status := range []string{domain.StatusScenarioReview, domain.StatusApproved, domain.StatusImageReview, domain.StatusTTSReview, domain.StatusAssembling, domain.StatusComplete, domain.StatusGeneratingAssets} {
 		pid := "p-" + status
 		require.NoError(t, s.CreateProject(&domain.Project{
 			ID: pid, SCPID: "SCP-173", Status: status,
@@ -145,7 +145,7 @@ func TestValidateMutationState_DisallowedStates(t *testing.T) {
 
 	svc := NewReviewService(s, slog.Default())
 
-	for _, status := range []string{domain.StatusPending, domain.StatusComplete} {
+	for _, status := range []string{domain.StatusPending} {
 		pid := "p-" + status
 		require.NoError(t, s.CreateProject(&domain.Project{
 			ID: pid, SCPID: "SCP-173", Status: status,

@@ -241,6 +241,39 @@ func (s *Store) ListSceneBGMAssignments(projectID string) ([]*domain.SceneBGMAss
 	return assignments, rows.Err()
 }
 
+// RenumberSceneBGMTx shifts scene_num by delta for all BGM assignments where scene_num > afterNum.
+func RenumberSceneBGMTx(tx *sql.Tx, projectID string, afterNum int, delta int) error {
+	_, err := tx.Exec(
+		`UPDATE scene_bgm_assignments SET scene_num = -(scene_num + ?)
+		 WHERE project_id = ? AND scene_num > ?`,
+		delta, projectID, afterNum,
+	)
+	if err != nil {
+		return fmt.Errorf("renumber scene bgm (pass 1): %w", err)
+	}
+	_, err = tx.Exec(
+		`UPDATE scene_bgm_assignments SET scene_num = -scene_num
+		 WHERE project_id = ? AND scene_num < 0`,
+		projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("renumber scene bgm (pass 2): %w", err)
+	}
+	return nil
+}
+
+// DeleteSceneBGM removes the BGM assignment for a specific scene.
+func (s *Store) DeleteSceneBGM(projectID string, sceneNum int) error {
+	_, err := s.db.Exec(
+		`DELETE FROM scene_bgm_assignments WHERE project_id = ? AND scene_num = ?`,
+		projectID, sceneNum,
+	)
+	if err != nil {
+		return fmt.Errorf("delete scene bgm: %w", err)
+	}
+	return nil
+}
+
 func scanBGMs(rows *sql.Rows) ([]*domain.BGM, error) {
 	var bgms []*domain.BGM
 	for rows.Next() {

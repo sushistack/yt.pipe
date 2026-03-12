@@ -61,6 +61,8 @@ summary{cursor:pointer}
 .bg-yellow-50{background-color:#fefce8}.bg-yellow-100{background-color:#fef9c3}.bg-yellow-500{background-color:#eab308}
 .bg-orange-100{background-color:#ffedd5}
 .bg-indigo-600{background-color:#4f46e5}
+.bg-purple-600{background-color:#9333ea}.bg-purple-700{background-color:#7e22ce}
+.text-green-800{color:#166534}.text-yellow-800{color:#854d0e}
 
 .border{border-width:1px}.border-2{border-width:2px}.border-t{border-top-width:1px}.border-b{border-bottom-width:1px}.border-l-4{border-left-width:4px}
 .border-gray-200{border-color:#e5e7eb}.border-gray-300{border-color:#d1d5db}.border-gray-400{border-color:#9ca3af}
@@ -87,8 +89,10 @@ summary{cursor:pointer}
 .ease-in-out{transition-timing-function:cubic-bezier(.4,0,.2,1)}
 .transform{transform:translate(var(--tw-translate-x,0),var(--tw-translate-y,0)) rotate(var(--tw-rotate,0)) skewX(var(--tw-skew-x,0)) skewY(var(--tw-skew-y,0)) scaleX(var(--tw-scale-x,1)) scaleY(var(--tw-scale-y,1))}
 .hover\:bg-blue-700:hover{background-color:#1d4ed8}.hover\:bg-red-700:hover{background-color:#b91c1c}.hover\:bg-green-700:hover{background-color:#15803d}
+.hover\:bg-purple-700:hover{background-color:#7e22ce}
 .hover\:bg-gray-100:hover{background-color:#f3f4f6}.hover\:bg-gray-200:hover{background-color:#e5e7eb}
 .hover\:text-blue-800:hover{color:#1e40af}.hover\:text-red-800:hover{color:#991b1b}
+.hover\:text-indigo-600:hover{color:#4f46e5}
 .hover\:shadow-md:hover{box-shadow:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -2px rgba(0,0,0,.1)}
 .focus\:outline-none:focus{outline:2px solid transparent;outline-offset:2px}
 .focus\:ring-2:focus{box-shadow:0 0 0 2px #3b82f6}.focus\:ring-blue-500:focus{box-shadow:0 0 0 2px #3b82f6}

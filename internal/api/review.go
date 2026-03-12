@@ -291,6 +291,29 @@ func (s *Server) handleAddScene(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	afterParam := r.URL.Query().Get("after")
+	if afterParam != "" {
+		// Positional insert mode
+		afterNum, err := strconv.Atoi(afterParam)
+		if err != nil {
+			WriteError(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid 'after' parameter: must be an integer")
+			return
+		}
+		newSceneNum, err := s.reviewSvc.InsertScene(projectID, afterNum, req.Narration)
+		if err != nil {
+			writeServiceError(w, r, err)
+			return
+		}
+		WriteJSON(w, r, http.StatusCreated, map[string]interface{}{
+			"project_id": projectID,
+			"scene_num":  newSceneNum,
+			"narration":  req.Narration,
+			"inserted":   true,
+		})
+		return
+	}
+
+	// Append mode (backward compatible)
 	newSceneNum, err := s.reviewSvc.AddScene(projectID, req.Narration)
 	if err != nil {
 		writeServiceError(w, r, err)

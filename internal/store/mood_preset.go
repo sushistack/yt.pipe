@@ -211,6 +211,27 @@ func (s *Store) ListSceneMoodAssignments(projectID string) ([]*domain.SceneMoodA
 	return assignments, rows.Err()
 }
 
+// RenumberSceneMoodsTx shifts scene_num by delta for all mood assignments where scene_num > afterNum.
+func RenumberSceneMoodsTx(tx *sql.Tx, projectID string, afterNum int, delta int) error {
+	_, err := tx.Exec(
+		`UPDATE scene_mood_assignments SET scene_num = -(scene_num + ?)
+		 WHERE project_id = ? AND scene_num > ?`,
+		delta, projectID, afterNum,
+	)
+	if err != nil {
+		return fmt.Errorf("renumber scene moods (pass 1): %w", err)
+	}
+	_, err = tx.Exec(
+		`UPDATE scene_mood_assignments SET scene_num = -scene_num
+		 WHERE project_id = ? AND scene_num < 0`,
+		projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("renumber scene moods (pass 2): %w", err)
+	}
+	return nil
+}
+
 // DeleteSceneMoodAssignment removes a scene mood assignment.
 func (s *Store) DeleteSceneMoodAssignment(projectID string, sceneNum int) error {
 	result, err := s.db.Exec(

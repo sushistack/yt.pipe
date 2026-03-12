@@ -151,6 +151,11 @@ func writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		WriteError(w, r, http.StatusConflict, "CONFLICT", err.Error())
 		return
 	}
+	var conflictErr *domain.ConflictError
+	if errors.As(err, &conflictErr) {
+		WriteError(w, r, http.StatusConflict, "CONFLICT", err.Error())
+		return
+	}
 	WriteError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 }
 

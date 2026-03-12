@@ -47,3 +47,12 @@ type TransitionError struct {
 func (e *TransitionError) Error() string {
 	return fmt.Sprintf("cannot transition from %s to %s (allowed: %v)", e.Current, e.Requested, e.Allowed)
 }
+
+// ConflictError indicates a conflict that prevents the operation (maps to API 409)
+type ConflictError struct {
+	Message string
+}
+
+func (e *ConflictError) Error() string {
+	return e.Message
+}

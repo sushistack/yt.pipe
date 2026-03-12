@@ -197,6 +197,51 @@ func (s *Store) MaxSceneNum(projectID string) (int, error) {
 	return int(maxNum.Int64), nil
 }
 
+// RenumberSceneApprovalsTx shifts scene_num by delta for all approvals where scene_num > afterNum.
+// Uses a two-pass negative-temp approach to avoid unique constraint violations without ORDER BY.
+func RenumberSceneApprovalsTx(tx *sql.Tx, projectID string, afterNum int, delta int) error {
+	// Pass 1: negate scene_num to temp values (no collision possible with positive values)
+	_, err := tx.Exec(
+		`UPDATE scene_approvals SET scene_num = -(scene_num + ?)
+		 WHERE project_id = ? AND scene_num > ?`,
+		delta, projectID, afterNum,
+	)
+	if err != nil {
+		return fmt.Errorf("renumber scene approvals (pass 1): %w", err)
+	}
+	// Pass 2: flip negative back to positive final values
+	_, err = tx.Exec(
+		`UPDATE scene_approvals SET scene_num = -scene_num
+		 WHERE project_id = ? AND scene_num < 0`,
+		projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("renumber scene approvals (pass 2): %w", err)
+	}
+	return nil
+}
+
+// RenumberSceneManifestsTx shifts scene_num by delta for all manifests where scene_num > afterNum.
+func RenumberSceneManifestsTx(tx *sql.Tx, projectID string, afterNum int, delta int) error {
+	_, err := tx.Exec(
+		`UPDATE scene_manifests SET scene_num = -(scene_num + ?)
+		 WHERE project_id = ? AND scene_num > ?`,
+		delta, projectID, afterNum,
+	)
+	if err != nil {
+		return fmt.Errorf("renumber scene manifests (pass 1): %w", err)
+	}
+	_, err = tx.Exec(
+		`UPDATE scene_manifests SET scene_num = -scene_num
+		 WHERE project_id = ? AND scene_num < 0`,
+		projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("renumber scene manifests (pass 2): %w", err)
+	}
+	return nil
+}
+
 // BulkApproveAll sets all scene approvals for a project+assetType to "approved".
 // Used by --skip-approval mode.
 func (s *Store) BulkApproveAll(projectID, assetType string) (int64, error) {
