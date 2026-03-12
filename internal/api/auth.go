@@ -40,7 +40,7 @@ func AuthMiddleware(enabled bool, apiKey string) func(http.Handler) http.Handler
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip auth for health/ready endpoints
-			if r.URL.Path == "/health" || r.URL.Path == "/ready" {
+			if r.URL.Path == "/health" || r.URL.Path == "/ready" || r.URL.Path == "/favicon.ico" {
 				next.ServeHTTP(w, r)
 				return
 			}
