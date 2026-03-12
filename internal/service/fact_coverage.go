@@ -171,18 +171,23 @@ func FormatDetailedReport(r *FactCoverageResult) string {
 
 // categorizeFactKey attempts to categorize a fact key.
 func categorizeFactKey(key string) string {
-	categories := map[string][]string{
-		"physical_description":    {"appearance", "physical", "size", "weight", "color", "shape"},
-		"anomalous_properties":    {"anomal", "property", "effect", "ability", "behavior"},
-		"containment_procedures":  {"containment", "procedure", "protocol", "security", "cell"},
-		"discovery":               {"discovery", "found", "origin", "history"},
-		"incidents":               {"incident", "breach", "test", "log", "experiment"},
+	// Ordered slice to ensure deterministic matching (first match wins).
+	type catEntry struct {
+		name     string
+		keywords []string
+	}
+	categories := []catEntry{
+		{"physical_description", []string{"appearance", "physical", "size", "weight", "color", "shape"}},
+		{"anomalous_properties", []string{"anomal", "property", "effect", "ability", "behavior"}},
+		{"containment_procedures", []string{"containment", "procedure", "protocol", "security", "cell"}},
+		{"discovery", []string{"discovery", "found", "origin", "history"}},
+		{"incidents", []string{"incident", "breach", "test", "log", "experiment"}},
 	}
 
-	for category, keywords := range categories {
-		for _, kw := range keywords {
+	for _, cat := range categories {
+		for _, kw := range cat.keywords {
 			if containsIgnoreCase(key, kw) {
-				return category
+				return cat.name
 			}
 		}
 	}
