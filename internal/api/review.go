@@ -504,28 +504,38 @@ func (s *Server) handleApproveAll(w http.ResponseWriter, r *http.Request) {
 		s.webhooks.NotifyAllApproved(projectID, project.SCPID, assetType, BuildReviewURL(projectID, project.ReviewToken))
 	}
 
-	// Auto-trigger TTS generation when all images are approved
+	// When all images are approved: transition state immediately and auto-trigger TTS generation
 	ttsTriggered := false
-	if allApproved && assetType == domain.AssetTypeImage && s.ttsSvc != nil {
-		// Check no TTS job is already running
-		existingJob := s.jobs.getByType(projectID, "tts_generate")
-		dbRunning, _ := s.store.GetRunningJobByProjectAndType(projectID, "tts_generate")
-		if (existingJob == nil || existingJob.getStatus() != JobStatusRunning) && dbRunning == nil {
-			jobID := uuid.New().String()
-			dbJob := &domain.Job{
-				ID:        jobID,
-				ProjectID: projectID,
-				Type:      "tts_generate",
-				Status:    JobStatusRunning,
-			}
-			if err := s.store.CreateJob(dbJob); err == nil {
-				ctx, cancel := context.WithCancel(context.Background())
-				s.jobs.startTyped(projectID, "tts_generate", jobID, cancel)
-				scenes := makeSceneRange(project.SceneCount)
-				go s.executeTTSGeneration(ctx, jobID, project, scenes)
-				ttsTriggered = true
-				slog.Info("auto-triggered TTS generation after image approval",
-					"project_id", projectID, "job_id", jobID)
+	if allApproved && assetType == domain.AssetTypeImage {
+		// Transition to tts_review immediately so the UI reflects the new state
+		if _, err := s.projectSvc.TransitionProject(r.Context(), projectID, domain.StatusTTSReview); err != nil {
+			slog.Warn("failed to transition to tts_review after image approval",
+				"project_id", projectID, "err", err)
+		} else {
+			slog.Info("transitioned to tts_review after all images approved", "project_id", projectID)
+		}
+
+		// Auto-trigger TTS generation if plugin available
+		if s.ttsSvc != nil {
+			existingJob := s.jobs.getByType(projectID, "tts_generate")
+			dbRunning, _ := s.store.GetRunningJobByProjectAndType(projectID, "tts_generate")
+			if (existingJob == nil || existingJob.getStatus() != JobStatusRunning) && dbRunning == nil {
+				jobID := uuid.New().String()
+				dbJob := &domain.Job{
+					ID:        jobID,
+					ProjectID: projectID,
+					Type:      "tts_generate",
+					Status:    JobStatusRunning,
+				}
+				if err := s.store.CreateJob(dbJob); err == nil {
+					ctx, cancel := context.WithCancel(context.Background())
+					s.jobs.startTyped(projectID, "tts_generate", jobID, cancel)
+					scenes := makeSceneRange(project.SceneCount)
+					go s.executeTTSGeneration(ctx, jobID, project, scenes)
+					ttsTriggered = true
+					slog.Info("auto-triggered TTS generation after image approval",
+						"project_id", projectID, "job_id", jobID)
+				}
 			}
 		}
 	}

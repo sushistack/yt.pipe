@@ -332,37 +332,12 @@ async function approveAll(assetType) {
     const result = await apiFetch(API_BASE + '/approve-all?type=' + assetType, { method: 'POST' });
     if (result) {
         if (result.tts_triggered) {
-            // Hide the approve button and show generating status
-            const btn = document.querySelector('button[onclick="approveAll(\'image\')"]');
-            if (btn) {
-                btn.textContent = 'TTS Generating...';
-                btn.disabled = true;
-                btn.classList.replace('bg-green-600', 'bg-gray-400');
-                btn.classList.replace('hover:bg-green-700', 'bg-gray-400');
-            }
-            showToast('All images approved! TTS generation started. Page will refresh when ready.', 'success');
-            pollForStateChange('tts_review');
+            showToast('All images approved! TTS generation started.', 'success');
         } else {
             showToast('Approved ' + result.approved + ' scenes, skipped ' + result.skipped, 'success');
-            setTimeout(() => location.reload(), 500);
         }
+        setTimeout(() => location.reload(), 500);
     }
-}
-
-function pollForStateChange(targetStatus) {
-    const interval = setInterval(async () => {
-        try {
-            const resp = await fetch(location.href);
-            const html = await resp.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const badge = doc.querySelector('.status-badge');
-            if (badge && badge.textContent.trim() === targetStatus) {
-                clearInterval(interval);
-                location.reload();
-            }
-        } catch (e) { /* retry */ }
-    }, 5000);
 }
 
 let deleteSceneNum = null;
