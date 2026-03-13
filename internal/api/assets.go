@@ -717,10 +717,14 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 			slog.Warn("failed to mark tts generated", "project_id", project.ID, "scene_num", sceneNum, "err", err)
 		}
 	}
-	if _, err := s.projectSvc.TransitionProject(ctx, project.ID, domain.StatusTTSReview); err != nil {
-		slog.Warn("failed to transition to tts_review", "project_id", project.ID, "err", err)
+	// Only transition if not already in tts_review (handleApproveAll may have transitioned early)
+	currentProject, _ := s.store.GetProject(project.ID)
+	if currentProject == nil || currentProject.Status != domain.StatusTTSReview {
+		if _, err := s.projectSvc.TransitionProject(ctx, project.ID, domain.StatusTTSReview); err != nil {
+			slog.Warn("failed to transition to tts_review", "project_id", project.ID, "err", err)
+		}
+		s.webhooks.NotifyStateChange(project.ID, project.SCPID, domain.StatusImageReview, domain.StatusTTSReview, BuildReviewURL(project.ID, project.ReviewToken))
 	}
-	s.webhooks.NotifyStateChange(project.ID, project.SCPID, domain.StatusImageReview, domain.StatusTTSReview, BuildReviewURL(project.ID, project.ReviewToken))
 
 	result := strings.Join(resultPaths, ",")
 	s.updateJobRecord(jobID, JobStatusComplete, 100, result, "")

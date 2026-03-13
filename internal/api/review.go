@@ -513,6 +513,7 @@ func (s *Server) handleApproveAll(w http.ResponseWriter, r *http.Request) {
 				"project_id", projectID, "err", err)
 		} else {
 			slog.Info("transitioned to tts_review after all images approved", "project_id", projectID)
+			s.webhooks.NotifyStateChange(projectID, project.SCPID, domain.StatusImageReview, domain.StatusTTSReview, BuildReviewURL(projectID, project.ReviewToken))
 		}
 
 		// Auto-trigger TTS generation if plugin available
