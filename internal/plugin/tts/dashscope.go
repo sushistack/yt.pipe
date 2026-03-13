@@ -121,8 +121,8 @@ type qwenOutput struct {
 }
 
 type qwenAudio struct {
-	URL       string `json:"url,omitempty"`
-	ExpiresAt string `json:"expires_at,omitempty"`
+	URL       string      `json:"url,omitempty"`
+	ExpiresAt json.Number `json:"expires_at,omitempty"`
 }
 
 type qwenUsage struct {

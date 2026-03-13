@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -86,16 +87,9 @@ func newTestServer(t *testing.T, wavData []byte, handler func(w http.ResponseWri
 				handler(w, r, audioURL)
 				return
 			}
-			resp := qwenResponse{
-				RequestID: "test-req-1",
-				Output: qwenOutput{
-					Audio: &qwenAudio{
-						URL: audioURL,
-					},
-				},
-			}
+			// Return response matching real API format (expires_at is a number)
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			fmt.Fprintf(w, `{"request_id":"test-req-1","output":{"audio":{"url":"%s","expires_at":1773490349},"finish_reason":"stop"}}`, audioURL)
 		case "/audio/download":
 			w.Header().Set("Content-Type", "audio/wav")
 			w.Write(wavData)
@@ -127,14 +121,8 @@ func TestSynthesize_Success(t *testing.T) {
 			t.Errorf("expected voice longxiaochun, got %s", req.Input.Voice)
 		}
 
-		resp := qwenResponse{
-			RequestID: "test-req-1",
-			Output: qwenOutput{
-				Audio: &qwenAudio{URL: audioURL},
-			},
-		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		fmt.Fprintf(w, `{"request_id":"test-req-1","output":{"audio":{"url":"%s","expires_at":1773490349},"finish_reason":"stop"}}`, audioURL)
 	})
 	defer server.Close()
 
@@ -243,10 +231,8 @@ func TestSynthesizeWithOverrides(t *testing.T) {
 		json.NewDecoder(r.Body).Decode(&req)
 		receivedText = req.Input.Text
 
-		resp := qwenResponse{
-			Output: qwenOutput{Audio: &qwenAudio{URL: audioURL}},
-		}
-		json.NewEncoder(w).Encode(resp)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"output":{"audio":{"url":"%s","expires_at":1773490349}}}`, audioURL)
 	})
 	defer server.Close()
 
