@@ -660,11 +660,83 @@ func (s *Server) handleReviewApproveScene(w http.ResponseWriter, r *http.Request
 		s.webhooks.NotifyAllApproved(projectID, project.SCPID, assetType, reviewURL)
 	}
 
+	// Auto-transition and auto-trigger when all scenes of an asset type are approved
+	ttsTriggered := false
+	assemblyTriggered := false
+
+	if allApproved && assetType == domain.AssetTypeImage {
+		if _, err := s.projectSvc.TransitionProject(r.Context(), projectID, domain.StatusTTSReview); err != nil {
+			slog.Warn("failed to transition to tts_review after image approval",
+				"project_id", projectID, "err", err)
+		} else {
+			slog.Info("transitioned to tts_review after all images approved (single approve)", "project_id", projectID)
+			s.webhooks.NotifyStateChange(projectID, project.SCPID, domain.StatusImageReview, domain.StatusTTSReview, reviewURL)
+		}
+
+		if s.ttsSvc != nil {
+			existingJob := s.jobs.getByType(projectID, "tts_generate")
+			dbRunning, _ := s.store.GetRunningJobByProjectAndType(projectID, "tts_generate")
+			if (existingJob == nil || existingJob.getStatus() != JobStatusRunning) && dbRunning == nil {
+				jobID := uuid.New().String()
+				dbJob := &domain.Job{
+					ID:        jobID,
+					ProjectID: projectID,
+					Type:      "tts_generate",
+					Status:    JobStatusRunning,
+				}
+				if err := s.store.CreateJob(dbJob); err == nil {
+					ctx, cancel := context.WithCancel(context.Background())
+					s.jobs.startTyped(projectID, "tts_generate", jobID, cancel)
+					scenes := makeSceneRange(project.SceneCount)
+					go s.executeTTSGeneration(ctx, jobID, project, scenes)
+					ttsTriggered = true
+					slog.Info("auto-triggered TTS generation after image approval (single approve)",
+						"project_id", projectID, "job_id", jobID)
+				}
+			}
+		}
+	}
+
+	if allApproved && assetType == domain.AssetTypeTTS {
+		if _, err := s.projectSvc.TransitionProject(r.Context(), projectID, domain.StatusAssembling); err != nil {
+			slog.Warn("failed to transition to assembling after TTS approval",
+				"project_id", projectID, "err", err)
+		} else {
+			slog.Info("transitioned to assembling after all TTS approved (single approve)", "project_id", projectID)
+			s.webhooks.NotifyStateChange(projectID, project.SCPID, domain.StatusTTSReview, domain.StatusAssembling, reviewURL)
+		}
+
+		if s.pluginStatus != nil && s.pluginStatus["output"] {
+			existingJob := s.jobs.getByType(projectID, "assembly")
+			dbRunning, _ := s.store.GetRunningJobByProjectAndType(projectID, "assembly")
+			if (existingJob == nil || existingJob.getStatus() != JobStatusRunning) && dbRunning == nil {
+				jobID := uuid.New().String()
+				dbJob := &domain.Job{
+					ID:        jobID,
+					ProjectID: projectID,
+					Type:      "assembly",
+					Status:    JobStatusRunning,
+				}
+				if err := s.store.CreateJob(dbJob); err == nil {
+					ctx, cancel := context.WithCancel(context.Background())
+					s.jobs.startTyped(projectID, "assembly", jobID, cancel)
+					go s.executeAssembly(ctx, jobID, project)
+					assemblyTriggered = true
+					slog.Info("auto-triggered assembly after TTS approval (single approve)",
+						"project_id", projectID, "job_id", jobID)
+				}
+			}
+		}
+	}
+
 	WriteJSON(w, r, http.StatusOK, map[string]interface{}{
-		"project_id": projectID,
-		"scene_num":  sceneNum,
-		"asset_type": assetType,
-		"status":     "approved",
+		"project_id":         projectID,
+		"scene_num":          sceneNum,
+		"asset_type":         assetType,
+		"status":             "approved",
+		"all_approved":       allApproved,
+		"tts_triggered":      ttsTriggered,
+		"assembly_triggered": assemblyTriggered,
 	})
 }
 
