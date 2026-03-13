@@ -395,14 +395,17 @@ func loadScenesFromWorkspace(projectPath string) ([]domain.Scene, error) {
 		manifestPath := filepath.Join(scenesDir, entry.Name(), "manifest.json")
 		data, err := os.ReadFile(manifestPath)
 		if err != nil {
+			slog.Debug("scene manifest not found", "dir", entry.Name(), "path", manifestPath, "err", err)
 			continue
 		}
 		scene, err := parseSceneManifestJSON(data)
 		if err != nil {
+			slog.Warn("scene manifest parse failed", "dir", entry.Name(), "err", err)
 			continue
 		}
 		scenes = append(scenes, *scene)
 	}
+	slog.Info("loaded scenes from workspace", "count", len(scenes), "dir", scenesDir)
 	return scenes, nil
 }
 
@@ -429,6 +432,32 @@ func parseSceneManifestJSON(data []byte) (*domain.Scene, error) {
 		SubtitlePath:  m.SubtitlePath,
 		WordTimings:   m.WordTimings,
 	}, nil
+}
+
+// writeSceneManifest writes a manifest.json file to the scene directory for assembly.
+func writeSceneManifest(sceneDir string, scene *domain.Scene) error {
+	m := struct {
+		SceneNum      int                 `json:"scene_num"`
+		Narration     string              `json:"narration"`
+		ImagePath     string              `json:"image_path"`
+		AudioPath     string              `json:"audio_path"`
+		AudioDuration float64             `json:"audio_duration"`
+		SubtitlePath  string              `json:"subtitle_path,omitempty"`
+		WordTimings   []domain.WordTiming `json:"word_timings,omitempty"`
+	}{
+		SceneNum:      scene.SceneNum,
+		Narration:     scene.Narration,
+		ImagePath:     scene.ImagePath,
+		AudioPath:     scene.AudioPath,
+		AudioDuration: scene.AudioDuration,
+		SubtitlePath:  scene.SubtitlePath,
+		WordTimings:   scene.WordTimings,
+	}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal manifest: %w", err)
+	}
+	return workspace.WriteFileAtomic(filepath.Join(sceneDir, "manifest.json"), data)
 }
 
 // handleUpdatePrompt updates the image prompt for a specific scene.
@@ -731,6 +760,17 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 		if scene != nil && scene.AudioPath != "" {
 			resultPaths = append(resultPaths, scene.AudioPath)
 		}
+
+		// Write manifest.json for assembly
+		if scene != nil {
+			scene.Narration = sceneScript.Narration
+			sceneDir := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", sceneNum))
+			scene.ImagePath = filepath.Join(sceneDir, "image.png")
+			if err := writeSceneManifest(sceneDir, scene); err != nil {
+				slog.Warn("failed to write scene manifest", "project_id", project.ID, "scene_num", sceneNum, "err", err)
+			}
+		}
+
 		s.updateJobRecord(jobID, JobStatusRunning, progress, "", "")
 
 		slog.Info("tts generation scene complete",
