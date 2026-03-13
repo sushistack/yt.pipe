@@ -691,8 +691,8 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 		"total", total,
 	)
 
-	// Default voice (can be extended to read from project config)
-	voice := "default"
+	// Read voice from config
+	voice := s.cfg.TTS.Voice
 
 	for _, sceneNum := range scenes {
 		// Check context cancellation
