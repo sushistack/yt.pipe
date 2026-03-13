@@ -504,10 +504,37 @@ func (s *Server) handleApproveAll(w http.ResponseWriter, r *http.Request) {
 		s.webhooks.NotifyAllApproved(projectID, project.SCPID, assetType, BuildReviewURL(projectID, project.ReviewToken))
 	}
 
+	// Auto-trigger TTS generation when all images are approved
+	ttsTriggered := false
+	if allApproved && assetType == domain.AssetTypeImage && s.ttsSvc != nil {
+		// Check no TTS job is already running
+		existingJob := s.jobs.getByType(projectID, "tts_generate")
+		dbRunning, _ := s.store.GetRunningJobByProjectAndType(projectID, "tts_generate")
+		if (existingJob == nil || existingJob.getStatus() != JobStatusRunning) && dbRunning == nil {
+			jobID := uuid.New().String()
+			dbJob := &domain.Job{
+				ID:        jobID,
+				ProjectID: projectID,
+				Type:      "tts_generate",
+				Status:    JobStatusRunning,
+			}
+			if err := s.store.CreateJob(dbJob); err == nil {
+				ctx, cancel := context.WithCancel(context.Background())
+				s.jobs.startTyped(projectID, "tts_generate", jobID, cancel)
+				scenes := makeSceneRange(project.SceneCount)
+				go s.executeTTSGeneration(ctx, jobID, project, scenes)
+				ttsTriggered = true
+				slog.Info("auto-triggered TTS generation after image approval",
+					"project_id", projectID, "job_id", jobID)
+			}
+		}
+	}
+
 	WriteJSON(w, r, http.StatusOK, map[string]interface{}{
-		"approved":     approved,
-		"skipped":      skipped,
-		"all_approved": allApproved,
+		"approved":      approved,
+		"skipped":       skipped,
+		"all_approved":  allApproved,
+		"tts_triggered": ttsTriggered,
 	})
 }
 
