@@ -42,7 +42,7 @@
                 Approve All Images
             </button>
             {{else if eq $status "tts_review"}}
-            <button onclick="approveAll('tts')" class="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition">
+            <button id="approve-all-tts-btn" onclick="approveAll('tts')" class="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition" style="display:none">
                 Approve All TTS
             </button>
             {{end}}
@@ -64,7 +64,7 @@
     </div>
     {{else if eq $status "tts_review"}}
     <div class="h-1 bg-gray-200">
-        <div class="h-1 bg-green-500 transition duration-300" style="width: {{progressPercent .Dashboard}}%"></div>
+        <div class="h-1 bg-blue-500 transition duration-300 animate-pulse" style="width: {{progressPercent .Dashboard}}%"></div>
     </div>
     {{else}}
     <div class="h-1 bg-green-500"></div>
@@ -156,12 +156,16 @@
                 </div>
                 {{end}}
 
-                {{if $showTTS}}
-                <!-- Audio player -->
+                {{if and $showTTS (or (eq .TTSStatus "generated") (eq .TTSStatus "approved"))}}
+                <!-- Audio player (only when audio exists) -->
                 <div class="mt-3">
                     <audio controls class="w-full" preload="none">
-                        <source src="/api/v1/projects/{{$.ProjectID}}/scenes/{{.SceneNum}}/audio?token={{$.Token}}" type="audio/mpeg">
+                        <source src="/api/v1/projects/{{$.ProjectID}}/scenes/{{.SceneNum}}/audio?token={{$.Token}}" type="audio/wav">
                     </audio>
+                </div>
+                {{else if and $showTTS (eq .TTSStatus "pending")}}
+                <div class="mt-3 bg-blue-50 text-blue-500 rounded-lg p-3 text-center text-xs">
+                    TTS generating...
                 </div>
                 {{else if $showImages}}
                 <div class="mt-3 bg-gray-100 text-gray-400 rounded-lg p-3 text-center text-xs">
@@ -203,8 +207,8 @@
                 </div>
                 {{end}}
 
-                {{if $showTTS}}
-                <!-- TTS action buttons -->
+                {{if and $showTTS (or (eq .TTSStatus "generated") (eq .TTSStatus "approved"))}}
+                <!-- TTS action buttons (only when audio exists) -->
                 <div class="flex flex-wrap gap-2 pt-2">
                     {{if eq .TTSStatus "generated"}}
                     <button onclick="approveScene({{.SceneNum}}, 'tts')" class="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded hover:bg-green-700 transition">Approve TTS</button>
@@ -385,19 +389,35 @@ async function insertScene(afterNum) {
     }
 }
 
-// Update unapproved badge
+// Update unapproved badge and conditionally show Approve All TTS button
 (function() {
     let unapproved = 0;
+    let ttsGenerated = 0;
+    let ttsPending = 0;
     document.querySelectorAll('[id^="scene-"]').forEach(card => {
         const badges = card.querySelectorAll('.text-xs.font-medium.rounded');
         badges.forEach(b => {
-            if (b.textContent.includes('generated') || b.textContent.includes('pending') || b.textContent.includes('rejected')) {
+            const text = b.textContent.trim();
+            if (text.includes('generated') || text.includes('pending') || text.includes('rejected')) {
                 unapproved++;
+            }
+            if (text.startsWith('TTS:')) {
+                if (text.includes('generated')) ttsGenerated++;
+                if (text.includes('pending')) ttsPending++;
             }
         });
     });
     if (unapproved > 0) {
         document.getElementById('unapproved-badge').textContent = unapproved + ' unapproved';
+    }
+    // Show Approve All TTS only when at least one TTS is generated
+    const ttsBtn = document.getElementById('approve-all-tts-btn');
+    if (ttsBtn && ttsGenerated > 0) {
+        ttsBtn.style.display = '';
+    }
+    // Auto-refresh while TTS is still generating
+    if (ttsPending > 0) {
+        setTimeout(() => location.reload(), 10000);
     }
 })();
 </script>
