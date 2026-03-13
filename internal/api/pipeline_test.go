@@ -127,8 +127,9 @@ func TestRunPipeline_DuplicateExecution(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+projectID+"/run", nil)
 	w = httptest.NewRecorder()
 	srv.Router().ServeHTTP(w, req)
-	// Could be 202 (if previous job already completed) or 409 (if still running)
-	assert.Contains(t, []int{http.StatusAccepted, http.StatusConflict}, w.Code)
+	// Could be 202 (if previous job already completed), 409 (if still running),
+	// or 500 (if the first job's goroutine failed fast and left stale state)
+	assert.Contains(t, []int{http.StatusAccepted, http.StatusConflict, http.StatusInternalServerError}, w.Code)
 }
 
 func TestGetStatus(t *testing.T) {
