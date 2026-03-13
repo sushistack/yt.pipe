@@ -19,7 +19,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || {};\nconst { event, asset_type, new_state } = body;\n\nlet action = 'unknown';\n\nif (event === 'all_approved' && asset_type === 'image') action = 'generate_tts';\nelse if (event === 'all_approved' && asset_type === 'tts') action = 'assemble';\nelse if (event === 'state_change' && new_state === 'approved') action = 'generate_images';\nelse if (event === 'state_change') action = 'notify';\nelse if (event === 'job_failed') action = 'notify';\n\nreturn [{ json: { body, action } }];"
+        "jsCode": "const body = $input.first().json.body || {};\nconst { event, asset_type, new_state } = body;\n\nlet action = 'unknown';\n\nif (event === 'all_approved' && asset_type === 'image') action = 'generate_tts';\nelse if (event === 'all_approved' && asset_type === 'tts') action = 'assemble';\nelse if (event === 'state_change' && new_state === 'approved') action = 'generate_images';\nelse if (event === 'state_change' && new_state) action = 'notify';\nelse if (event === 'job_failed') action = 'notify_error';\n\nreturn [{ json: { body, action } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -129,6 +129,30 @@
               },
               "renameOutput": true,
               "outputKey": "Discord 알림"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r5-notify-error",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "notify_error",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "에러 알림"
             }
           ]
         },
@@ -236,6 +260,28 @@
           "name": "Discord Webhook account"
         }
       }
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "=🚨 {{ $json.body.scp_id }} 작업 실패 ({{ $json.body.job_type }})\n❌ {{ $json.body.error }}\n🔗 https://review.eli.kr{{ $json.body.review_url }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        720
+      ],
+      "id": "c8e2f3a1-5b4d-4e6f-9a7c-1d2e3f4a5b6c",
+      "name": "Discord 에러",
+      "webhookId": "77c5c0ba-1de1-41d7-82d8-3760cee49906",
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "wGSM3CtxzBR7HA46",
+          "name": "Discord Webhook account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -288,6 +334,13 @@
         [
           {
             "node": "Discord",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord 에러",
             "type": "main",
             "index": 0
           }
