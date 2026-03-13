@@ -83,6 +83,7 @@ type TTSConfig struct {
 	APIKey   string  `mapstructure:"api_key"`
 	Model    string  `mapstructure:"model"`
 	Voice    string  `mapstructure:"voice"`
+	Language string  `mapstructure:"language"`
 	Format   string  `mapstructure:"format"`
 	Speed    float64 `mapstructure:"speed"`
 }

@@ -167,6 +167,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("tts.api_key", "")
 	v.SetDefault("tts.model", "qwen3-tts-flash")
 	v.SetDefault("tts.voice", "Cherry")
+	v.SetDefault("tts.language", "Korean")
 	v.SetDefault("tts.format", "wav")
 	v.SetDefault("tts.speed", 1.0)
 

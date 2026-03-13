@@ -33,11 +33,12 @@ var _ TTS = (*DashScopeProvider)(nil)
 
 // DashScopeProvider implements the TTS interface for DashScope Qwen3 TTS API.
 type DashScopeProvider struct {
-	endpoint   string
-	apiKey     string
-	model      string
-	format     string
-	voice      string
+	endpoint string
+	apiKey   string
+	model    string
+	format   string
+	voice    string
+	language string
 	httpClient *http.Client
 	pluginCfg  plugin.PluginConfig
 }
@@ -49,6 +50,7 @@ type DashScopeConfig struct {
 	Model    string
 	Format   string
 	Voice    string
+	Language string
 }
 
 // NewDashScopeProvider creates a new DashScope Qwen3 TTS provider.
@@ -86,6 +88,7 @@ func NewDashScopeProvider(cfg DashScopeConfig) (*DashScopeProvider, error) {
 		model:    model,
 		format:   format,
 		voice:    voice,
+		language: cfg.Language,
 		httpClient: &http.Client{
 			Timeout: pluginCfg.Timeout,
 		},
@@ -161,8 +164,9 @@ func (p *DashScopeProvider) synthesize(ctx context.Context, text string, voice s
 	reqBody := qwenRequest{
 		Model: p.model,
 		Input: qwenInput{
-			Text:  processedText,
-			Voice: voice,
+			Text:     processedText,
+			Voice:    voice,
+			Language: p.language,
 		},
 	}
 
@@ -386,6 +390,7 @@ func DashScopeFactory(cfg map[string]interface{}) (interface{}, error) {
 		Model:    stringFromCfg(cfg, "model", defaultDashScopeModel),
 		Format:   stringFromCfg(cfg, "format", defaultDashScopeFormat),
 		Voice:    stringFromCfg(cfg, "voice", defaultDashScopeVoice),
+		Language: stringFromCfg(cfg, "language", ""),
 	})
 }
 

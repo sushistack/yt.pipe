@@ -75,6 +75,7 @@ func createPlugins(cfg *config.LoadResult) (llm.LLM, imagegen.ImageGen, tts.TTS,
 		"api_key":  c.TTS.APIKey,
 		"model":    c.TTS.Model,
 		"voice":    c.TTS.Voice,
+		"language": c.TTS.Language,
 		"format":   c.TTS.Format,
 	}
 	ttsRaw, err := pluginRegistry.Create(plugin.PluginTypeTTS, c.TTS.Provider, ttsCfg)
@@ -159,6 +160,7 @@ func createPluginsGraceful(cfg *config.LoadResult) *PluginSet {
 			"api_key":  c.TTS.APIKey,
 			"model":    c.TTS.Model,
 			"voice":    c.TTS.Voice,
+			"language": c.TTS.Language,
 			"format":   c.TTS.Format,
 		}
 		raw, err := pluginRegistry.Create(plugin.PluginTypeTTS, c.TTS.Provider, ttsCfg)

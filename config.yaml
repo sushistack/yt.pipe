@@ -115,6 +115,10 @@ tts:
   # Env: YTP_TTS_VOICE
   voice: "Cherry"
 
+  # Language for TTS synthesis (Korean, English, Chinese, Japanese, etc.)
+  # Env: YTP_TTS_LANGUAGE
+  language: "Korean"
+
   # Speech speed multiplier (1.0 = normal)
   # Env: YTP_TTS_SPEED
   speed: 1.0
