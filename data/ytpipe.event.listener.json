@@ -19,7 +19,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || {};\nconst { event, asset_type, new_state } = body;\n\nlet action = 'unknown';\n\nif (event === 'all_approved' && asset_type === 'image') action = 'generate_tts';\nelse if (event === 'all_approved' && asset_type === 'tts') action = 'assemble';\nelse if (event === 'state_change' && new_state === 'approved') action = 'generate_images';\nelse if (event === 'state_change' && new_state) action = 'notify';\nelse if (event === 'job_failed') action = 'notify_error';\n\nreturn [{ json: { body, action } }];"
+        "jsCode": "// ⚠️ Discord Webhook URL — n8n Credentials 에서 복사해서 여기에 붙여넣기\nconst DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN';\n\nconst body = $input.first().json.body || {};\nconst { event, asset_type, new_state } = body;\n\nlet action = 'unknown';\n\nif (event === 'all_approved' && asset_type === 'image') action = 'generate_tts';\nelse if (event === 'all_approved' && asset_type === 'tts') action = 'assemble';\nelse if (event === 'state_change' && new_state === 'approved') action = 'generate_images';\nelse if (event === 'state_change' && new_state) action = 'notify';\nelse if (event === 'job_complete') action = 'notify_complete';\nelse if (event === 'job_failed') action = 'notify_error';\n\nreturn [{ json: { body, action, webhook_url: DISCORD_WEBHOOK_URL } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -128,7 +128,7 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "Discord 알림"
+              "outputKey": "상태 알림"
             },
             {
               "conditions": {
@@ -153,6 +153,30 @@
               },
               "renameOutput": true,
               "outputKey": "에러 알림"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "r6-notify-complete",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "notify_complete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "완료 알림"
             }
           ]
         },
@@ -241,47 +265,99 @@
     },
     {
       "parameters": {
-        "authentication": "webhook",
-        "content": "=📝 {{ $json.body.scp_id }} 리뷰 요청 ({{ $json.body.new_state }})\n🔗 https://review.eli.kr{{ $json.body.review_url }}\n",
-        "options": {}
+        "jsCode": "const body = $input.first().json.body;\nconst webhookUrl = $input.first().json.webhook_url;\n\nconst stateLabels = {\n  'scenario_review': '시나리오 리뷰',\n  'approved': '시나리오 승인',\n  'image_review': '이미지 리뷰',\n  'tts_review': 'TTS 리뷰',\n  'assembling': '조립 중',\n  'complete': '완료'\n};\n\nconst stateColors = {\n  'scenario_review': 16244463,\n  'approved': 3066993,\n  'image_review': 15105570,\n  'tts_review': 3447003,\n  'assembling': 10181046,\n  'complete': 3066993\n};\n\nconst stateEmojis = {\n  'scenario_review': '📝',\n  'approved': '✅',\n  'image_review': '🖼️',\n  'tts_review': '🔊',\n  'assembling': '🎬',\n  'complete': '🎉'\n};\n\nconst stateDescs = {\n  'scenario_review': '시나리오가 생성되었습니다. 리뷰해주세요.',\n  'approved': '시나리오가 승인되었습니다.',\n  'image_review': '이미지 생성이 완료되었습니다. 리뷰해주세요.',\n  'tts_review': 'TTS 생성이 완료되었습니다. 리뷰해주세요.',\n  'assembling': 'CapCut 프로젝트 조립이 시작되었습니다.',\n  'complete': '모든 작업이 완료되었습니다!'\n};\n\nconst stateAnchors = {\n  'scenario_review': '#scenario',\n  'image_review': '#images',\n  'tts_review': '#tts'\n};\n\nconst state = body.new_state || 'unknown';\nconst emoji = stateEmojis[state] || '📋';\nconst label = stateLabels[state] || state;\nconst color = stateColors[state] || 9807270;\nconst desc = stateDescs[state] || state + ' 단계로 전환되었습니다.';\nconst anchor = stateAnchors[state] || '';\nconst reviewURL = 'https://review.eli.kr' + body.review_url + anchor;\n\nreturn [{\n  json: {\n    webhook_url: webhookUrl,\n    embeds: [{\n      title: emoji + ' ' + body.scp_id + ' — ' + label,\n      url: reviewURL,\n      description: desc,\n      color: color,\n      fields: [\n        { name: '프로젝트', value: body.project_id, inline: true },\n        { name: '상태 변경', value: (body.previous_state || '?') + ' → ' + state, inline: true }\n      ],\n      timestamp: new Date().toISOString()\n    }]\n  }\n}];"
       },
-      "type": "n8n-nodes-base.discord",
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         -320,
         560
       ],
-      "id": "4dd5419f-28a1-484b-a89f-f4bb06971344",
-      "name": "Discord",
-      "webhookId": "77c5c0ba-1de1-41d7-82d8-3760cee49906",
-      "credentials": {
-        "discordWebhookApi": {
-          "id": "wGSM3CtxzBR7HA46",
-          "name": "Discord Webhook account"
-        }
-      }
+      "id": "d1a2b3c4-1111-4000-a000-000000000001",
+      "name": "알림 Embed 빌더"
     },
     {
       "parameters": {
-        "authentication": "webhook",
-        "content": "=🚨 {{ $json.body.scp_id }} 작업 실패 ({{ $json.body.job_type }})\n❌ {{ $json.body.error }}\n🔗 https://review.eli.kr{{ $json.body.review_url }}\n",
+        "method": "POST",
+        "url": "={{ $json.webhook_url }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ embeds: $json.embeds }) }}",
         "options": {}
       },
-      "type": "n8n-nodes-base.discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -40,
+        560
+      ],
+      "id": "d1a2b3c4-2222-4000-a000-000000000002",
+      "name": "Discord 알림"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst webhookUrl = $input.first().json.webhook_url;\n\nconst jobLabels = {\n  'image_generate': '이미지 생성',\n  'tts_generate': 'TTS 생성',\n  'assembly': 'CapCut 조립',\n  'pipeline_run': '파이프라인'\n};\n\nconst jobAnchors = {\n  'image_generate': '#images',\n  'tts_generate': '#tts',\n  'assembly': ''\n};\n\nconst jobType = body.job_type || 'unknown';\nconst label = jobLabels[jobType] || jobType;\nconst anchor = jobAnchors[jobType] || '';\nconst sceneAnchor = body.failed_scene > 0 ? '#scene-' + body.failed_scene : anchor;\nconst reviewURL = 'https://review.eli.kr' + body.review_url + sceneAnchor;\n\nconst fields = [\n  { name: '작업', value: label, inline: true },\n  { name: '프로젝트', value: body.project_id, inline: true }\n];\n\nif (body.failed_scene > 0) {\n  fields.push({ name: '실패 씬', value: 'Scene ' + body.failed_scene, inline: true });\n}\n\nreturn [{\n  json: {\n    webhook_url: webhookUrl,\n    embeds: [{\n      title: '🚨 ' + body.scp_id + ' — ' + label + ' 실패',\n      url: reviewURL,\n      description: '```\\n' + body.error + '\\n```',\n      color: 15158332,\n      fields: fields,\n      timestamp: new Date().toISOString()\n    }]\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         -320,
         720
       ],
-      "id": "c8e2f3a1-5b4d-4e6f-9a7c-1d2e3f4a5b6c",
-      "name": "Discord 에러",
-      "webhookId": "77c5c0ba-1de1-41d7-82d8-3760cee49906",
-      "credentials": {
-        "discordWebhookApi": {
-          "id": "wGSM3CtxzBR7HA46",
-          "name": "Discord Webhook account"
-        }
-      }
+      "id": "d1a2b3c4-3333-4000-a000-000000000003",
+      "name": "에러 Embed 빌더"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.webhook_url }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ embeds: $json.embeds }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -40,
+        720
+      ],
+      "id": "d1a2b3c4-4444-4000-a000-000000000004",
+      "name": "Discord 에러"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst webhookUrl = $input.first().json.webhook_url;\n\nconst jobLabels = {\n  'image_generate': '이미지 생성',\n  'tts_generate': 'TTS 생성',\n  'assembly': 'CapCut 조립',\n  'pipeline_run': '파이프라인',\n  'dry_run': '드라이런'\n};\n\nconst jobEmojis = {\n  'image_generate': '🖼️',\n  'tts_generate': '🔊',\n  'assembly': '🎬',\n  'pipeline_run': '🚀',\n  'dry_run': '🧪'\n};\n\nconst jobDescs = {\n  'image_generate': '이미지가 모두 생성되었습니다. 리뷰해주세요.',\n  'tts_generate': 'TTS 음성이 모두 생성되었습니다. 리뷰해주세요.',\n  'assembly': 'CapCut 프로젝트 조립이 완료되었습니다!',\n  'pipeline_run': '파이프라인 실행이 완료되었습니다.',\n  'dry_run': '드라이런이 완료되었습니다.'\n};\n\nconst jobAnchors = {\n  'image_generate': '#images',\n  'tts_generate': '#tts',\n  'assembly': ''\n};\n\nconst jobType = body.job_type || 'unknown';\nconst label = jobLabels[jobType] || jobType;\nconst emoji = jobEmojis[jobType] || '✅';\nconst desc = jobDescs[jobType] || label + ' 작업이 완료되었습니다.';\nconst anchor = jobAnchors[jobType] || '';\nconst reviewURL = 'https://review.eli.kr' + body.review_url + anchor;\n\nconst fields = [\n  { name: '프로젝트', value: body.project_id, inline: true },\n  { name: '작업', value: label, inline: true }\n];\n\nif (body.result) {\n  const paths = body.result.split(',');\n  fields.push({ name: '결과', value: paths.length + '개 파일', inline: true });\n}\n\nreturn [{\n  json: {\n    webhook_url: webhookUrl,\n    embeds: [{\n      title: emoji + ' ' + body.scp_id + ' — ' + label + ' 완료',\n      url: reviewURL,\n      description: desc,\n      color: 3066993,\n      fields: fields,\n      timestamp: new Date().toISOString()\n    }]\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        880
+      ],
+      "id": "d1a2b3c4-5555-4000-a000-000000000005",
+      "name": "완료 Embed 빌더"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.webhook_url }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ embeds: $json.embeds }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -40,
+        880
+      ],
+      "id": "d1a2b3c4-6666-4000-a000-000000000006",
+      "name": "Discord 완료"
     }
   ],
   "pinData": {},
@@ -333,14 +409,54 @@
         ],
         [
           {
-            "node": "Discord",
+            "node": "알림 Embed 빌더",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
+            "node": "에러 Embed 빌더",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "완료 Embed 빌더",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "알림 Embed 빌더": {
+      "main": [
+        [
+          {
+            "node": "Discord 알림",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "에러 Embed 빌더": {
+      "main": [
+        [
+          {
             "node": "Discord 에러",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "완료 Embed 빌더": {
+      "main": [
+        [
+          {
+            "node": "Discord 완료",
             "type": "main",
             "index": 0
           }

@@ -753,8 +753,9 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 		if _, err := s.projectSvc.TransitionProject(ctx, project.ID, domain.StatusTTSReview); err != nil {
 			slog.Warn("failed to transition to tts_review", "project_id", project.ID, "err", err)
 		}
-		s.webhooks.NotifyStateChange(project.ID, project.SCPID, domain.StatusImageReview, "", BuildReviewURL(project.ID, project.ReviewToken))
 	}
+	// Always notify after TTS generation completes (not on state transition)
+	s.webhooks.NotifyStateChange(project.ID, project.SCPID, domain.StatusImageReview, domain.StatusTTSReview, BuildReviewURL(project.ID, project.ReviewToken))
 
 	result := strings.Join(resultPaths, ",")
 	s.updateJobRecord(jobID, JobStatusComplete, 100, result, "")

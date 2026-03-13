@@ -513,7 +513,7 @@ func (s *Server) handleApproveAll(w http.ResponseWriter, r *http.Request) {
 				"project_id", projectID, "err", err)
 		} else {
 			slog.Info("transitioned to tts_review after all images approved", "project_id", projectID)
-			s.webhooks.NotifyStateChange(projectID, project.SCPID, domain.StatusImageReview, domain.StatusTTSReview, BuildReviewURL(projectID, project.ReviewToken))
+			// Notification deferred to executeTTSGeneration completion
 		}
 
 		// Auto-trigger TTS generation if plugin available
@@ -550,7 +550,7 @@ func (s *Server) handleApproveAll(w http.ResponseWriter, r *http.Request) {
 				"project_id", projectID, "err", err)
 		} else {
 			slog.Info("transitioned to assembling after all TTS approved", "project_id", projectID)
-			s.webhooks.NotifyStateChange(projectID, project.SCPID, domain.StatusTTSReview, domain.StatusAssembling, BuildReviewURL(projectID, project.ReviewToken))
+			// Notification deferred to executeAssembly completion
 		}
 
 		// Auto-trigger assembly if output plugin available
@@ -670,7 +670,7 @@ func (s *Server) handleReviewApproveScene(w http.ResponseWriter, r *http.Request
 				"project_id", projectID, "err", err)
 		} else {
 			slog.Info("transitioned to tts_review after all images approved (single approve)", "project_id", projectID)
-			s.webhooks.NotifyStateChange(projectID, project.SCPID, domain.StatusImageReview, domain.StatusTTSReview, reviewURL)
+			// Notification deferred to executeTTSGeneration completion
 		}
 
 		if s.ttsSvc != nil {
@@ -703,7 +703,7 @@ func (s *Server) handleReviewApproveScene(w http.ResponseWriter, r *http.Request
 				"project_id", projectID, "err", err)
 		} else {
 			slog.Info("transitioned to assembling after all TTS approved (single approve)", "project_id", projectID)
-			s.webhooks.NotifyStateChange(projectID, project.SCPID, domain.StatusTTSReview, domain.StatusAssembling, reviewURL)
+			// Notification deferred to executeAssembly completion
 		}
 
 		if s.pluginStatus != nil && s.pluginStatus["output"] {
