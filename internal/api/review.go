@@ -178,7 +178,7 @@ func (s *Server) handleServeAudio(w http.ResponseWriter, r *http.Request) {
 	if !checkReadRateLimit(w, r) {
 		return
 	}
-	s.serveSceneAsset(w, r, "audio.mp3")
+	s.serveSceneAsset(w, r, "audio.wav")
 }
 
 func (s *Server) serveSceneAsset(w http.ResponseWriter, r *http.Request, filename string) {

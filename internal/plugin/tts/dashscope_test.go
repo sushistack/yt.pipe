@@ -2,12 +2,43 @@ package tts
 
 import (
 	"context"
-	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+// makeWAV creates a minimal valid WAV file with the given PCM sample count.
+// 24kHz, 16-bit, mono.
+func makeWAV(numSamples int) []byte {
+	const (
+		sampleRate    = 24000
+		bitsPerSample = 16
+		numChannels   = 1
+		blockAlign    = numChannels * bitsPerSample / 8
+		byteRate      = sampleRate * blockAlign
+	)
+	dataSize := numSamples * blockAlign
+	fileSize := 36 + dataSize // RIFF chunk size = file size - 8, but here it's 36 + dataSize
+
+	buf := make([]byte, 44+dataSize)
+	copy(buf[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(buf[4:8], uint32(fileSize))
+	copy(buf[8:12], "WAVE")
+	copy(buf[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(buf[16:20], 16) // fmt chunk size
+	binary.LittleEndian.PutUint16(buf[20:22], 1)  // PCM
+	binary.LittleEndian.PutUint16(buf[22:24], numChannels)
+	binary.LittleEndian.PutUint32(buf[24:28], sampleRate)
+	binary.LittleEndian.PutUint32(buf[28:32], byteRate)
+	binary.LittleEndian.PutUint16(buf[32:34], blockAlign)
+	binary.LittleEndian.PutUint16(buf[34:36], bitsPerSample)
+	copy(buf[36:40], "data")
+	binary.LittleEndian.PutUint32(buf[40:44], uint32(dataSize))
+	// PCM data is zero-filled (silence)
+	return buf
+}
 
 func TestNewDashScopeProvider_NoAPIKey(t *testing.T) {
 	_, err := NewDashScopeProvider(DashScopeConfig{})
@@ -42,41 +73,69 @@ func TestNewDashScopeProvider_Defaults(t *testing.T) {
 	}
 }
 
-func TestSynthesize_Success(t *testing.T) {
-	audioBytes := []byte("fake-audio-data")
-	audioB64 := base64.StdEncoding.EncodeToString(audioBytes)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/services/aigc/text2audio/generation" {
+// newTestServer creates a test HTTP server that handles both the TTS API call
+// and the audio download. Returns the server and the WAV audio bytes it serves.
+func newTestServer(t *testing.T, wavData []byte, handler func(w http.ResponseWriter, r *http.Request, audioURL string)) *httptest.Server {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case qwenTTSAPIPath:
+			audioURL := server.URL + "/audio/download"
+			if handler != nil {
+				handler(w, r, audioURL)
+				return
+			}
+			resp := qwenResponse{
+				RequestID: "test-req-1",
+				Output: qwenOutput{
+					Audio: &qwenAudio{
+						URL: audioURL,
+					},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		case "/audio/download":
+			w.Header().Set("Content-Type", "audio/wav")
+			w.Write(wavData)
+		default:
 			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
 		}
+	}))
+	return server
+}
+
+func TestSynthesize_Success(t *testing.T) {
+	// 2.5 seconds at 24kHz mono 16-bit = 60000 samples
+	wavData := makeWAV(60000)
+
+	server := newTestServer(t, wavData, func(w http.ResponseWriter, r *http.Request, audioURL string) {
 		if r.Header.Get("Authorization") != "Bearer test-key" {
 			t.Errorf("unexpected auth header: %s", r.Header.Get("Authorization"))
 		}
 
-		var req dsRequest
+		var req qwenRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
 		if req.Model != defaultDashScopeModel {
 			t.Errorf("expected model %s, got %s", defaultDashScopeModel, req.Model)
 		}
+		if req.Input.Voice != "longxiaochun" {
+			t.Errorf("expected voice longxiaochun, got %s", req.Input.Voice)
+		}
 
-		resp := dsResponse{
+		resp := qwenResponse{
 			RequestID: "test-req-1",
-			Output: dsOutput{
-				Audio:      audioB64,
-				DurationMs: 2500,
-				WordTimings: []dsWordTiming{
-					{Word: "안녕", StartMs: 0, EndMs: 500},
-					{Word: "하세요", StartMs: 500, EndMs: 1200},
-				},
+			Output: qwenOutput{
+				Audio: &qwenAudio{URL: audioURL},
 			},
-			Usage: dsUsage{Characters: 5},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
-	}))
+	})
 	defer server.Close()
 
 	p, err := NewDashScopeProvider(DashScopeConfig{
@@ -92,32 +151,23 @@ func TestSynthesize_Success(t *testing.T) {
 		t.Fatalf("synthesize: %v", err)
 	}
 
-	if string(result.AudioData) != string(audioBytes) {
-		t.Errorf("audio data mismatch")
+	if len(result.AudioData) != len(wavData) {
+		t.Errorf("audio data length mismatch: got %d, want %d", len(result.AudioData), len(wavData))
 	}
-	if result.DurationSec != 2.5 {
-		t.Errorf("expected duration 2.5, got %f", result.DurationSec)
+	// 60000 samples / 24000 Hz = 2.5 sec
+	if result.DurationSec < 2.4 || result.DurationSec > 2.6 {
+		t.Errorf("expected duration ~2.5, got %f", result.DurationSec)
 	}
-	if len(result.WordTimings) != 2 {
-		t.Fatalf("expected 2 word timings, got %d", len(result.WordTimings))
-	}
-	if result.WordTimings[0].Word != "안녕" {
-		t.Errorf("expected first word '안녕', got %q", result.WordTimings[0].Word)
-	}
-	if result.WordTimings[0].StartSec != 0.0 || result.WordTimings[0].EndSec != 0.5 {
-		t.Errorf("unexpected timing: start=%f end=%f", result.WordTimings[0].StartSec, result.WordTimings[0].EndSec)
+	// Qwen3 TTS does not return word timings
+	if len(result.WordTimings) != 0 {
+		t.Errorf("expected 0 word timings, got %d", len(result.WordTimings))
 	}
 }
 
 func TestSynthesize_WithMoodPreset(t *testing.T) {
-	audioB64 := base64.StdEncoding.EncodeToString([]byte("mood-audio"))
+	wavData := makeWAV(24000) // 1 second
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := dsResponse{
-			Output: dsOutput{Audio: audioB64, DurationMs: 1000},
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
+	server := newTestServer(t, wavData, nil)
 	defer server.Close()
 
 	p, _ := NewDashScopeProvider(DashScopeConfig{
@@ -138,20 +188,15 @@ func TestSynthesize_WithMoodPreset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("synthesize with mood: %v", err)
 	}
-	if result.DurationSec != 1.0 {
-		t.Errorf("expected duration 1.0, got %f", result.DurationSec)
+	if result.DurationSec < 0.9 || result.DurationSec > 1.1 {
+		t.Errorf("expected duration ~1.0, got %f", result.DurationSec)
 	}
 }
 
 func TestSynthesize_NilOpts(t *testing.T) {
-	audioB64 := base64.StdEncoding.EncodeToString([]byte("audio"))
+	wavData := makeWAV(24000)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := dsResponse{
-			Output: dsOutput{Audio: audioB64, DurationMs: 1000},
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
+	server := newTestServer(t, wavData, nil)
 	defer server.Close()
 
 	p, _ := NewDashScopeProvider(DashScopeConfig{
@@ -159,7 +204,6 @@ func TestSynthesize_NilOpts(t *testing.T) {
 		APIKey:   "test-key",
 	})
 
-	// nil opts should work (backward compatible)
 	result, err := p.Synthesize(context.Background(), "test", "longxiaochun", nil)
 	if err != nil {
 		t.Fatalf("synthesize with nil opts: %v", err)
@@ -172,7 +216,7 @@ func TestSynthesize_NilOpts(t *testing.T) {
 func TestSynthesize_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(dsErrorResponse{
+		json.NewEncoder(w).Encode(qwenErrorResponse{
 			Code:    "Throttling",
 			Message: "rate limited",
 		})
@@ -192,18 +236,18 @@ func TestSynthesize_APIError(t *testing.T) {
 
 func TestSynthesizeWithOverrides(t *testing.T) {
 	var receivedText string
-	audioB64 := base64.StdEncoding.EncodeToString([]byte("audio"))
+	wavData := makeWAV(24000)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req dsRequest
+	server := newTestServer(t, wavData, func(w http.ResponseWriter, r *http.Request, audioURL string) {
+		var req qwenRequest
 		json.NewDecoder(r.Body).Decode(&req)
 		receivedText = req.Input.Text
 
-		resp := dsResponse{
-			Output: dsOutput{Audio: audioB64, DurationMs: 1000},
+		resp := qwenResponse{
+			Output: qwenOutput{Audio: &qwenAudio{URL: audioURL}},
 		}
 		json.NewEncoder(w).Encode(resp)
-	}))
+	})
 	defer server.Close()
 
 	p, _ := NewDashScopeProvider(DashScopeConfig{
@@ -240,40 +284,6 @@ func TestIsCloneVoice(t *testing.T) {
 	}
 }
 
-func TestVoiceCloneFlag(t *testing.T) {
-	var receivedCloneFlag bool
-	audioB64 := base64.StdEncoding.EncodeToString([]byte("audio"))
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req dsRequest
-		json.NewDecoder(r.Body).Decode(&req)
-		receivedCloneFlag = req.Parameters.VoiceClone
-
-		resp := dsResponse{
-			Output: dsOutput{Audio: audioB64, DurationMs: 1000},
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
-
-	p, _ := NewDashScopeProvider(DashScopeConfig{
-		Endpoint: server.URL,
-		APIKey:   "test-key",
-	})
-
-	// Test with clone voice
-	p.Synthesize(context.Background(), "text", "cosyvoice-clone-myvoice", nil)
-	if !receivedCloneFlag {
-		t.Error("expected voice_clone=true for clone voice")
-	}
-
-	// Test with standard voice
-	p.Synthesize(context.Background(), "text", "longxiaochun", nil)
-	if receivedCloneFlag {
-		t.Error("expected voice_clone=false for standard voice")
-	}
-}
-
 func TestApplyOverrides(t *testing.T) {
 	text := "SCP-173은 Euclid 등급입니다"
 	overrides := map[string]string{
@@ -298,7 +308,7 @@ func TestApplyOverrides_Nil(t *testing.T) {
 func TestDashScopeFactory(t *testing.T) {
 	cfg := map[string]interface{}{
 		"api_key": "test-key",
-		"model":   "cosyvoice-v1-flash",
+		"model":   "qwen3-tts-flash",
 	}
 	raw, err := DashScopeFactory(cfg)
 	if err != nil {
@@ -308,8 +318,8 @@ func TestDashScopeFactory(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *DashScopeProvider, got %T", raw)
 	}
-	if p.model != "cosyvoice-v1-flash" {
-		t.Errorf("expected model cosyvoice-v1-flash, got %s", p.model)
+	if p.model != "qwen3-tts-flash" {
+		t.Errorf("expected model qwen3-tts-flash, got %s", p.model)
 	}
 }
 
@@ -332,5 +342,47 @@ func TestAPIError_IsRetryable(t *testing.T) {
 		if got := err.IsRetryable(); got != tt.expected {
 			t.Errorf("APIError{StatusCode: %d}.IsRetryable() = %v, want %v", tt.code, got, tt.expected)
 		}
+	}
+}
+
+func TestWavDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []byte
+		expected float64
+	}{
+		{"2.5 seconds", makeWAV(60000), 2.5},
+		{"1 second", makeWAV(24000), 1.0},
+		{"empty", []byte{}, 0},
+		{"too short", []byte("hello"), 0},
+		{"not wav", make([]byte, 100), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wavDuration(tt.data)
+			if got < tt.expected-0.01 || got > tt.expected+0.01 {
+				t.Errorf("wavDuration() = %f, want %f", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSynthesize_EmptyAudioURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := qwenResponse{
+			Output: qwenOutput{Audio: nil},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	p, _ := NewDashScopeProvider(DashScopeConfig{
+		Endpoint: server.URL,
+		APIKey:   "test-key",
+	})
+
+	_, err := p.Synthesize(context.Background(), "test", "voice", nil)
+	if err == nil {
+		t.Fatal("expected error for nil audio")
 	}
 }

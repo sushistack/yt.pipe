@@ -51,7 +51,7 @@ func TestSynthesizeScene_Success(t *testing.T) {
 	assert.Equal(t, 1, result.SceneNum)
 	assert.Equal(t, 1.5, result.AudioDuration)
 	assert.Len(t, result.WordTimings, 2)
-	assert.FileExists(t, filepath.Join(projectPath, "scenes", "1", "audio.mp3"))
+	assert.FileExists(t, filepath.Join(projectPath, "scenes", "1", "audio.wav"))
 
 	// AC4: Verify manifest updated with audio hash
 	manifest, err := st.GetManifest(projectID, 1)
@@ -173,7 +173,7 @@ func TestSynthesizeScene_BackupExistingAudio(t *testing.T) {
 	// Create existing audio file
 	sceneDir := filepath.Join(projectPath, "scenes", "1")
 	require.NoError(t, os.MkdirAll(sceneDir, 0o755))
-	existingAudio := filepath.Join(sceneDir, "audio.mp3")
+	existingAudio := filepath.Join(sceneDir, "audio.wav")
 	require.NoError(t, os.WriteFile(existingAudio, []byte("old-audio"), 0o644))
 
 	mockTTS.On("Synthesize", mock.Anything, "New narration", "voice1", mock.Anything).

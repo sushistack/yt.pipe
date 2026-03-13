@@ -98,7 +98,7 @@ imagegen:
 # TTS Plugin (text-to-speech narration)
 # ---------------------------------------------------------------------------
 tts:
-  # Provider: "openai", "google", "edge" (Edge TTS, free)
+  # Provider: "dashscope" (Alibaba DashScope Qwen3 TTS)
   # Env: YTP_TTS_PROVIDER
   provider: "dashscope"
 
@@ -107,13 +107,13 @@ tts:
   # Env: YTP_TTS_API_KEY
   # api_key: ""
 
-  # Model name (CosyVoice v3-plus for multilingual TTS)
+  # Model name (Qwen3 TTS Flash)
   # Env: YTP_TTS_MODEL
-  model: "cosyvoice-v3-plus"
+  model: "qwen3-tts-flash"
 
-  # Voice name (provider-specific, e.g., "longanyang")
+  # Voice name (Cherry, Serena, Ethan, Chelsie, etc.)
   # Env: YTP_TTS_VOICE
-  voice: "longanyang"
+  voice: "Cherry"
 
   # Speech speed multiplier (1.0 = normal)
   # Env: YTP_TTS_SPEED

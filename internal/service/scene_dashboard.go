@@ -126,7 +126,7 @@ func (svc *SceneDashboardService) GetDashboard(projectID string) (*SceneDashboar
 		// Build asset paths
 		sceneDir := filepath.Join(project.WorkspacePath, "scenes", fmt.Sprintf("%d", i))
 		imgPath := filepath.Join(sceneDir, "image.png")
-		audioPath := filepath.Join(sceneDir, "audio.mp3")
+		audioPath := filepath.Join(sceneDir, "audio.wav")
 		subtitlePath := filepath.Join(sceneDir, "subtitle.srt")
 
 		// Set asset paths from manifest (if available)

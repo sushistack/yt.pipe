@@ -293,7 +293,7 @@ func TestGetDashboard_SceneAssets(t *testing.T) {
 	scene := dashboard.Scenes[0]
 	require.NotNil(t, scene.Assets)
 	assert.Equal(t, "/tmp/ws/scenes/1/image.png", scene.Assets.ImagePath)
-	assert.Equal(t, "/tmp/ws/scenes/1/audio.mp3", scene.Assets.AudioPath)
+	assert.Equal(t, "/tmp/ws/scenes/1/audio.wav", scene.Assets.AudioPath)
 	assert.Equal(t, "/tmp/ws/scenes/1/subtitle.srt", scene.Assets.SubtitlePath)
 }
 

@@ -65,7 +65,7 @@ func (s *TTSService) SynthesizeScene(ctx context.Context, scene domain.SceneScri
 		return nil, fmt.Errorf("tts: init scene dir %d: %w", scene.SceneNum, err)
 	}
 
-	audioPath := filepath.Join(sceneDir, "audio.mp3")
+	audioPath := filepath.Join(sceneDir, "audio.wav")
 
 	// Backup existing audio file before overwriting (AC3)
 	backupAudioFile(audioPath)

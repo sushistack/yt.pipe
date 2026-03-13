@@ -163,11 +163,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("imagegen.height", 576)
 
 	v.SetDefault("tts.provider", "dashscope")
-	v.SetDefault("tts.endpoint", "https://dashscope.aliyuncs.com")
+	v.SetDefault("tts.endpoint", "https://dashscope-intl.aliyuncs.com")
 	v.SetDefault("tts.api_key", "")
-	v.SetDefault("tts.model", "cosyvoice-v1")
-	v.SetDefault("tts.voice", "longxiaochun")
-	v.SetDefault("tts.format", "mp3")
+	v.SetDefault("tts.model", "qwen3-tts-flash")
+	v.SetDefault("tts.voice", "Cherry")
+	v.SetDefault("tts.format", "wav")
 	v.SetDefault("tts.speed", 1.0)
 
 	v.SetDefault("output.provider", "capcut")

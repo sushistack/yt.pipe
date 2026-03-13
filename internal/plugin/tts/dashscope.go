@@ -3,7 +3,7 @@ package tts
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,24 +12,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sushistack/yt.pipe/internal/domain"
 	"github.com/sushistack/yt.pipe/internal/plugin"
 	"github.com/sushistack/yt.pipe/internal/retry"
 )
 
 const (
 	defaultDashScopeEndpoint = "https://dashscope-intl.aliyuncs.com"
-	defaultDashScopeModel    = "cosyvoice-v3-plus"
-	defaultDashScopeFormat   = "mp3"
-	defaultDashScopeVoice    = "longanyang"
+	defaultDashScopeModel    = "qwen3-tts-flash"
+	defaultDashScopeFormat   = "wav"
+	defaultDashScopeVoice    = "Cherry"
 
 	voiceClonePrefix = "cosyvoice-clone-"
+
+	// Qwen3 TTS API path (multimodal-generation)
+	qwenTTSAPIPath = "/api/v1/services/aigc/multimodal-generation/generation"
 )
 
 // Compile-time interface check.
 var _ TTS = (*DashScopeProvider)(nil)
 
-// DashScopeProvider implements the TTS interface for DashScope CosyVoice API.
+// DashScopeProvider implements the TTS interface for DashScope Qwen3 TTS API.
 type DashScopeProvider struct {
 	endpoint   string
 	apiKey     string
@@ -49,7 +51,7 @@ type DashScopeConfig struct {
 	Voice    string
 }
 
-// NewDashScopeProvider creates a new DashScope CosyVoice TTS provider.
+// NewDashScopeProvider creates a new DashScope Qwen3 TTS provider.
 func NewDashScopeProvider(cfg DashScopeConfig) (*DashScopeProvider, error) {
 	if cfg.APIKey == "" {
 		return nil, &APIError{
@@ -91,53 +93,47 @@ func NewDashScopeProvider(cfg DashScopeConfig) (*DashScopeProvider, error) {
 	}, nil
 }
 
-// DashScope API request/response types.
+// Qwen3 TTS API request/response types.
 
-type dsRequest struct {
-	Model      string      `json:"model"`
-	Input      dsInput     `json:"input"`
-	Parameters dsParams    `json:"parameters"`
+type qwenRequest struct {
+	Model string    `json:"model"`
+	Input qwenInput `json:"input"`
 }
 
-type dsInput struct {
-	Text string `json:"text"`
+type qwenInput struct {
+	Text     string `json:"text"`
+	Voice    string `json:"voice"`
+	Language string `json:"language_type,omitempty"`
 }
 
-type dsParams struct {
-	Voice      string `json:"voice"`
-	Format     string `json:"format"`
-	VoiceClone bool   `json:"voice_clone,omitempty"`
+type qwenResponse struct {
+	RequestID string     `json:"request_id"`
+	Output    qwenOutput `json:"output"`
+	Usage     qwenUsage  `json:"usage,omitempty"`
 }
 
-type dsResponse struct {
-	RequestID string   `json:"request_id"`
-	Output    dsOutput `json:"output"`
-	Usage     dsUsage  `json:"usage"`
+type qwenOutput struct {
+	Audio        *qwenAudio `json:"audio,omitempty"`
+	FinishReason string     `json:"finish_reason,omitempty"`
 }
 
-type dsOutput struct {
-	Audio       string         `json:"audio"`
-	WordTimings []dsWordTiming `json:"word_timings,omitempty"`
-	DurationMs  int            `json:"duration_ms"`
+type qwenAudio struct {
+	URL       string `json:"url,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
-type dsWordTiming struct {
-	Word    string `json:"word"`
-	StartMs int    `json:"start_ms"`
-	EndMs   int    `json:"end_ms"`
+type qwenUsage struct {
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
 }
 
-type dsUsage struct {
-	Characters int `json:"characters"`
-}
-
-type dsErrorResponse struct {
+type qwenErrorResponse struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`
 	RequestID string `json:"request_id"`
 }
 
-// Synthesize converts text to speech using DashScope CosyVoice API.
+// Synthesize converts text to speech using DashScope Qwen3 TTS API.
 func (p *DashScopeProvider) Synthesize(ctx context.Context, text string, voice string, opts *TTSOptions) (*SynthesisResult, error) {
 	return p.synthesize(ctx, text, voice, nil, opts)
 }
@@ -162,15 +158,11 @@ func (p *DashScopeProvider) synthesize(ctx context.Context, text string, voice s
 	// Apply pronunciation overrides to text
 	processedText := applyOverrides(text, overrides)
 
-	isClone := isCloneVoice(voice)
-
-	reqBody := dsRequest{
+	reqBody := qwenRequest{
 		Model: p.model,
-		Input: dsInput{Text: processedText},
-		Parameters: dsParams{
-			Voice:      voice,
-			Format:     p.format,
-			VoiceClone: isClone,
+		Input: qwenInput{
+			Text:  processedText,
+			Voice: voice,
 		},
 	}
 
@@ -201,20 +193,19 @@ func (p *DashScopeProvider) synthesize(ctx context.Context, text string, voice s
 		"text_len", len(text),
 		"audio_bytes", len(result.AudioData),
 		"duration_sec", result.DurationSec,
-		"word_count", len(result.WordTimings),
 		"elapsed_ms", elapsed.Milliseconds(),
 	)
 
 	return result, nil
 }
 
-func (p *DashScopeProvider) doSynthesize(ctx context.Context, reqBody dsRequest) (*SynthesisResult, error) {
+func (p *DashScopeProvider) doSynthesize(ctx context.Context, reqBody qwenRequest) (*SynthesisResult, error) {
 	body, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	url := p.endpoint + "/api/v1/services/aigc/text2audio/generation"
+	url := p.endpoint + qwenTTSAPIPath
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -239,7 +230,7 @@ func (p *DashScopeProvider) doSynthesize(ctx context.Context, reqBody dsRequest)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		var errResp dsErrorResponse
+		var errResp qwenErrorResponse
 		_ = json.Unmarshal(respBody, &errResp)
 		msg := errResp.Message
 		if msg == "" {
@@ -252,40 +243,122 @@ func (p *DashScopeProvider) doSynthesize(ctx context.Context, reqBody dsRequest)
 		}
 	}
 
-	var dsResp dsResponse
-	if err := json.Unmarshal(respBody, &dsResp); err != nil {
+	var qwenResp qwenResponse
+	if err := json.Unmarshal(respBody, &qwenResp); err != nil {
 		return nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 
-	if dsResp.Output.Audio == "" {
+	if qwenResp.Output.Audio == nil || qwenResp.Output.Audio.URL == "" {
 		return nil, &APIError{
 			Provider:   "dashscope",
 			StatusCode: 200,
-			Message:    "empty response: no audio data returned",
+			Message:    "empty response: no audio URL returned",
 		}
 	}
 
-	audioData, err := base64.StdEncoding.DecodeString(dsResp.Output.Audio)
+	// Download the audio file from the returned URL
+	audioData, err := p.downloadAudio(ctx, qwenResp.Output.Audio.URL)
 	if err != nil {
-		return nil, fmt.Errorf("decode audio base64: %w", err)
+		return nil, fmt.Errorf("download audio: %w", err)
 	}
 
-	wordTimings := make([]domain.WordTiming, len(dsResp.Output.WordTimings))
-	for i, wt := range dsResp.Output.WordTimings {
-		wordTimings[i] = domain.WordTiming{
-			Word:     wt.Word,
-			StartSec: float64(wt.StartMs) / 1000.0,
-			EndSec:   float64(wt.EndMs) / 1000.0,
-		}
-	}
-
-	durationSec := float64(dsResp.Output.DurationMs) / 1000.0
+	// Calculate duration from WAV header (24kHz, 16-bit, mono)
+	durationSec := wavDuration(audioData)
 
 	return &SynthesisResult{
 		AudioData:   audioData,
-		WordTimings: wordTimings,
+		WordTimings: nil, // Qwen3 TTS does not support word-level timestamps
 		DurationSec: durationSec,
 	}, nil
+}
+
+// downloadAudio fetches the audio file from the URL returned by the API.
+func (p *DashScopeProvider) downloadAudio(ctx context.Context, audioURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, audioURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create download request: %w", err)
+	}
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, &APIError{
+			Provider:   "dashscope",
+			StatusCode: 0,
+			Message:    "audio download network error",
+			Err:        err,
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, &APIError{
+			Provider:   "dashscope",
+			StatusCode: resp.StatusCode,
+			Message:    fmt.Sprintf("audio download failed: HTTP %d", resp.StatusCode),
+		}
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read audio data: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil, &APIError{
+			Provider:   "dashscope",
+			StatusCode: 200,
+			Message:    "downloaded audio is empty",
+		}
+	}
+
+	return data, nil
+}
+
+// wavDuration calculates the duration from a WAV file's header.
+// Returns 0 if the data is not a valid WAV.
+func wavDuration(data []byte) float64 {
+	// WAV header: 44 bytes minimum
+	// Bytes 24-27: sample rate (uint32 LE)
+	// Bytes 32-33: block align (uint16 LE) = channels * bitsPerSample / 8
+	// Bytes 40-43: data chunk size (uint32 LE)
+	if len(data) < 44 {
+		return 0
+	}
+	// Verify RIFF header
+	if string(data[0:4]) != "RIFF" || string(data[8:12]) != "WAVE" {
+		return 0
+	}
+
+	sampleRate := binary.LittleEndian.Uint32(data[24:28])
+	blockAlign := binary.LittleEndian.Uint16(data[32:34])
+
+	if sampleRate == 0 || blockAlign == 0 {
+		return 0
+	}
+
+	// Find "data" subchunk — it's usually at offset 36, but can vary
+	dataSize := uint32(0)
+	for i := 12; i+8 <= len(data); {
+		chunkID := string(data[i : i+4])
+		chunkSize := binary.LittleEndian.Uint32(data[i+4 : i+8])
+		if chunkID == "data" {
+			dataSize = chunkSize
+			break
+		}
+		i += 8 + int(chunkSize)
+		// Align to even boundary
+		if i%2 != 0 {
+			i++
+		}
+	}
+
+	if dataSize == 0 {
+		// Fallback: estimate from total file size minus header
+		dataSize = uint32(len(data)) - 44
+	}
+
+	totalSamples := float64(dataSize) / float64(blockAlign)
+	return totalSamples / float64(sampleRate)
 }
 
 // isCloneVoice checks if the voice ID indicates a cloned voice.
