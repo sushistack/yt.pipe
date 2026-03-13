@@ -541,11 +541,48 @@ func (s *Server) handleApproveAll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// When all TTS are approved: transition to assembling and auto-trigger assembly
+	assemblyTriggered := false
+	if allApproved && assetType == domain.AssetTypeTTS {
+		// Transition to assembling immediately
+		if _, err := s.projectSvc.TransitionProject(r.Context(), projectID, domain.StatusAssembling); err != nil {
+			slog.Warn("failed to transition to assembling after TTS approval",
+				"project_id", projectID, "err", err)
+		} else {
+			slog.Info("transitioned to assembling after all TTS approved", "project_id", projectID)
+			s.webhooks.NotifyStateChange(projectID, project.SCPID, domain.StatusTTSReview, domain.StatusAssembling, BuildReviewURL(projectID, project.ReviewToken))
+		}
+
+		// Auto-trigger assembly if output plugin available
+		if s.pluginStatus != nil && s.pluginStatus["output"] {
+			existingJob := s.jobs.getByType(projectID, "assembly")
+			dbRunning, _ := s.store.GetRunningJobByProjectAndType(projectID, "assembly")
+			if (existingJob == nil || existingJob.getStatus() != JobStatusRunning) && dbRunning == nil {
+				jobID := uuid.New().String()
+				dbJob := &domain.Job{
+					ID:        jobID,
+					ProjectID: projectID,
+					Type:      "assembly",
+					Status:    JobStatusRunning,
+				}
+				if err := s.store.CreateJob(dbJob); err == nil {
+					ctx, cancel := context.WithCancel(context.Background())
+					s.jobs.startTyped(projectID, "assembly", jobID, cancel)
+					go s.executeAssembly(ctx, jobID, project)
+					assemblyTriggered = true
+					slog.Info("auto-triggered assembly after TTS approval",
+						"project_id", projectID, "job_id", jobID)
+				}
+			}
+		}
+	}
+
 	WriteJSON(w, r, http.StatusOK, map[string]interface{}{
-		"approved":      approved,
-		"skipped":       skipped,
-		"all_approved":  allApproved,
-		"tts_triggered": ttsTriggered,
+		"approved":           approved,
+		"skipped":            skipped,
+		"all_approved":       allApproved,
+		"tts_triggered":      ttsTriggered,
+		"assembly_triggered": assemblyTriggered,
 	})
 }
 

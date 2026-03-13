@@ -715,11 +715,13 @@ func TestAssemble_DuplicateConflict(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.Router().ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Equal(t, http.StatusAccepted, w.Code)
 	var resp api.Response
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, "CONFLICT", resp.Error.Code)
-	assert.Contains(t, resp.Error.Message, "existing-assembly-job")
+	data, ok := resp.Data.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "existing-assembly-job", data["job_id"])
+	assert.Equal(t, true, data["already_running"])
 }
 
 func TestAssemble_ProjectNotFound(t *testing.T) {

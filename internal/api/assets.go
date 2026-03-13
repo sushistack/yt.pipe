@@ -280,15 +280,23 @@ func (s *Server) handleAssemble(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check for duplicate running assembly job
+	// If an assembly job is already running, return it (idempotent)
 	if existing := s.jobs.getByType(projectID, "assembly"); existing != nil && existing.getStatus() == JobStatusRunning {
-		WriteError(w, r, http.StatusConflict, "CONFLICT",
-			fmt.Sprintf("an assembly job is already running for this project (job_id: %s)", existing.JobID))
+		WriteJSON(w, r, http.StatusAccepted, map[string]interface{}{
+			"job_id":          existing.JobID,
+			"project_id":     projectID,
+			"type":           "assembly",
+			"already_running": true,
+		})
 		return
 	}
 	if dbRunning, err := s.store.GetRunningJobByProjectAndType(projectID, "assembly"); err == nil && dbRunning != nil {
-		WriteError(w, r, http.StatusConflict, "CONFLICT",
-			fmt.Sprintf("an assembly job is already running for this project (job_id: %s)", dbRunning.ID))
+		WriteJSON(w, r, http.StatusAccepted, map[string]interface{}{
+			"job_id":          dbRunning.ID,
+			"project_id":     projectID,
+			"type":           "assembly",
+			"already_running": true,
+		})
 		return
 	}
 
