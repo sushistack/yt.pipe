@@ -180,16 +180,23 @@ func (s *Server) handleGenerateTTS(w http.ResponseWriter, r *http.Request) {
 		scenes = makeSceneRange(project.SceneCount)
 	}
 
-	// Check for duplicate running job
+	// If a TTS job is already running, return it (idempotent)
 	if existing := s.jobs.getByType(projectID, "tts_generate"); existing != nil && existing.getStatus() == JobStatusRunning {
-		WriteError(w, r, http.StatusConflict, "CONFLICT",
-			fmt.Sprintf("a TTS generation job is already running for this project (job_id: %s)", existing.JobID))
+		WriteJSON(w, r, http.StatusAccepted, map[string]interface{}{
+			"job_id":     existing.JobID,
+			"project_id": projectID,
+			"type":       "tts_generate",
+			"already_running": true,
+		})
 		return
 	}
-	// Also check DB for running jobs
 	if dbRunning, err := s.store.GetRunningJobByProjectAndType(projectID, "tts_generate"); err == nil && dbRunning != nil {
-		WriteError(w, r, http.StatusConflict, "CONFLICT",
-			fmt.Sprintf("a TTS generation job is already running for this project (job_id: %s)", dbRunning.ID))
+		WriteJSON(w, r, http.StatusAccepted, map[string]interface{}{
+			"job_id":     dbRunning.ID,
+			"project_id": projectID,
+			"type":       "tts_generate",
+			"already_running": true,
+		})
 		return
 	}
 
