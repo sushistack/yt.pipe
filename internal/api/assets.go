@@ -467,6 +467,47 @@ func writeSceneManifest(sceneDir string, scene *domain.Scene) error {
 	return workspace.WriteFileAtomic(filepath.Join(sceneDir, "manifest.json"), data)
 }
 
+// subtitleEntry represents a single subtitle cue for JSON serialization.
+type subtitleEntry struct {
+	Index    int     `json:"index"`
+	StartSec float64 `json:"start_sec"`
+	EndSec   float64 `json:"end_sec"`
+	Text     string  `json:"text"`
+}
+
+// generateSubtitleJSON creates a subtitle.json from word timings, grouping words into lines.
+func generateSubtitleJSON(path string, timings []domain.WordTiming) error {
+	const maxWordsPerLine = 8
+	var entries []subtitleEntry
+	idx := 1
+
+	for i := 0; i < len(timings); {
+		end := i + maxWordsPerLine
+		if end > len(timings) {
+			end = len(timings)
+		}
+		var words []string
+		for j := i; j < end; j++ {
+			words = append(words, timings[j].Word)
+		}
+		entry := subtitleEntry{
+			Index:    idx,
+			StartSec: timings[i].StartSec,
+			EndSec:   timings[end-1].EndSec,
+			Text:     strings.Join(words, " "),
+		}
+		entries = append(entries, entry)
+		idx++
+		i = end
+	}
+
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal subtitle: %w", err)
+	}
+	return workspace.WriteFileAtomic(path, data)
+}
+
 // handleUpdatePrompt updates the image prompt for a specific scene.
 func (s *Server) handleUpdatePrompt(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
@@ -771,11 +812,22 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 			resultPaths = append(resultPaths, scene.AudioPath)
 		}
 
-		// Write manifest.json for assembly
+		// Generate subtitle and write manifest.json for assembly
 		if scene != nil {
 			scene.Narration = sceneScript.Narration
 			sceneDir := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", sceneNum))
 			scene.ImagePath = filepath.Join(sceneDir, "image.png")
+
+			// Generate subtitle.json from word timings
+			if len(scene.WordTimings) > 0 {
+				subtitlePath := filepath.Join(sceneDir, "subtitle.json")
+				if err := generateSubtitleJSON(subtitlePath, scene.WordTimings); err != nil {
+					slog.Warn("failed to generate subtitle", "project_id", project.ID, "scene_num", sceneNum, "err", err)
+				} else {
+					scene.SubtitlePath = subtitlePath
+				}
+			}
+
 			if err := writeSceneManifest(sceneDir, scene); err != nil {
 				slog.Warn("failed to write scene manifest", "project_id", project.ID, "scene_num", sceneNum, "err", err)
 			}
