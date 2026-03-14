@@ -212,6 +212,7 @@ func (s *Server) handleGenerateTTS(w http.ResponseWriter, r *http.Request) {
 		Status:    JobStatusRunning,
 	}
 	if err := s.store.CreateJob(dbJob); err != nil {
+		slog.Error("failed to create TTS job", "error", err, "project_id", projectID, "job_id", jobID)
 		WriteError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create job")
 		return
 	}

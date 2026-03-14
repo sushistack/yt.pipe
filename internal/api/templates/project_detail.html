@@ -85,13 +85,40 @@
                 <span class="loading loading-spinner loading-xs htmx-indicator"></span>
             </button>
 
-            {{else}}
-            {{/* === Stage 2+ — Generate Assets (images+tts parallel) + Assemble === */}}
+            {{else if eq .CurrentStage "scenario"}}
+            {{/* === Scenario stage — first-time asset generation === */}}
             <button class="btn btn-primary btn-sm"
                     onclick="generateAssets('{{.Project.ID}}')"
                     {{if .Job.IsRunning}}disabled{{end}}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
-                {{if (index .DependenciesMet "assets")}}Regenerate Assets{{else}}Generate Assets{{end}}
+                Generate Assets
+            </button>
+            <div class="dropdown dropdown-end">
+                <label tabindex="0" class="btn btn-ghost btn-sm" {{if .Job.IsRunning}}style="pointer-events:none;opacity:0.5;"{{end}}>
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+                </label>
+                <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-200 rounded-box shadow w-52 z-10">
+                    <li><a onclick="generateImages('{{.Project.ID}}')">Generate Images Only</a></li>
+                    <li><a onclick="generateTTS('{{.Project.ID}}')">Generate TTS Only</a></li>
+                    <li class="border-t border-base-300 mt-1 pt-1"><a hx-post="/api/v1/projects/{{.Project.ID}}/run" hx-vals='{"mode":"scenario"}' hx-swap="none"
+                           hx-confirm="Regenerate scenario? This will overwrite the current one.">
+                        Regenerate Scenario</a></li>
+                </ul>
+            </div>
+
+            {{else}}
+            {{/* === Assets/Assemble/Complete — individual regenerate buttons === */}}
+            <button class="btn btn-sm {{if not (index .DependenciesMet "images")}}btn-primary{{else}}btn-outline btn-primary{{end}}"
+                    onclick="generateImages('{{.Project.ID}}')"
+                    {{if .Job.IsRunning}}disabled{{end}}>
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                {{if (index .DependenciesMet "images")}}Regenerate Images{{else}}Generate Images{{end}}
+            </button>
+            <button class="btn btn-sm {{if not (index .DependenciesMet "tts")}}btn-primary{{else}}btn-outline btn-primary{{end}}"
+                    onclick="generateTTS('{{.Project.ID}}')"
+                    {{if .Job.IsRunning}}disabled{{end}}>
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+                {{if (index .DependenciesMet "tts")}}Regenerate TTS{{else}}Generate TTS{{end}}
             </button>
             <button class="btn btn-primary btn-sm"
                     hx-post="/api/v1/projects/{{.Project.ID}}/assemble"
@@ -107,10 +134,7 @@
                     <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
                 </label>
                 <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-200 rounded-box shadow w-52 z-10">
-                    <li><a onclick="generateImages('{{.Project.ID}}')">
-                        {{if (index .DependenciesMet "images")}}Regenerate Images Only{{else}}Generate Images Only{{end}}</a></li>
-                    <li><a onclick="generateTTS('{{.Project.ID}}')">
-                        {{if (index .DependenciesMet "tts")}}Regenerate TTS Only{{else}}Generate TTS Only{{end}}</a></li>
+                    <li><a onclick="generateAssets('{{.Project.ID}}')">Regenerate All Assets</a></li>
                     <li class="border-t border-base-300 mt-1 pt-1"><a hx-post="/api/v1/projects/{{.Project.ID}}/run" hx-vals='{"mode":"scenario"}' hx-swap="none"
                            hx-confirm="Regenerate scenario? This will overwrite the current one.">
                         Regenerate Scenario</a></li>
