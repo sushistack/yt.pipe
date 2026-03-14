@@ -264,6 +264,13 @@ type projectDetailData struct {
 	ProjectID      string
 	DependenciesMet map[string]bool
 	Job            jobStatusData
+	OutputFiles    []outputFileData
+}
+
+type outputFileData struct {
+	Name string
+	Size string
+	Path string // relative path within workspace for download URL
 }
 
 type sceneViewData struct {
@@ -363,6 +370,12 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	deps["assets"] = deps["images"] && deps["tts"]
 	deps["assemble"] = deps["assets"] // assemble is ready when all assets are done
 
+	// Detect output files (CapCut project files)
+	var outputFiles []outputFileData
+	if project.Status == domain.StageComplete {
+		outputFiles = detectOutputFiles(project.WorkspacePath)
+	}
+
 	data := projectDetailData{
 		APIKey:          s.cfg.API.Auth.Key,
 		Project:         project,
@@ -372,6 +385,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		ProjectID:       project.ID,
 		DependenciesMet: deps,
 		Job:             jobData,
+		OutputFiles:     outputFiles,
 	}
 
 	// HTMX partial: return just the content section (for stage changes)
@@ -448,6 +462,110 @@ func computeDependencies(project *domain.Project, basePath string) map[string]bo
 	deps["complete"] = allImages && allTTS
 
 	return deps
+}
+
+// detectOutputFiles scans the workspace for assembly output files.
+func detectOutputFiles(workspacePath string) []outputFileData {
+	var files []outputFileData
+	// Look for CapCut output directory
+	outputDir := filepath.Join(workspacePath, "output")
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		// Also check root for draft_content.json
+		if info, err := os.Stat(filepath.Join(workspacePath, "draft_content.json")); err == nil {
+			files = append(files, outputFileData{
+				Name: "draft_content.json",
+				Size: formatFileSize(info.Size()),
+				Path: "draft_content.json",
+			})
+		}
+		return files
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			// Check for draft_content.json inside subdirectories (CapCut project structure)
+			subEntries, err := os.ReadDir(filepath.Join(outputDir, e.Name()))
+			if err != nil {
+				continue
+			}
+			for _, se := range subEntries {
+				if !se.IsDir() {
+					info, _ := se.Info()
+					size := ""
+					if info != nil {
+						size = formatFileSize(info.Size())
+					}
+					files = append(files, outputFileData{
+						Name: e.Name() + "/" + se.Name(),
+						Size: size,
+						Path: "output/" + e.Name() + "/" + se.Name(),
+					})
+				}
+			}
+		} else {
+			info, _ := e.Info()
+			size := ""
+			if info != nil {
+				size = formatFileSize(info.Size())
+			}
+			files = append(files, outputFileData{
+				Name: e.Name(),
+				Size: size,
+				Path: "output/" + e.Name(),
+			})
+		}
+	}
+	return files
+}
+
+func formatFileSize(bytes int64) string {
+	switch {
+	case bytes >= 1024*1024:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/1024/1024)
+	case bytes >= 1024:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/1024)
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
+}
+
+// handleDashboardOutputFile serves output files (CapCut JSON, etc.) for download.
+func (s *Server) handleDashboardOutputFile(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		http.Error(w, "Project not found", http.StatusNotFound)
+		return
+	}
+
+	// Extract the file path from the wildcard
+	filePath := chi.URLParam(r, "*")
+	if filePath == "" {
+		http.Error(w, "File path required", http.StatusBadRequest)
+		return
+	}
+
+	// Prevent directory traversal
+	if strings.Contains(filePath, "..") {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	projectPath := project.WorkspacePath
+	if projectPath == "" {
+		projectPath = filepath.Join(s.workspacePath, project.ID)
+	}
+
+	fullPath := filepath.Join(projectPath, filePath)
+	info, err := os.Stat(fullPath)
+	if err != nil || info.IsDir() {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	// Set download headers
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(fullPath)))
+	http.ServeFile(w, r, fullPath)
 }
 
 // handleDashboardAsset serves scene image/audio files for the dashboard (Bearer auth, no review token).
