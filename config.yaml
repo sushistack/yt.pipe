@@ -155,8 +155,7 @@ output:
 # Webhooks (n8n notification)
 # ---------------------------------------------------------------------------
 webhooks:
-  urls:
-    - "http://n8n:5678/webhook/yt-pipe-webhook"
+  urls: []
   timeout_seconds: 10
   retry_max_attempts: 3
 
