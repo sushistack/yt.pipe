@@ -21,18 +21,60 @@
     </div>
 </div>
 
-<div id="project-content">
+<div id="project-content"
+     {{if .Job.IsRunning}}
+     hx-get="/dashboard/projects/{{.Project.ID}}"
+     hx-trigger="every 3s"
+     hx-target="#project-content"
+     hx-swap="innerHTML"
+     hx-select="#project-content > *"
+     {{end}}>
     {{template "project_detail_content" .}}
 </div>
 {{end}}
 
 {{define "project_detail_content"}}
+{{/* Auto-refresh when job is running */}}
+{{if .Job.IsRunning}}
+<div hx-get="/dashboard/projects/{{.Project.ID}}"
+     hx-trigger="every 3s"
+     hx-target="#project-content"
+     hx-swap="innerHTML"></div>
+{{end}}
+
 <!-- Progress Bar -->
 <div class="card bg-base-100 shadow-sm mb-4">
     <div class="card-body py-4">
         {{template "progress_bar" .}}
+        {{if .Job.IsRunning}}
+        <div class="w-full mt-3">
+            <progress class="progress progress-primary w-full" value="{{.Job.ProgressPct}}" max="100"></progress>
+        </div>
+        {{end}}
     </div>
 </div>
+
+{{/* === Job Status Banner === */}}
+{{if .Job.IsRunning}}
+<div class="alert shadow-sm mb-4">
+    <span class="loading loading-spinner loading-sm"></span>
+    <div>
+        <span class="font-semibold">{{.Job.StageLabel}}</span>
+        {{if gt .Job.ScenesTotal 0}}
+        <span class="text-sm opacity-70 ml-2">{{.Job.ScenesComplete}}/{{.Job.ScenesTotal}} scenes ({{.Job.ProgressPct}}%)</span>
+        {{else if gt .Job.ProgressPct 0}}
+        <span class="text-sm opacity-70 ml-2">({{.Job.ProgressPct}}%)</span>
+        {{end}}
+        <span class="text-xs opacity-40 ml-2">{{.Job.ElapsedSec}}s elapsed</span>
+    </div>
+    <button class="btn btn-ghost btn-xs"
+            hx-post="/api/v1/projects/{{.Project.ID}}/cancel"
+            hx-swap="none"
+            hx-confirm="Cancel the running job?">
+        Cancel
+    </button>
+</div>
+{{end}}
 
 <!-- Pipeline Actions -->
 <div class="card bg-base-100 shadow-sm mb-4">
@@ -43,7 +85,8 @@
             <button class="btn btn-primary btn-sm"
                     hx-post="/api/v1/projects/{{.Project.ID}}/run"
                     hx-vals='{"mode":"scenario"}'
-                    hx-swap="none">
+                    hx-swap="none"
+                    {{if .Job.IsRunning}}disabled{{end}}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
                 Generate Scenario
                 <span class="loading loading-spinner loading-xs htmx-indicator"></span>
@@ -53,14 +96,16 @@
             {{/* === Stage 2+ — Images, TTS, Assemble buttons with dependency gates === */}}
             <button class="btn btn-primary btn-sm"
                     hx-post="/api/v1/projects/{{.Project.ID}}/images/generate"
-                    hx-swap="none">
+                    hx-swap="none"
+                    {{if .Job.IsRunning}}disabled{{end}}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                 {{if (index .DependenciesMet "images")}}Regenerate Images{{else}}Generate Images{{end}}
                 <span class="loading loading-spinner loading-xs htmx-indicator"></span>
             </button>
             <button class="btn btn-primary btn-sm"
                     hx-post="/api/v1/projects/{{.Project.ID}}/tts/generate"
-                    hx-swap="none">
+                    hx-swap="none"
+                    {{if .Job.IsRunning}}disabled{{end}}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
                 {{if (index .DependenciesMet "tts")}}Regenerate TTS{{else}}Generate TTS{{end}}
                 <span class="loading loading-spinner loading-xs htmx-indicator"></span>
@@ -68,13 +113,14 @@
             <button class="btn btn-primary btn-sm"
                     hx-post="/api/v1/projects/{{.Project.ID}}/assemble"
                     hx-swap="none"
-                    {{if not (index .DependenciesMet "complete")}}disabled title="All images and TTS required"{{end}}>
+                    {{if or .Job.IsRunning (not (index .DependenciesMet "complete"))}}disabled{{end}}
+                    {{if not (index .DependenciesMet "complete")}}title="All images and TTS required"{{end}}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"/></svg>
                 {{if eq .Project.Status "complete"}}Reassemble{{else}}Assemble{{end}}
                 <span class="loading loading-spinner loading-xs htmx-indicator"></span>
             </button>
             <div class="dropdown dropdown-end">
-                <label tabindex="0" class="btn btn-ghost btn-sm">
+                <label tabindex="0" class="btn btn-ghost btn-sm" {{if .Job.IsRunning}}disabled{{end}}>
                     <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
                 </label>
                 <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-200 rounded-box shadow w-48 z-10">
@@ -90,7 +136,8 @@
                     hx-delete="/api/v1/projects/{{.Project.ID}}"
                     hx-confirm="Delete this project permanently?"
                     hx-swap="none"
-                    hx-on::after-request="if(event.detail.successful) window.location='/dashboard/'">
+                    hx-on::after-request="if(event.detail.successful) window.location='/dashboard/'"
+                    {{if .Job.IsRunning}}disabled{{end}}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                 Delete
             </button>

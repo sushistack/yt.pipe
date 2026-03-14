@@ -238,6 +238,19 @@ func (s *Server) handleSCPProjects(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// jobStatusData holds running job information for the template.
+type jobStatusData struct {
+	IsRunning      bool
+	JobID          string
+	JobStatus      string // running, complete, failed, waiting_approval
+	Stage          string // pipeline stage: scenario_generate, image_generate, etc.
+	StageLabel     string // human-readable: "Generating Scenario", "Generating Images", etc.
+	ProgressPct    int
+	ScenesTotal    int
+	ScenesComplete int
+	ElapsedSec     int
+}
+
 // projectDetailData is the template data for the project detail page.
 type projectDetailData struct {
 	APIKey         string
@@ -247,6 +260,7 @@ type projectDetailData struct {
 	CurrentStage   string
 	ProjectID      string
 	DependenciesMet map[string]bool
+	Job            jobStatusData
 }
 
 type sceneViewData struct {
@@ -300,6 +314,42 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 	deps := computeDependencies(project, s.workspacePath)
 
+	// Check for running job
+	var jobData jobStatusData
+	if job := s.jobs.get(projectID); job != nil && job.getStatus() == JobStatusRunning {
+		progress := job.getProgress()
+		jobData = jobStatusData{
+			IsRunning:      true,
+			JobID:          job.JobID,
+			JobStatus:      job.getStatus(),
+			Stage:          string(progress.Stage),
+			StageLabel:     pipelineStageLabel(string(progress.Stage)),
+			ProgressPct:    int(progress.ProgressPct),
+			ScenesTotal:    progress.ScenesTotal,
+			ScenesComplete: progress.ScenesComplete,
+			ElapsedSec:     int(time.Since(job.StartedAt).Seconds()),
+		}
+	} else {
+		// Check typed jobs (image_generate, tts_generate)
+		for _, jt := range []string{"image_generate", "tts_generate", "assembly"} {
+			if tj := s.jobs.getByType(projectID, jt); tj != nil && tj.getStatus() == JobStatusRunning {
+				progress := tj.getProgress()
+				jobData = jobStatusData{
+					IsRunning:      true,
+					JobID:          tj.JobID,
+					JobStatus:      tj.getStatus(),
+					Stage:          jt,
+					StageLabel:     pipelineStageLabel(jt),
+					ProgressPct:    int(progress.ProgressPct),
+					ScenesTotal:    progress.ScenesTotal,
+					ScenesComplete: progress.ScenesComplete,
+					ElapsedSec:     int(time.Since(tj.StartedAt).Seconds()),
+				}
+				break
+			}
+		}
+	}
+
 	data := projectDetailData{
 		APIKey:          s.cfg.API.Auth.Key,
 		Project:         project,
@@ -308,6 +358,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		CurrentStage:    project.Status,
 		ProjectID:       project.ID,
 		DependenciesMet: deps,
+		Job:             jobData,
 	}
 
 	// HTMX partial: return just the content section (for stage changes)
@@ -323,6 +374,25 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	if err := s.detailTmpl.Execute(w, data); err != nil {
 		slog.Error("failed to render detail page", "error", err)
 	}
+}
+
+// pipelineStageLabel returns a human-readable label for a pipeline stage.
+func pipelineStageLabel(stage string) string {
+	labels := map[string]string{
+		"data_load":          "Loading data...",
+		"scenario_generate":  "Generating scenario...",
+		"scenario_approval":  "Waiting for approval...",
+		"image_generate":     "Generating images...",
+		"tts_synthesize":     "Generating TTS...",
+		"timing_resolve":     "Resolving timing...",
+		"subtitle_generate":  "Generating subtitles...",
+		"assemble":           "Assembling output...",
+		"assembly":           "Assembling output...",
+	}
+	if label, ok := labels[stage]; ok {
+		return label
+	}
+	return "Processing..."
 }
 
 // computeDependencies checks filesystem to determine which stage dependencies are met.

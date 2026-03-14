@@ -3,9 +3,10 @@
     {{$current := .CurrentStage}}
     {{$deps := .DependenciesMet}}
     {{$projectID := .ProjectID}}
+    {{$job := .Job}}
     {{range $i, $stage := .StageOrder}}
     <li class="step{{if index $deps $stage}} step-primary{{end}}{{if eq $stage $current}} step-primary font-semibold{{end}}"
-        {{if ne $stage "pending"}}
+        {{if and (not $job.IsRunning) (ne $stage "pending")}}
         hx-patch="/api/v1/projects/{{$projectID}}/stage"
         hx-vals='{"stage": "{{$stage}}"}'
         hx-target="#project-content"
@@ -14,6 +15,9 @@
         style="cursor:pointer;"
         {{end}}
         title="{{$stage}}{{if index $deps $stage}} (met){{end}}">
+        {{if and $job.IsRunning (eq $stage $current)}}
+        <span class="loading loading-ring loading-xs mr-1"></span>
+        {{end}}
         {{$stage}}
     </li>
     {{end}}
