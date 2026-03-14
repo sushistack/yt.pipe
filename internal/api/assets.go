@@ -661,10 +661,13 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 		)
 	}
 
-	// Mark all scenes as generated and transition project to image_review
+	// Mark all scenes as generated+approved (no manual approval step) and transition project
 	for _, sceneNum := range scenes {
 		if err := s.store.MarkGenerated(project.ID, sceneNum, domain.AssetTypeImage); err != nil {
 			slog.Warn("failed to mark image generated", "project_id", project.ID, "scene_num", sceneNum, "err", err)
+		}
+		if err := s.store.ApproveScene(project.ID, sceneNum, domain.AssetTypeImage); err != nil {
+			slog.Warn("failed to auto-approve image", "project_id", project.ID, "scene_num", sceneNum, "err", err)
 		}
 	}
 	if _, err := s.projectSvc.SetProjectStage(ctx, project.ID, domain.StageImages); err != nil {
@@ -788,10 +791,13 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 		)
 	}
 
-	// Mark all scenes as generated and transition project to tts_review
+	// Mark all scenes as generated+approved (no manual approval step) and transition project
 	for _, sceneNum := range scenes {
 		if err := s.store.MarkGenerated(project.ID, sceneNum, domain.AssetTypeTTS); err != nil {
 			slog.Warn("failed to mark tts generated", "project_id", project.ID, "scene_num", sceneNum, "err", err)
+		}
+		if err := s.store.ApproveScene(project.ID, sceneNum, domain.AssetTypeTTS); err != nil {
+			slog.Warn("failed to auto-approve tts", "project_id", project.ID, "scene_num", sceneNum, "err", err)
 		}
 	}
 	// Only set stage if not already at tts (handleApproveAll may have set it early)
