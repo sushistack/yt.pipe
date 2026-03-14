@@ -251,13 +251,16 @@ type jobStatusData struct {
 	ElapsedSec     int
 }
 
+// UIStageOrder is the 4-step UI representation (images+tts merged as "assets").
+var UIStageOrder = []string{"pending", "scenario", "assets", "complete"}
+
 // projectDetailData is the template data for the project detail page.
 type projectDetailData struct {
 	APIKey         string
 	Project        *domain.Project
 	Scenes         []sceneViewData
 	StageOrder     []string
-	CurrentStage   string
+	CurrentStage   string // mapped to UI stage: "assets" for images/tts
 	ProjectID      string
 	DependenciesMet map[string]bool
 	Job            jobStatusData
@@ -350,12 +353,21 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Map backend stage to UI stage (images/tts → assets)
+	uiStage := project.Status
+	if uiStage == domain.StageImages || uiStage == domain.StageTTS {
+		uiStage = "assets"
+	}
+
+	// Add "assets" dependency: true if both images and tts are met
+	deps["assets"] = deps["images"] && deps["tts"]
+
 	data := projectDetailData{
 		APIKey:          s.cfg.API.Auth.Key,
 		Project:         project,
 		Scenes:          scenes,
-		StageOrder:      domain.StageOrder,
-		CurrentStage:    project.Status,
+		StageOrder:      UIStageOrder,
+		CurrentStage:    uiStage,
 		ProjectID:       project.ID,
 		DependenciesMet: deps,
 		Job:             jobData,

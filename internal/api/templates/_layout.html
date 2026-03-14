@@ -98,6 +98,45 @@
             });
         }
 
+        function apiPost(url) {
+            var key = document.querySelector('meta[name="api-key"]');
+            return fetch(url, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + (key ? key.content : ''), 'Content-Type': 'application/json' }
+            });
+        }
+
+        function generateAssets(projectID) {
+            Promise.all([
+                apiPost('/api/v1/projects/' + projectID + '/images/generate'),
+                apiPost('/api/v1/projects/' + projectID + '/tts/generate')
+            ]).then(function(results) {
+                var allOk = results.every(function(r) { return r.ok || r.status === 409; });
+                if (allOk) {
+                    showToast('Asset generation started', 'success');
+                    location.reload();
+                } else {
+                    showToast('Failed to start generation', 'error');
+                }
+            }).catch(function() { showToast('Failed to start generation', 'error'); });
+        }
+
+        function generateImages(projectID) {
+            apiPost('/api/v1/projects/' + projectID + '/images/generate').then(function(r) {
+                if (r.ok) { showToast('Image generation started', 'success'); location.reload(); }
+                else if (r.status === 409) { showToast('Already running', 'error'); }
+                else { showToast('Failed to start', 'error'); }
+            });
+        }
+
+        function generateTTS(projectID) {
+            apiPost('/api/v1/projects/' + projectID + '/tts/generate').then(function(r) {
+                if (r.ok) { showToast('TTS generation started', 'success'); location.reload(); }
+                else if (r.status === 409) { showToast('Already running', 'error'); }
+                else { showToast('Failed to start', 'error'); }
+            });
+        }
+
         var _scpItems = [];
         var _scpHasMore = false;
         var _scpLoading = false;
