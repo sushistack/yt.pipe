@@ -251,8 +251,8 @@ type jobStatusData struct {
 	ElapsedSec     int
 }
 
-// UIStageOrder is the 4-step UI representation (images+tts merged as "assets").
-var UIStageOrder = []string{"pending", "scenario", "assets", "complete"}
+// UIStageOrder is the 5-step UI representation (images+tts merged as "assets").
+var UIStageOrder = []string{"pending", "scenario", "assets", "assemble", "complete"}
 
 // projectDetailData is the template data for the project detail page.
 type projectDetailData struct {
@@ -359,8 +359,9 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		uiStage = "assets"
 	}
 
-	// Add "assets" dependency: true if both images and tts are met
+	// Add UI-level dependencies
 	deps["assets"] = deps["images"] && deps["tts"]
+	deps["assemble"] = deps["assets"] // assemble is ready when all assets are done
 
 	data := projectDetailData{
 		APIKey:          s.cfg.API.Auth.Key,

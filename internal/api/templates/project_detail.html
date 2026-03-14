@@ -14,6 +14,7 @@
         {{if eq .CurrentStage "pending"}}<span class="badge">pending</span>
         {{else if eq .CurrentStage "scenario"}}<span class="badge badge-primary">scenario</span>
         {{else if eq .CurrentStage "assets"}}<span class="badge badge-info">assets</span>
+        {{else if eq .CurrentStage "assemble"}}<span class="badge badge-warning">assemble</span>
         {{else if eq .CurrentStage "complete"}}<span class="badge badge-success">complete</span>
         {{else}}<span class="badge">{{.CurrentStage}}</span>{{end}}
         <span class="text-xs opacity-50">{{.Project.SceneCount}} scenes</span>
