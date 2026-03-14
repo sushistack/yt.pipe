@@ -52,19 +52,17 @@
         }
 
         function editNarration(projectID, sceneNum) {
-            var el = document.getElementById('narration-text-' + sceneNum);
-            if (!el) return;
-            var current = el.textContent.trim();
-            var parent = el.parentNode;
-            parent.innerHTML = '<textarea class="textarea textarea-bordered w-full min-h-20 text-sm" id="edit-ta-' + sceneNum + '">' + current + '</textarea>' +
-                '<div class="flex gap-2 mt-2">' +
-                '<button class="btn btn-primary btn-xs" onclick="saveNarration(\'' + projectID + '\',' + sceneNum + ')">Save</button>' +
-                '<button class="btn btn-ghost btn-xs" onclick="location.reload()">Cancel</button></div>';
-            document.getElementById('edit-ta-' + sceneNum).focus();
+            var ta = document.getElementById('narration-text-' + sceneNum);
+            if (!ta) return;
+            ta.removeAttribute('readonly');
+            ta.classList.add('textarea-primary');
+            ta.focus();
+            var saveBtn = document.getElementById('save-btn-' + sceneNum);
+            if (saveBtn) saveBtn.style.display = '';
         }
 
         function saveNarration(projectID, sceneNum) {
-            var ta = document.getElementById('edit-ta-' + sceneNum);
+            var ta = document.getElementById('narration-text-' + sceneNum);
             if (!ta) return;
             var key = document.querySelector('meta[name="api-key"]');
             fetch('/api/v1/projects/' + projectID + '/scenes/' + sceneNum + '/narration', {
@@ -72,8 +70,13 @@
                 headers: { 'Authorization': 'Bearer ' + (key ? key.content : ''), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ narration: ta.value })
             }).then(function(r) {
-                if (r.ok) { showToast('Narration updated', 'success'); location.reload(); }
-                else { showToast('Failed to update', 'error'); }
+                if (r.ok) {
+                    showToast('Narration updated', 'success');
+                    ta.setAttribute('readonly', '');
+                    ta.classList.remove('textarea-primary');
+                    var saveBtn = document.getElementById('save-btn-' + sceneNum);
+                    if (saveBtn) saveBtn.style.display = 'none';
+                } else { showToast('Failed to update', 'error'); }
             });
         }
 

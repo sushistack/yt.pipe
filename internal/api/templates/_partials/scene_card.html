@@ -48,40 +48,38 @@
         </div>
 
         {{/* Two-column layout: image left 50%, narration+audio right 50% */}}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:stretch;">
             {{/* Left: Image */}}
             <div style="min-width:0;overflow:hidden;">
                 {{if .HasImage}}
                 <img src="{{.ImageURL}}" alt="Scene {{.SceneNum}}" loading="lazy"
-                     style="width:100%;border-radius:0.5rem;object-fit:contain;background:#111827;">
+                     style="width:100%;height:100%;border-radius:0.5rem;object-fit:cover;background:#111827;">
                 {{else}}
-                <div style="width:100%;aspect-ratio:16/9;background:#111827;border-radius:0.5rem;display:flex;align-items:center;justify-content:center;color:#6b7280;font-size:0.75rem;">No image</div>
+                <div style="width:100%;height:100%;min-height:200px;background:#111827;border-radius:0.5rem;display:flex;align-items:center;justify-content:center;color:#6b7280;font-size:0.75rem;">No image</div>
                 {{end}}
             </div>
 
             {{/* Right: Narration + Audio */}}
-            <div style="min-width:0;display:flex;flex-direction:column;gap:0.75rem;">
-                <div style="flex:1;overflow-y:auto;max-height:250px;" id="narration-{{.SceneNum}}">
-                    {{if .Prompt}}
-                    <p class="text-sm" style="line-height:1.6;margin:0;word-wrap:break-word;" id="narration-text-{{.SceneNum}}">{{.Prompt}}</p>
-                    {{else}}
-                    <p class="text-sm opacity-40" style="margin:0;">No narration yet.</p>
-                    {{end}}
-                </div>
-                <div>
+            <div style="min-width:0;display:flex;flex-direction:column;gap:0.5rem;">
+                <textarea class="textarea textarea-bordered text-sm" style="flex:1;line-height:1.6;resize:none;" readonly
+                          id="narration-text-{{.SceneNum}}">{{if .Prompt}}{{.Prompt}}{{else}}No narration yet.{{end}}</textarea>
+                <div class="flex items-center gap-1">
                     <button class="btn btn-ghost btn-xs" title="Edit Narration"
                             onclick="editNarration('{{.ProjectID}}', {{.SceneNum}})">
                         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                         Edit
                     </button>
+                    <button class="btn btn-ghost btn-xs" title="Save Narration" style="display:none;"
+                            id="save-btn-{{.SceneNum}}"
+                            onclick="saveNarration('{{.ProjectID}}', {{.SceneNum}})">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        Save
+                    </button>
                 </div>
-
                 {{if .HasAudio}}
-                <div>
-                    <audio controls preload="none" style="width:100%;height:2rem;">
-                        <source src="{{.AudioURL}}" type="audio/wav">
-                    </audio>
-                </div>
+                <audio controls preload="none" style="width:100%;height:2.5rem;flex-shrink:0;">
+                    <source src="{{.AudioURL}}" type="audio/wav">
+                </audio>
                 {{end}}
             </div>
         </div>
