@@ -1,24 +1,21 @@
 {{define "progress_bar"}}
-<div class="progress-bar">
+<ul class="steps steps-horizontal w-full">
     {{$current := .CurrentStage}}
     {{$deps := .DependenciesMet}}
     {{$projectID := .ProjectID}}
     {{range $i, $stage := .StageOrder}}
-    <div class="progress-step{{if index $deps $stage}} met{{end}}{{if eq $stage $current}} current{{end}}"
-         {{if ne $stage "pending"}}
-         hx-patch="/api/v1/projects/{{$projectID}}/stage"
-         hx-vals='{"stage": "{{$stage}}"}'
-         hx-target="#project-content"
-         hx-swap="innerHTML"
-         hx-confirm="Set stage to {{$stage}}?"
-         {{end}}
-         title="{{$stage}}{{if index $deps $stage}} (dependencies met){{end}}">
-        <div class="step-dot">
-            {{if index $deps $stage}}&#10003;{{else}}{{add $i 1}}{{end}}
-        </div>
-        <div class="step-label">{{$stage}}</div>
-        {{if lt $i (sub (len $.StageOrder) 1)}}<div class="step-line"></div>{{end}}
-    </div>
+    <li class="step{{if index $deps $stage}} step-primary{{end}}{{if eq $stage $current}} step-primary font-semibold{{end}}"
+        {{if ne $stage "pending"}}
+        hx-patch="/api/v1/projects/{{$projectID}}/stage"
+        hx-vals='{"stage": "{{$stage}}"}'
+        hx-target="#project-content"
+        hx-swap="innerHTML"
+        hx-confirm="Set stage to {{$stage}}?"
+        style="cursor:pointer;"
+        {{end}}
+        title="{{$stage}}{{if index $deps $stage}} (met){{end}}">
+        {{$stage}}
+    </li>
     {{end}}
-</div>
+</ul>
 {{end}}

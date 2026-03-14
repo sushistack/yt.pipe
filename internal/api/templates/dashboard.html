@@ -1,23 +1,23 @@
 {{define "title"}}Projects - yt.pipe Dashboard{{end}}
 
 {{define "content"}}
-<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-    <h1 style="font-family:'Google Sans',sans-serif;font-size:1.5rem;font-weight:400;color:#202124;">Projects</h1>
+<div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <h1 class="text-2xl font-semibold">Projects</h1>
     <div class="flex items-center gap-2">
-        <select class="select" id="stage-filter"
+        <select class="select select-bordered select-sm"
+                id="stage-filter" name="stage"
                 hx-get="/dashboard/"
                 hx-target="#project-list"
                 hx-swap="innerHTML"
-                hx-include="#scp-search"
-                name="stage">
+                hx-include="#scp-search">
             <option value="">All stages</option>
             {{range .Stages}}
             <option value="{{.}}" {{if eq . $.CurrentStage}}selected{{end}}>{{.}}</option>
             {{end}}
         </select>
-        <input type="text" class="input" id="scp-search" name="scp" placeholder="Search SCP..."
+        <input type="text" class="input input-bordered input-sm w-36"
+               id="scp-search" name="scp" placeholder="Search SCP..."
                value="{{.CurrentSCP}}"
-               style="width:140px;"
                hx-get="/dashboard/"
                hx-target="#project-list"
                hx-swap="innerHTML"
@@ -33,67 +33,77 @@
 
 {{define "scp_group_list"}}
 {{if .Groups}}
+    <div class="flex flex-col gap-3">
     {{range .Groups}}
-    {{template "scp_group" .}}
+        {{template "scp_group" .}}
     {{end}}
+    </div>
     {{if .HasMore}}
     <div class="flex items-center justify-between mt-4" id="load-more">
-        <button class="btn btn-secondary"
+        <button class="btn btn-outline btn-sm"
                 hx-get="/dashboard/?page={{.NextPage}}&stage={{.CurrentStage}}&scp={{.CurrentSCP}}"
                 hx-target="#load-more"
-                hx-swap="outerHTML"
-                hx-indicator="#load-spinner">
-            <span class="mi" style="font-size:18px;">expand_more</span>
+                hx-swap="outerHTML">
             Load more
-            <span id="load-spinner" class="htmx-indicator"><span class="spinner"></span></span>
+            <span class="loading loading-spinner loading-xs htmx-indicator"></span>
         </button>
-        <span class="text-xs text-gray">{{.Total}} SCP groups</span>
+        <span class="text-xs opacity-60">{{.Total}} SCP groups</span>
     </div>
     {{end}}
 {{else}}
-    <div style="text-align:center;padding:4rem 2rem;color:#5f6368;">
-        <span class="mi" style="font-size:48px;color:#dadce0;display:block;margin-bottom:1rem;">folder_open</span>
-        No projects found.
+    <div class="card bg-base-100">
+        <div class="card-body items-center text-center py-16 opacity-50">
+            <svg class="w-12 h-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <p>No projects found.</p>
+        </div>
     </div>
 {{end}}
 {{end}}
 
 {{define "scp_group"}}
-<details class="scp-group" open>
-    <summary>
-        <div class="flex items-center gap-2">
-            <span class="mi" style="font-size:18px;color:#5f6368;transition:transform 0.2s;">chevron_right</span>
-            <span class="scp-group-title">{{.SCPID}}</span>
-            <span class="scp-group-meta">{{.Count}} project{{if gt .Count 1}}s{{end}}</span>
+<div class="collapse collapse-arrow bg-base-100 shadow-sm" tabindex="0">
+    <input type="checkbox" checked />
+    <div class="collapse-title flex items-center justify-between pr-12">
+        <div class="flex items-center gap-3">
+            <span class="font-semibold text-base">{{.SCPID}}</span>
+            <span class="badge badge-ghost badge-sm">{{.Count}}</span>
         </div>
-        <span class="text-xs text-gray">{{formatTime .LatestUpdate}}</span>
-    </summary>
-    <div class="scp-group-body" id="scp-{{.SCPID}}">
-        {{template "scp_project_rows" .}}
+        <span class="text-xs opacity-50">{{formatTime .LatestUpdate}}</span>
     </div>
-</details>
+    <div class="collapse-content !pb-0">
+        <div class="max-h-52 overflow-y-auto scroll-thin -mx-1" id="scp-{{.SCPID}}">
+            {{template "scp_project_rows" .}}
+        </div>
+    </div>
+</div>
 {{end}}
 
 {{define "scp_project_rows"}}
 {{range .Projects}}
-<a href="/dashboard/projects/{{.ID}}" class="project-row">
-    <div class="flex items-center gap-2">
-        <span class="project-id" title="{{.ID}}">{{truncID .ID}}</span>
+<a href="/dashboard/projects/{{.ID}}" class="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-base-200 transition-colors cursor-pointer group">
+    <div class="flex items-center gap-2 min-w-0">
+        <code class="text-xs opacity-50 group-hover:opacity-80" title="{{.ID}}">{{truncID .ID}}</code>
     </div>
-    <div class="flex items-center gap-3">
-        <span class="badge badge-{{.Status}}">{{.Status}}</span>
-        <span class="text-xs text-gray" style="min-width:4.5rem;">{{.SceneCount}} scenes</span>
-        <span class="text-xs text-gray">{{formatTime .CreatedAt}}</span>
+    <div class="flex items-center gap-3 shrink-0">
+        {{if eq .Status "pending"}}<span class="badge badge-sm">pending</span>
+        {{else if eq .Status "scenario"}}<span class="badge badge-primary badge-sm">scenario</span>
+        {{else if eq .Status "images"}}<span class="badge badge-info badge-sm">images</span>
+        {{else if eq .Status "tts"}}<span class="badge badge-warning badge-sm">tts</span>
+        {{else if eq .Status "complete"}}<span class="badge badge-success badge-sm">complete</span>
+        {{else}}<span class="badge badge-sm">{{.Status}}</span>{{end}}
+        <span class="text-xs opacity-50 w-16 text-right">{{.SceneCount}} scenes</span>
+        <span class="text-xs opacity-40 w-20 text-right">{{formatTime .CreatedAt}}</span>
     </div>
 </a>
 {{end}}
 {{if .HasMore}}
-<div style="padding:0.5rem 1.25rem;text-align:center;border-top:1px solid #f1f3f4;">
-    <button class="btn btn-secondary" style="height:1.75rem;font-size:0.75rem;"
+<div class="flex justify-center py-2 border-t border-base-200">
+    <button class="btn btn-ghost btn-xs"
             hx-get="/dashboard/scp/{{.SCPID}}/projects?page={{.NextPage}}&stage={{.CurrentStage}}"
             hx-target="#scp-{{.SCPID}}"
             hx-swap="innerHTML">
-        Show more projects
+        Show more
+        <span class="loading loading-spinner loading-xs htmx-indicator"></span>
     </button>
 </div>
 {{end}}

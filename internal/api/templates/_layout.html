@@ -1,122 +1,22 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="api-key" content="{{.APIKey}}">
     <title>{{block "title" .}}yt.pipe Dashboard{{end}}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.24/dist/full.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="/static/htmx.min.js"></script>
     <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Roboto', 'Google Sans', -apple-system, sans-serif; background: #f8f9fa; color: #202124; -webkit-font-smoothing: antialiased; }
-        a { color: #1a73e8; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-
-        /* Material Icons helper */
-        .mi { font-family: 'Material Symbols Outlined'; font-size: 20px; font-weight: normal; vertical-align: middle; line-height: 1; }
-
-        /* Nav */
-        .nav { background: #fff; border-bottom: 1px solid #dadce0; padding: 0 1.5rem; display: flex; align-items: center; height: 3.5rem; box-shadow: 0 1px 2px rgba(60,64,67,0.1); position: sticky; top: 0; z-index: 100; }
-        .nav-brand { font-family: 'Google Sans', sans-serif; font-weight: 700; font-size: 1.25rem; color: #202124; margin-right: 1.5rem; }
-        .nav-link { font-size: 0.875rem; color: #5f6368; padding: 0.5rem 0.75rem; border-radius: 1.5rem; transition: background 0.15s; }
-        .nav-link:hover { background: #f1f3f4; color: #202124; text-decoration: none; }
-
-        .container { max-width: 72rem; margin: 0 auto; padding: 1.5rem; }
-
-        /* Buttons */
-        .btn { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0 1rem; height: 2.25rem; font-size: 0.875rem; font-weight: 500; border-radius: 1.25rem; border: none; cursor: pointer; transition: background 0.2s, box-shadow 0.2s; font-family: 'Google Sans', sans-serif; }
-        .btn-primary { background: #1a73e8; color: #fff; }
-        .btn-primary:hover { background: #1765cc; box-shadow: 0 1px 3px rgba(26,115,232,0.3); }
-        .btn-danger { background: #d93025; color: #fff; }
-        .btn-danger:hover { background: #c5221f; }
-        .btn-secondary { background: #fff; color: #1a73e8; border: 1px solid #dadce0; }
-        .btn-secondary:hover { background: #f8f9fa; border-color: #1a73e8; }
-        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-        /* Icon buttons */
-        .btn-icon { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 50%; border: none; background: transparent; cursor: pointer; color: #5f6368; transition: background 0.15s; font-size: 1rem; }
-        .btn-icon:hover { background: #f1f3f4; color: #202124; }
-        .btn-icon-danger:hover { background: #fce8e6; color: #d93025; }
-
-        /* Badges */
-        .badge { display: inline-flex; align-items: center; height: 1.25rem; padding: 0 0.5rem; font-size: 0.6875rem; font-weight: 500; border-radius: 0.625rem; letter-spacing: 0.02em; }
-        .badge-pending { background: #f1f3f4; color: #5f6368; }
-        .badge-scenario { background: #e8eaf6; color: #5c6bc0; }
-        .badge-images { background: #e3f2fd; color: #1a73e8; }
-        .badge-tts { background: #fff3e0; color: #e8710a; }
-        .badge-complete { background: #e6f4ea; color: #1e8e3e; }
-
-        /* Cards — Material elevation */
-        .card { background: #fff; border: 1px solid #dadce0; border-radius: 0.5rem; overflow: hidden; transition: box-shadow 0.2s; }
-        .card:hover { box-shadow: 0 1px 6px rgba(60,64,67,0.15); }
-        .card-body { padding: 1rem 1.25rem; }
-
-        /* Inputs */
-        .input { padding: 0.5rem 0.75rem; font-size: 0.875rem; border: 1px solid #dadce0; border-radius: 0.25rem; outline: none; background: #fff; color: #202124; transition: border-color 0.15s; }
-        .input:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,0.15); }
-        .select { padding: 0.5rem 0.75rem; font-size: 0.875rem; border: 1px solid #dadce0; border-radius: 0.25rem; background: #fff; color: #202124; }
-        .select:focus { border-color: #1a73e8; }
-
-        /* SCP Accordion Group */
-        .scp-group { background: #fff; border: 1px solid #dadce0; border-radius: 0.5rem; margin-bottom: 0.75rem; overflow: hidden; transition: box-shadow 0.2s; }
-        .scp-group:hover { box-shadow: 0 1px 6px rgba(60,64,67,0.1); }
-        .scp-group summary { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.25rem; cursor: pointer; user-select: none; list-style: none; border-bottom: 1px solid transparent; transition: border-color 0.15s; }
-        .scp-group summary::-webkit-details-marker { display: none; }
-        .scp-group[open] summary { border-bottom-color: #dadce0; }
-        .scp-group-title { font-family: 'Google Sans', sans-serif; font-weight: 500; font-size: 1rem; color: #202124; }
-        .scp-group-meta { font-size: 0.75rem; color: #5f6368; }
-        .scp-group-body { max-height: 210px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #dadce0 transparent; }
-        .scp-group-body::-webkit-scrollbar { width: 4px; }
-        .scp-group-body::-webkit-scrollbar-thumb { background: #dadce0; border-radius: 2px; }
-
-        /* Project row inside accordion */
-        .project-row { display: flex; align-items: center; justify-content: space-between; padding: 0.625rem 1.25rem; border-bottom: 1px solid #f1f3f4; text-decoration: none; color: inherit; transition: background 0.1s; }
-        .project-row:last-child { border-bottom: none; }
-        .project-row:hover { background: #f8f9fa; }
-        .project-id { font-family: 'Roboto Mono', monospace; font-size: 0.8125rem; color: #5f6368; }
-
-        /* Progress bar */
-        .progress-bar { display: flex; align-items: center; gap: 0; padding: 1rem 0; }
-        .progress-step { display: flex; flex-direction: column; align-items: center; flex: 1; position: relative; cursor: pointer; }
-        .progress-step .step-dot { width: 2rem; height: 2rem; border-radius: 9999px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 600; border: 2px solid #dadce0; background: #fff; color: #5f6368; z-index: 1; transition: all 0.2s; }
-        .progress-step .step-label { margin-top: 0.375rem; font-size: 0.75rem; color: #5f6368; }
-        .progress-step.met .step-dot { border-color: #1e8e3e; background: #e6f4ea; color: #1e8e3e; }
-        .progress-step.current .step-dot { border-color: #1a73e8; background: #1a73e8; color: #fff; }
-        .progress-step .step-line { position: absolute; top: 1rem; left: 50%; width: 100%; height: 2px; background: #dadce0; z-index: 0; }
-        .progress-step:last-child .step-line { display: none; }
-        .progress-step.met .step-line { background: #1e8e3e; }
-
-        /* Toast */
-        .toast-container { position: fixed; top: 4rem; right: 1rem; z-index: 200; display: flex; flex-direction: column; gap: 0.5rem; }
-        .toast { padding: 0.75rem 1.25rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slideIn 0.3s ease; }
-        .toast-success { background: #1e8e3e; }
-        .toast-error { background: #d93025; }
-        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-
-        .htmx-indicator { display: none; }
-        .htmx-request .htmx-indicator { display: inline-block; }
-        .spinner { width: 1rem; height: 1rem; border: 2px solid #dadce0; border-top-color: #1a73e8; border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        .text-sm { font-size: 0.875rem; }
-        .text-xs { font-size: 0.75rem; }
-        .text-gray { color: #5f6368; }
-        .mt-1 { margin-top: 0.25rem; }
-        .mt-2 { margin-top: 0.5rem; }
-        .mt-4 { margin-top: 1rem; }
-        .mb-4 { margin-bottom: 1rem; }
-        .flex { display: flex; }
-        .items-center { align-items: center; }
-        .justify-between { justify-content: space-between; }
-        .gap-1 { gap: 0.25rem; }
-        .gap-2 { gap: 0.5rem; }
-        .gap-3 { gap: 0.75rem; }
-        .gap-4 { gap: 1rem; }
-        .flex-wrap { flex-wrap: wrap; }
+        /* HTMX indicator */
+        .htmx-indicator { opacity: 0; transition: opacity 0.2s; }
+        .htmx-request .htmx-indicator { opacity: 1; }
+        .htmx-request.htmx-indicator { opacity: 1; }
+        /* Scrollbar */
+        .scroll-thin { scrollbar-width: thin; }
+        .scroll-thin::-webkit-scrollbar { width: 4px; }
+        .scroll-thin::-webkit-scrollbar-thumb { background: oklch(var(--bc)/0.2); border-radius: 2px; }
     </style>
     <script>
         // Inject Bearer token into all HTMX requests
@@ -127,6 +27,7 @@
             }
         });
 
+        // HTMX error → toast
         document.addEventListener("htmx:responseError", function(e) {
             var msg = "Request failed";
             try {
@@ -136,83 +37,79 @@
             showToast(msg, "error");
         });
 
+        // HX-Trigger toast
         document.addEventListener("showToast", function(e) {
-            var detail = e.detail || {};
-            showToast(detail.message || "Done", detail.type || "success");
+            var d = e.detail || {};
+            showToast(d.message || "Done", d.type || "success");
         });
 
         function showToast(msg, type) {
-            var container = document.getElementById("toast-container");
-            if (!container) return;
-            var toast = document.createElement("div");
-            toast.className = "toast toast-" + (type || "success");
-            toast.textContent = msg;
-            container.appendChild(toast);
-            setTimeout(function() { toast.style.animation = "fadeOut 0.3s ease"; setTimeout(function() { toast.remove(); }, 300); }, 3000);
+            var t = document.createElement("div");
+            t.className = "alert alert-" + (type === "error" ? "error" : "success") + " shadow-lg";
+            t.innerHTML = '<span>' + msg + '</span>';
+            var c = document.getElementById("toast-container");
+            if (c) { c.appendChild(t); setTimeout(function(){ t.classList.add("opacity-0"); setTimeout(function(){ t.remove(); }, 300); }, 3000); }
         }
 
         function editNarration(projectID, sceneNum) {
             var el = document.getElementById('narration-text-' + sceneNum);
             if (!el) return;
-            var current = el.textContent;
-            var ta = document.createElement('textarea');
-            ta.value = current;
-            ta.style.cssText = 'width:100%;min-height:80px;padding:0.5rem;font-size:0.875rem;border:1px solid #dadce0;border-radius:0.25rem;resize:vertical;font-family:inherit;';
-            var actions = document.createElement('div');
-            actions.style.cssText = 'display:flex;gap:0.5rem;margin-top:0.5rem;';
-            var saveBtn = document.createElement('button');
-            saveBtn.className = 'btn btn-primary';
-            saveBtn.textContent = 'Save';
-            saveBtn.style.height = '1.75rem';
-            saveBtn.style.fontSize = '0.75rem';
-            var cancelBtn = document.createElement('button');
-            cancelBtn.className = 'btn btn-secondary';
-            cancelBtn.textContent = 'Cancel';
-            cancelBtn.style.height = '1.75rem';
-            cancelBtn.style.fontSize = '0.75rem';
-            actions.appendChild(saveBtn);
-            actions.appendChild(cancelBtn);
+            var current = el.textContent.trim();
             var parent = el.parentNode;
-            parent.innerHTML = '';
-            parent.appendChild(ta);
-            parent.appendChild(actions);
-            ta.focus();
-            cancelBtn.onclick = function() { location.reload(); };
-            saveBtn.onclick = function() {
-                var key = document.querySelector('meta[name="api-key"]');
-                fetch('/api/v1/projects/' + projectID + '/scenes/' + sceneNum + '/narration', {
-                    method: 'PATCH',
-                    headers: { 'Authorization': 'Bearer ' + (key ? key.content : ''), 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ narration: ta.value })
-                }).then(function(r) {
-                    if (r.ok) { showToast('Narration updated', 'success'); location.reload(); }
-                    else { showToast('Failed to update', 'error'); }
-                });
-            };
+            parent.innerHTML = '<textarea class="textarea textarea-bordered w-full min-h-20 text-sm" id="edit-ta-' + sceneNum + '">' + current + '</textarea>' +
+                '<div class="flex gap-2 mt-2">' +
+                '<button class="btn btn-primary btn-xs" onclick="saveNarration(\'' + projectID + '\',' + sceneNum + ')">Save</button>' +
+                '<button class="btn btn-ghost btn-xs" onclick="location.reload()">Cancel</button></div>';
+            document.getElementById('edit-ta-' + sceneNum).focus();
+        }
+
+        function saveNarration(projectID, sceneNum) {
+            var ta = document.getElementById('edit-ta-' + sceneNum);
+            if (!ta) return;
+            var key = document.querySelector('meta[name="api-key"]');
+            fetch('/api/v1/projects/' + projectID + '/scenes/' + sceneNum + '/narration', {
+                method: 'PATCH',
+                headers: { 'Authorization': 'Bearer ' + (key ? key.content : ''), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ narration: ta.value })
+            }).then(function(r) {
+                if (r.ok) { showToast('Narration updated', 'success'); location.reload(); }
+                else { showToast('Failed to update', 'error'); }
+            });
         }
 
         function insertScene(projectID, afterNum) {
-            var narration = prompt('Enter narration for the new scene:');
-            if (!narration) return;
+            document.getElementById('insert-modal-' + afterNum).showModal();
+        }
+
+        function confirmInsert(projectID, afterNum) {
+            var ta = document.getElementById('insert-ta-' + afterNum);
+            if (!ta || !ta.value.trim()) return;
             var key = document.querySelector('meta[name="api-key"]');
             fetch('/api/v1/projects/' + projectID + '/scenes?after=' + afterNum, {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + (key ? key.content : ''), 'Content-Type': 'application/json' },
-                body: JSON.stringify({ narration: narration })
+                body: JSON.stringify({ narration: ta.value })
             }).then(function(r) {
                 if (r.ok) { showToast('Scene inserted', 'success'); location.reload(); }
-                else { showToast('Failed to insert scene', 'error'); }
+                else { showToast('Failed to insert', 'error'); }
             });
         }
     </script>
 </head>
-<body>
-    <nav class="nav">
-        <span class="nav-brand">yt.pipe</span>
-        <a href="/dashboard/" class="nav-link">Dashboard</a>
-    </nav>
-    <div id="toast-container" class="toast-container"></div>
-    <div class="container">
+<body class="min-h-screen bg-base-200">
+    <!-- Navbar -->
+    <div class="navbar bg-base-100 shadow-sm sticky top-0 z-50 px-4">
+        <div class="flex-1 gap-3">
+            <a href="/dashboard/" class="text-xl font-bold">yt.pipe</a>
+            <a href="/dashboard/" class="btn btn-ghost btn-sm">Dashboard</a>
+        </div>
+    </div>
+
+    <!-- Toast container -->
+    <div id="toast-container" class="toast toast-end toast-top z-50 mt-16"></div>
+
+    <!-- Content -->
+    <div class="max-w-6xl mx-auto px-4 py-6">
         {{block "content" .}}{{end}}
     </div>
 </body>
