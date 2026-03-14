@@ -32,6 +32,12 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("enable WAL mode: %w", err)
 	}
 
+	// Set busy timeout to wait up to 5 seconds for locks instead of failing immediately
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set busy timeout: %w", err)
+	}
+
 	// Enable foreign keys
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		db.Close()
