@@ -186,6 +186,8 @@ func (s *Server) setupRouter() {
 	// Dashboard pages (auth via Bearer, handled by global middleware)
 	r.Get("/dashboard/", s.handleDashboardList)
 	r.Get("/dashboard/projects/{id}", s.handleProjectDetail)
+	r.Get("/dashboard/projects/{id}/scenes/{num}/image", s.handleDashboardImage)
+	r.Get("/dashboard/projects/{id}/scenes/{num}/audio", s.handleDashboardAudio)
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {

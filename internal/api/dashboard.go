@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -182,6 +183,10 @@ type sceneViewData struct {
 	ImagePrompt string
 	ImageStatus string
 	TTSStatus   string
+	HasImage    bool
+	HasAudio    bool
+	ImageURL    string
+	AudioURL    string
 }
 
 // handleProjectDetail renders the project detail page.
@@ -202,12 +207,18 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("failed to build scene dashboard", "project_id", projectID, "error", dashErr)
 		} else {
 			for _, sc := range dashboard.Scenes {
+				hasImage := sc.ImagePath != "" || sc.ImageStatus == "generated" || sc.ImageStatus == "approved"
+				hasAudio := sc.TTSPath != "" || sc.TTSStatus == "generated" || sc.TTSStatus == "approved"
 				scenes = append(scenes, sceneViewData{
 					SceneNum:    sc.SceneNum,
 					Prompt:      sc.Prompt,
 					ImagePrompt: sc.ImagePrompt,
 					ImageStatus: sc.ImageStatus,
 					TTSStatus:   sc.TTSStatus,
+					HasImage:    hasImage,
+					HasAudio:    hasAudio,
+					ImageURL:    fmt.Sprintf("/dashboard/projects/%s/scenes/%d/image", projectID, sc.SceneNum),
+					AudioURL:    fmt.Sprintf("/dashboard/projects/%s/scenes/%d/audio", projectID, sc.SceneNum),
 				})
 			}
 		}
@@ -280,6 +291,50 @@ func computeDependencies(project *domain.Project, basePath string) map[string]bo
 	deps["complete"] = allImages && allTTS
 
 	return deps
+}
+
+// handleDashboardAsset serves scene image/audio files for the dashboard (Bearer auth, no review token).
+func (s *Server) handleDashboardAsset(w http.ResponseWriter, r *http.Request, filename string) {
+	projectID := chi.URLParam(r, "id")
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		http.Error(w, "Project not found", http.StatusNotFound)
+		return
+	}
+
+	numStr := chi.URLParam(r, "num")
+	sceneNum, convErr := strconv.Atoi(numStr)
+	if convErr != nil || sceneNum < 1 {
+		http.Error(w, "Invalid scene number", http.StatusBadRequest)
+		return
+	}
+
+	projectPath := project.WorkspacePath
+	if projectPath == "" {
+		projectPath = filepath.Join(s.workspacePath, project.ID)
+	}
+
+	assetPath := filepath.Join(projectPath, "scenes", strconv.Itoa(sceneNum), filename)
+	cleaned := filepath.Clean(assetPath)
+	if !strings.HasPrefix(cleaned, filepath.Clean(projectPath)) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if _, statErr := os.Stat(cleaned); os.IsNotExist(statErr) {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+
+	http.ServeFile(w, r, cleaned)
+}
+
+func (s *Server) handleDashboardImage(w http.ResponseWriter, r *http.Request) {
+	s.handleDashboardAsset(w, r, "image.png")
+}
+
+func (s *Server) handleDashboardAudio(w http.ResponseWriter, r *http.Request) {
+	s.handleDashboardAsset(w, r, "audio.wav")
 }
 
 // fileExistsWithExtensions checks if a file with the given base name and any of the extensions exists.
