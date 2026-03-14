@@ -98,35 +98,53 @@
             });
         }
 
+        var _scpData = null;
+        var _selectedSCP = '';
+
         function openNewProject() {
             var modal = document.getElementById('new-project-modal');
-            var sel = document.getElementById('new-project-scp');
-            if (!modal || !sel) return;
+            if (!modal) return;
             modal.showModal();
-            if (sel.options.length <= 1) {
+            if (!_scpData) {
                 var key = document.querySelector('meta[name="api-key"]');
                 fetch('/dashboard/scps', {
                     headers: { 'Authorization': 'Bearer ' + (key ? key.content : '') }
                 }).then(function(r) { return r.json(); }).then(function(scps) {
-                    sel.innerHTML = '<option value="" disabled selected>Select SCP...</option>';
-                    scps.forEach(function(s) {
-                        var opt = document.createElement('option');
-                        opt.value = s.scp_id;
-                        opt.textContent = s.title ? s.scp_id + ' \u2014 ' + s.title : s.scp_id;
-                        sel.appendChild(opt);
-                    });
+                    _scpData = scps;
+                    renderSCPList('');
                 });
             }
         }
 
+        function renderSCPList(filter) {
+            var list = document.getElementById('scp-list');
+            if (!list || !_scpData) return;
+            var q = filter.toLowerCase();
+            var html = '';
+            _scpData.forEach(function(s) {
+                if (q && s.scp_id.toLowerCase().indexOf(q) === -1 && (!s.title || s.title.toLowerCase().indexOf(q) === -1)) return;
+                var sel = s.scp_id === _selectedSCP ? ' bg-primary text-primary-content' : ' hover:bg-base-200';
+                var tag = s.has_project ? '<span class="badge badge-ghost badge-xs ml-2">exists</span>' : '';
+                var rating = s.rating ? '<span class="text-xs opacity-40">' + s.rating.toLocaleString() + '</span>' : '';
+                html += '<div class="flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer' + sel + '" onclick="selectSCP(\'' + s.scp_id + '\')">' +
+                    '<div class="flex items-center gap-2 min-w-0"><span class="font-medium text-sm">' + s.scp_id + '</span>' + tag + '</div>' +
+                    rating + '</div>';
+            });
+            list.innerHTML = html || '<div class="text-center py-4 opacity-40 text-sm">No matches</div>';
+        }
+
+        function selectSCP(scpID) {
+            _selectedSCP = scpID;
+            renderSCPList(document.getElementById('scp-filter-input') ? document.getElementById('scp-filter-input').value : '');
+        }
+
         function createProject() {
-            var sel = document.getElementById('new-project-scp');
-            if (!sel || !sel.value) { showToast('Select an SCP', 'error'); return; }
+            if (!_selectedSCP) { showToast('Select an SCP', 'error'); return; }
             var key = document.querySelector('meta[name="api-key"]');
             fetch('/api/v1/projects', {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + (key ? key.content : ''), 'Content-Type': 'application/json' },
-                body: JSON.stringify({ scp_id: sel.value })
+                body: JSON.stringify({ scp_id: _selectedSCP })
             }).then(function(r) {
                 if (!r.ok) throw r;
                 return r.json();

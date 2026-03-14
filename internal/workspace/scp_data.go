@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/sushistack/yt.pipe/internal/domain"
 )
@@ -45,12 +46,15 @@ type MetaFile struct {
 
 // SCPListEntry is a summary of an available SCP on the filesystem.
 type SCPListEntry struct {
-	SCPID string `json:"scp_id"`
-	Title string `json:"title,omitempty"`
+	SCPID      string `json:"scp_id"`
+	Title      string `json:"title,omitempty"`
+	Rating     int    `json:"rating"`
+	HasProject bool   `json:"has_project"`
 }
 
-// ListAvailableSCPs scans the SCP data directory and returns all valid SCP entries.
-func ListAvailableSCPs(basePath string) ([]SCPListEntry, error) {
+// ListAvailableSCPs scans the SCP data directory and returns all valid SCP entries,
+// sorted by rating descending. existingSCPs is a set of SCP IDs that already have projects.
+func ListAvailableSCPs(basePath string, existingSCPs map[string]bool) ([]SCPListEntry, error) {
 	entries, err := os.ReadDir(basePath)
 	if err != nil {
 		return nil, fmt.Errorf("list scps: read dir: %w", err)
@@ -62,22 +66,41 @@ func ListAvailableSCPs(basePath string) ([]SCPListEntry, error) {
 			continue
 		}
 		name := e.Name()
-		// Check that required files exist
-		metaPath := filepath.Join(basePath, name, "meta.json")
-		if _, statErr := os.Stat(metaPath); statErr != nil {
+		dir := filepath.Join(basePath, name)
+
+		// Check that facts.json exists (primary data file for crawled format)
+		factsPath := filepath.Join(dir, "facts.json")
+		if _, statErr := os.Stat(factsPath); statErr != nil {
 			continue
 		}
 
 		entry := SCPListEntry{SCPID: name}
-		// Try to read title from meta.json
-		if data, readErr := os.ReadFile(metaPath); readErr == nil {
-			var m MetaFile
-			if json.Unmarshal(data, &m) == nil && m.Title != "" {
-				entry.Title = m.Title
+		if existingSCPs != nil {
+			entry.HasProject = existingSCPs[name]
+		}
+
+		// Read rating and title from facts.json
+		if data, readErr := os.ReadFile(factsPath); readErr == nil {
+			var raw struct {
+				Title  string `json:"title"`
+				Rating int    `json:"rating"`
+			}
+			if json.Unmarshal(data, &raw) == nil {
+				entry.Rating = raw.Rating
+				if raw.Title != "" {
+					entry.Title = raw.Title
+				}
 			}
 		}
+
 		result = append(result, entry)
 	}
+
+	// Sort by rating descending
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Rating > result[j].Rating
+	})
+
 	return result, nil
 }
 

@@ -413,7 +413,16 @@ func (s *Server) handleDashboardAudio(w http.ResponseWriter, r *http.Request) {
 
 // handleListAvailableSCPs returns available SCP entries from the data directory as JSON.
 func (s *Server) handleListAvailableSCPs(w http.ResponseWriter, r *http.Request) {
-	scps, err := workspace.ListAvailableSCPs(s.cfg.SCPDataPath)
+	// Build set of SCP IDs that already have projects
+	existing := make(map[string]bool)
+	projects, listErr := s.store.ListProjects()
+	if listErr == nil {
+		for _, p := range projects {
+			existing[p.SCPID] = true
+		}
+	}
+
+	scps, err := workspace.ListAvailableSCPs(s.cfg.SCPDataPath, existing)
 	if err != nil {
 		slog.Error("failed to list available scps", "error", err)
 		WriteJSON(w, r, http.StatusOK, []workspace.SCPListEntry{})

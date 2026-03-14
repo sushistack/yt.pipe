@@ -38,13 +38,14 @@
 
 <!-- New Project Modal -->
 <dialog id="new-project-modal" class="modal">
-    <div class="modal-box">
-        <h3 class="font-bold text-lg">New Project</h3>
-        <div class="form-control mt-4">
-            <label class="label"><span class="label-text">SCP ID</span></label>
-            <select class="select select-bordered w-full" id="new-project-scp">
-                <option value="" disabled selected>Loading...</option>
-            </select>
+    <div class="modal-box max-w-lg">
+        <h3 class="font-bold text-lg mb-3">New Project</h3>
+        <input type="text" class="input input-bordered input-sm w-full mb-3" id="scp-filter-input"
+               placeholder="Search SCP..." oninput="renderSCPList(this.value)">
+        <div id="scp-list" class="max-h-72 overflow-y-auto scroll-thin flex flex-col gap-0.5">
+            <div class="text-center py-8 opacity-40 text-sm">
+                <span class="loading loading-spinner loading-sm"></span> Loading...
+            </div>
         </div>
         <div class="modal-action">
             <form method="dialog">
