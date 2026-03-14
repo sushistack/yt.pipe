@@ -1,77 +1,85 @@
 {{define "scene_card"}}
-<div class="card mb-4" id="scene-{{.SceneNum}}">
-    <div class="card-body">
+<div class="card bg-base-100 shadow-sm mb-3" id="scene-{{.SceneNum}}">
+    <div class="card-body p-4">
         {{/* Header: scene number + badges + actions */}}
-        <div class="flex items-center justify-between" style="margin-bottom:0.75rem;">
+        <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
-                <span style="display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;font-size:0.75rem;font-weight:700;color:#fff;background:#1f2937;border-radius:9999px;">{{.SceneNum}}</span>
+                <div class="badge badge-neutral badge-lg font-bold">{{.SceneNum}}</div>
                 {{if .ImageStatus}}
-                <span class="badge {{if eq .ImageStatus "approved"}}badge-complete{{else if eq .ImageStatus "generated"}}badge-images{{else}}badge-pending{{end}}">
+                <span class="badge badge-sm {{if eq .ImageStatus "approved"}}badge-success{{else if eq .ImageStatus "generated"}}badge-info{{else}}badge-ghost{{end}}">
                     IMG: {{.ImageStatus}}
                 </span>
                 {{end}}
                 {{if .TTSStatus}}
-                <span class="badge {{if eq .TTSStatus "approved"}}badge-complete{{else if eq .TTSStatus "generated"}}badge-tts{{else}}badge-pending{{end}}">
+                <span class="badge badge-sm {{if eq .TTSStatus "approved"}}badge-success{{else if eq .TTSStatus "generated"}}badge-warning{{else}}badge-ghost{{end}}">
                     TTS: {{.TTSStatus}}
                 </span>
                 {{end}}
             </div>
             <div class="flex items-center gap-1">
-                <button class="btn-icon" title="Regenerate Image"
-                        hx-post="/api/v1/projects/{{.ProjectID}}/images/generate"
-                        hx-vals='{"scenes":[{{.SceneNum}}]}'
-                        hx-swap="none"
-                        hx-confirm="Regenerate image for scene {{.SceneNum}}?">
-                    🖼
-                </button>
-                <button class="btn-icon" title="Regenerate TTS"
-                        hx-post="/api/v1/projects/{{.ProjectID}}/tts/generate"
-                        hx-vals='{"scenes":[{{.SceneNum}}]}'
-                        hx-swap="none"
-                        hx-confirm="Regenerate TTS for scene {{.SceneNum}}?">
-                    🔊
-                </button>
-                <button class="btn-icon btn-icon-danger" title="Delete Scene"
-                        hx-delete="/api/v1/projects/{{.ProjectID}}/scenes/{{.SceneNum}}"
-                        hx-swap="none"
-                        hx-confirm="Delete scene {{.SceneNum}}? This cannot be undone."
-                        hx-on::after-request="if(event.detail.successful) location.reload()">
-                    ✕
-                </button>
+                <div class="tooltip tooltip-bottom" data-tip="Regenerate Image">
+                    <button class="btn btn-ghost btn-xs btn-square"
+                            hx-post="/api/v1/projects/{{.ProjectID}}/images/generate"
+                            hx-vals='{"scenes":[{{.SceneNum}}]}'
+                            hx-swap="none"
+                            hx-confirm="Regenerate image for scene {{.SceneNum}}?">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    </button>
+                </div>
+                <div class="tooltip tooltip-bottom" data-tip="Regenerate TTS">
+                    <button class="btn btn-ghost btn-xs btn-square"
+                            hx-post="/api/v1/projects/{{.ProjectID}}/tts/generate"
+                            hx-vals='{"scenes":[{{.SceneNum}}]}'
+                            hx-swap="none"
+                            hx-confirm="Regenerate TTS for scene {{.SceneNum}}?">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+                    </button>
+                </div>
+                <div class="tooltip tooltip-bottom" data-tip="Delete Scene">
+                    <button class="btn btn-ghost btn-xs btn-square text-error"
+                            hx-delete="/api/v1/projects/{{.ProjectID}}/scenes/{{.SceneNum}}"
+                            hx-swap="none"
+                            hx-confirm="Delete scene {{.SceneNum}}? This cannot be undone."
+                            hx-on::after-request="if(event.detail.successful) location.reload()">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
             </div>
         </div>
 
         {{/* Two-column layout: image left, narration+audio right */}}
-        <div style="display:flex;gap:1rem;align-items:flex-start;">
+        <div class="flex gap-4" style="align-items:flex-start;">
             {{/* Left: Image (50%) */}}
-            <div style="flex:1;min-width:0;">
+            <div class="flex-1 min-w-0">
                 {{if .HasImage}}
                 <img src="{{.ImageURL}}" alt="Scene {{.SceneNum}}" loading="lazy"
-                     style="width:100%;border-radius:0.5rem;object-fit:contain;background:#111827;">
+                     class="w-full rounded-lg" style="object-fit:contain;background:#111827;">
                 {{else}}
-                <div style="width:100%;aspect-ratio:16/9;background:#111827;border-radius:0.5rem;display:flex;align-items:center;justify-content:center;color:#4b5563;font-size:0.75rem;">No image</div>
+                <div class="w-full rounded-lg flex items-center justify-center text-xs opacity-30"
+                     style="aspect-ratio:16/9;background:#111827;">No image</div>
                 {{end}}
             </div>
 
             {{/* Right: Narration + Audio (50%) */}}
-            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:0.75rem;">
-                <div style="flex:1;overflow-y:auto;max-height:250px;" id="narration-{{.SceneNum}}">
+            <div class="flex-1 min-w-0 flex flex-col gap-3">
+                <div class="flex-1 overflow-y-auto max-h-60" id="narration-{{.SceneNum}}">
                     {{if .Prompt}}
-                    <p class="text-sm" style="line-height:1.6;margin:0;" id="narration-text-{{.SceneNum}}">{{.Prompt}}</p>
+                    <p class="text-sm leading-relaxed" id="narration-text-{{.SceneNum}}">{{.Prompt}}</p>
                     {{else}}
-                    <p class="text-sm text-gray" style="margin:0;">No narration yet.</p>
+                    <p class="text-sm opacity-40">No narration yet.</p>
                     {{end}}
                 </div>
-                <div class="flex items-center gap-1">
-                    <button class="btn-icon" title="Edit Narration"
+                <div>
+                    <button class="btn btn-ghost btn-xs" title="Edit Narration"
                             onclick="editNarration('{{.ProjectID}}', {{.SceneNum}})">
-                        ✏️
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                        Edit
                     </button>
                 </div>
 
                 {{if .HasAudio}}
                 <div>
-                    <audio controls preload="none" style="width:100%;height:2rem;">
+                    <audio controls preload="none" class="w-full" style="height:2rem;">
                         <source src="{{.AudioURL}}" type="audio/wav">
                     </audio>
                 </div>
@@ -81,22 +89,41 @@
 
         {{/* Image Prompt (collapsible, full width below) */}}
         {{if .ImagePrompt}}
-        <details style="margin-top:0.75rem;">
-            <summary class="text-xs text-gray" style="cursor:pointer;user-select:none;">Image Prompt</summary>
-            <pre style="margin-top:0.25rem;padding:0.5rem;background:#111827;border-radius:0.375rem;font-size:0.75rem;line-height:1.4;white-space:pre-wrap;word-break:break-word;color:#9ca3af;max-height:200px;overflow-y:auto;">{{.ImagePrompt}}</pre>
-        </details>
+        <div class="collapse collapse-arrow bg-base-200 mt-3 rounded-lg">
+            <input type="checkbox" />
+            <div class="collapse-title text-xs opacity-50 py-2 min-h-0">Image Prompt</div>
+            <div class="collapse-content">
+                <pre class="text-xs leading-relaxed whitespace-pre-wrap break-words opacity-50 max-h-48 overflow-y-auto">{{.ImagePrompt}}</pre>
+            </div>
+        </div>
         {{end}}
     </div>
 </div>
+
+{{/* Insert scene modal */}}
+<dialog id="insert-modal-{{.SceneNum}}" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg">Insert Scene After #{{.SceneNum}}</h3>
+        <div class="form-control mt-4">
+            <textarea class="textarea textarea-bordered w-full min-h-24" id="insert-ta-{{.SceneNum}}" placeholder="Enter narration for new scene..."></textarea>
+        </div>
+        <div class="modal-action">
+            <form method="dialog">
+                <button class="btn btn-ghost btn-sm">Cancel</button>
+            </form>
+            <button class="btn btn-primary btn-sm" onclick="confirmInsert('{{.ProjectID}}', {{.SceneNum}})">Insert</button>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
 {{end}}
 
 {{define "insert_scene_btn"}}
-<div style="display:flex;justify-content:center;margin:-0.5rem 0;">
-    <button class="btn-icon" title="Insert scene after {{.SceneNum}}"
-            style="opacity:0.3;transition:opacity 0.2s;"
-            onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.3'"
+<div class="flex justify-center -my-1">
+    <button class="btn btn-ghost btn-xs btn-circle opacity-20 hover:opacity-80 transition-opacity"
+            title="Insert scene after {{.SceneNum}}"
             onclick="insertScene('{{.ProjectID}}', {{.SceneNum}})">
-        ＋
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
     </button>
 </div>
 {{end}}
