@@ -407,8 +407,10 @@ func TestUpdatePrompt_PersistsToWorkspace(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	// Verify file was persisted in project's workspace path
-	// WorkspacePath is set to tmpDir by CreateProject (via handleCreateProject)
-	promptPath := filepath.Join(tmpDir, "scenes", "2", "prompt.txt")
+	// WorkspacePath is now a unique subdirectory created by workspace.InitProject
+	p, err = st.GetProject(id)
+	require.NoError(t, err)
+	promptPath := filepath.Join(p.WorkspacePath, "scenes", "2", "prompt.txt")
 	data, err := os.ReadFile(promptPath)
 	require.NoError(t, err)
 	assert.Equal(t, promptText, string(data))
