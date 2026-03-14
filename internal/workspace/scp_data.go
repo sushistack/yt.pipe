@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/sushistack/yt.pipe/internal/domain"
 )
@@ -52,23 +53,33 @@ type SCPListEntry struct {
 	HasProject bool   `json:"has_project"`
 }
 
-// ListAvailableSCPs scans the SCP data directory and returns all valid SCP entries,
-// sorted by rating descending. existingSCPs is a set of SCP IDs that already have projects.
-func ListAvailableSCPs(basePath string, existingSCPs map[string]bool) ([]SCPListEntry, error) {
-	entries, err := os.ReadDir(basePath)
+// SCPListResult holds paginated SCP list results.
+type SCPListResult struct {
+	Items   []SCPListEntry `json:"items"`
+	Total   int            `json:"total"`
+	HasMore bool           `json:"has_more"`
+}
+
+// SCPListCache holds a pre-scanned and sorted list of all SCP entries for fast pagination.
+type SCPListCache struct {
+	entries []SCPListEntry
+}
+
+// NewSCPListCache scans the SCP data directory once and caches all entries sorted by rating descending.
+func NewSCPListCache(basePath string, existingSCPs map[string]bool) (*SCPListCache, error) {
+	dirEntries, err := os.ReadDir(basePath)
 	if err != nil {
 		return nil, fmt.Errorf("list scps: read dir: %w", err)
 	}
 
 	var result []SCPListEntry
-	for _, e := range entries {
+	for _, e := range dirEntries {
 		if !e.IsDir() {
 			continue
 		}
 		name := e.Name()
 		dir := filepath.Join(basePath, name)
 
-		// Check that facts.json exists (primary data file for crawled format)
 		factsPath := filepath.Join(dir, "facts.json")
 		if _, statErr := os.Stat(factsPath); statErr != nil {
 			continue
@@ -79,7 +90,6 @@ func ListAvailableSCPs(basePath string, existingSCPs map[string]bool) ([]SCPList
 			entry.HasProject = existingSCPs[name]
 		}
 
-		// Read rating and title from facts.json
 		if data, readErr := os.ReadFile(factsPath); readErr == nil {
 			var raw struct {
 				Title  string `json:"title"`
@@ -96,12 +106,48 @@ func ListAvailableSCPs(basePath string, existingSCPs map[string]bool) ([]SCPList
 		result = append(result, entry)
 	}
 
-	// Sort by rating descending
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Rating > result[j].Rating
 	})
 
-	return result, nil
+	return &SCPListCache{entries: result}, nil
+}
+
+// Query returns a paginated, optionally filtered subset of the cached SCP list.
+func (c *SCPListCache) Query(q string, offset, limit int) SCPListResult {
+	var filtered []SCPListEntry
+	if q == "" {
+		filtered = c.entries
+	} else {
+		q = strings.ToLower(q)
+		for _, e := range c.entries {
+			if strings.Contains(strings.ToLower(e.SCPID), q) ||
+				strings.Contains(strings.ToLower(e.Title), q) {
+				filtered = append(filtered, e)
+			}
+		}
+	}
+
+	total := len(filtered)
+	if offset >= total {
+		return SCPListResult{Items: []SCPListEntry{}, Total: total, HasMore: false}
+	}
+	end := offset + limit
+	hasMore := end < total
+	if end > total {
+		end = total
+	}
+	return SCPListResult{Items: filtered[offset:end], Total: total, HasMore: hasMore}
+}
+
+// ListAvailableSCPs scans the SCP data directory and returns all valid SCP entries,
+// sorted by rating descending. existingSCPs is a set of SCP IDs that already have projects.
+func ListAvailableSCPs(basePath string, existingSCPs map[string]bool) ([]SCPListEntry, error) {
+	cache, err := NewSCPListCache(basePath, existingSCPs)
+	if err != nil {
+		return nil, err
+	}
+	return cache.entries, nil
 }
 
 // LoadSCPData loads and validates SCP structured data from the data directory.

@@ -411,7 +411,8 @@ func (s *Server) handleDashboardAudio(w http.ResponseWriter, r *http.Request) {
 	s.handleDashboardAsset(w, r, "audio.wav")
 }
 
-// handleListAvailableSCPs returns available SCP entries from the data directory as JSON.
+// handleListAvailableSCPs returns paginated SCP entries from the data directory as JSON.
+// Query params: q (search), offset (default 0), limit (default 50).
 func (s *Server) handleListAvailableSCPs(w http.ResponseWriter, r *http.Request) {
 	// Build set of SCP IDs that already have projects
 	existing := make(map[string]bool)
@@ -422,13 +423,26 @@ func (s *Server) handleListAvailableSCPs(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	scps, err := workspace.ListAvailableSCPs(s.cfg.SCPDataPath, existing)
+	// Rebuild cache each request (filesystem-based, no long-lived state needed)
+	cache, err := workspace.NewSCPListCache(s.cfg.SCPDataPath, existing)
 	if err != nil {
 		slog.Error("failed to list available scps", "error", err)
-		WriteJSON(w, r, http.StatusOK, []workspace.SCPListEntry{})
+		WriteJSON(w, r, http.StatusOK, workspace.SCPListResult{Items: []workspace.SCPListEntry{}})
 		return
 	}
-	WriteJSON(w, r, http.StatusOK, scps)
+
+	q := r.URL.Query().Get("q")
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	result := cache.Query(q, offset, limit)
+	WriteJSON(w, r, http.StatusOK, result)
 }
 
 // fileExistsWithExtensions checks if a file with the given base name and any of the extensions exists.
