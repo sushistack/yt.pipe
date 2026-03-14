@@ -21,27 +21,42 @@ type Store struct {
 // New creates a new Store, opening the database and running migrations.
 // Use ":memory:" for in-memory testing databases.
 func New(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	// Append PRAGMA params to DSN so they apply to every connection in the pool.
+	// modernc.org/sqlite supports _pragma= DSN parameters.
+	dsn := dbPath
+	if dsn != ":memory:" {
+		sep := "?"
+		if strings.Contains(dsn, "?") {
+			sep = "&"
+		}
+		dsn += sep + "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
+	}
+
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	// Enable WAL mode for better concurrency
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("enable WAL mode: %w", err)
+	// For non-memory databases, limit to a single connection to avoid
+	// SQLite concurrent write issues entirely.
+	if dbPath != ":memory:" {
+		db.SetMaxOpenConns(1)
 	}
 
-	// Set busy timeout to wait up to 5 seconds for locks instead of failing immediately
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("set busy timeout: %w", err)
-	}
-
-	// Enable foreign keys
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("enable foreign keys: %w", err)
+	// For in-memory databases, set PRAGMAs directly (DSN params not supported)
+	if dbPath == ":memory:" {
+		if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("enable WAL mode: %w", err)
+		}
+		if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("set busy timeout: %w", err)
+		}
+		if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("enable foreign keys: %w", err)
+		}
 	}
 
 	s := &Store{db: db}
