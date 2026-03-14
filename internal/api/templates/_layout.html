@@ -109,8 +109,8 @@
                 var key = document.querySelector('meta[name="api-key"]');
                 fetch('/dashboard/scps', {
                     headers: { 'Authorization': 'Bearer ' + (key ? key.content : '') }
-                }).then(function(r) { return r.json(); }).then(function(scps) {
-                    _scpData = scps;
+                }).then(function(r) { return r.json(); }).then(function(resp) {
+                    _scpData = resp.data || [];
                     renderSCPList('');
                 });
             }
