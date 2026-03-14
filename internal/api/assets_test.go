@@ -35,7 +35,7 @@ func createApprovedProjectWithScenes(t *testing.T, srv *api.Server, st *store.St
 	id := createProjectWithScenes(t, srv, st, scpID, sceneCount)
 	p, err := st.GetProject(id)
 	require.NoError(t, err)
-	p.Status = domain.StatusApproved
+	p.Status = domain.StageImages
 	require.NoError(t, st.UpdateProject(p))
 	return id
 }
@@ -208,7 +208,7 @@ func TestGenerateImages_ImageReviewState(t *testing.T) {
 	// Set to image_review state
 	p, err := st.GetProject(id)
 	require.NoError(t, err)
-	p.Status = domain.StatusImageReview
+	p.Status = domain.StageImages
 	require.NoError(t, st.UpdateProject(p))
 
 	body := `{"scenes":[1,2]}`
@@ -312,7 +312,7 @@ func TestGenerateTTS_TTSReviewState(t *testing.T) {
 	id := createProjectWithScenes(t, srv, st, "SCP-173", 5)
 	p, err := st.GetProject(id)
 	require.NoError(t, err)
-	p.Status = domain.StatusTTSReview
+	p.Status = domain.StageTTS
 	require.NoError(t, st.UpdateProject(p))
 
 	body := `{"scenes":[1]}`
@@ -585,7 +585,7 @@ func TestAssemble_UnapprovedScenes(t *testing.T) {
 	// Set to tts_review state (valid for assembly)
 	p, err := st.GetProject(id)
 	require.NoError(t, err)
-	p.Status = domain.StatusTTSReview
+	p.Status = domain.StageTTS
 	require.NoError(t, st.UpdateProject(p))
 
 	// Init approvals but don't approve them
@@ -612,7 +612,7 @@ func TestAssemble_PartiallyApproved(t *testing.T) {
 	id := createProjectWithScenes(t, srv, st, "SCP-173", 2)
 	p, err := st.GetProject(id)
 	require.NoError(t, err)
-	p.Status = domain.StatusTTSReview
+	p.Status = domain.StageTTS
 	require.NoError(t, st.UpdateProject(p))
 
 	// Approve all images but not all TTS
@@ -647,7 +647,7 @@ func TestAssemble_AllApproved_CreatesJob(t *testing.T) {
 	id := createProjectWithScenes(t, srv, st, "SCP-173", 2)
 	p, err := st.GetProject(id)
 	require.NoError(t, err)
-	p.Status = domain.StatusTTSReview
+	p.Status = domain.StageTTS
 	require.NoError(t, st.UpdateProject(p))
 
 	// Approve all scenes for both image and TTS
@@ -689,7 +689,7 @@ func TestAssemble_DuplicateConflict(t *testing.T) {
 	id := createProjectWithScenes(t, srv, st, "SCP-173", 2)
 	p, err := st.GetProject(id)
 	require.NoError(t, err)
-	p.Status = domain.StatusTTSReview
+	p.Status = domain.StageTTS
 	require.NoError(t, st.UpdateProject(p))
 
 	// Approve all scenes

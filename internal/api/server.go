@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"io/fs"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/sushistack/yt.pipe/internal/config"
 	"github.com/sushistack/yt.pipe/internal/pipeline"
@@ -17,8 +19,11 @@ import (
 	"github.com/sushistack/yt.pipe/internal/store"
 )
 
-//go:embed templates/*
+//go:embed all:templates
 var templatesFS embed.FS
+
+//go:embed static/*
+var staticFS embed.FS
 
 // Version can be set at build time via ldflags.
 var Version = "dev"
@@ -40,6 +45,8 @@ type Server struct {
 	pipelineRunner  *pipeline.Runner
 	webhooks        *WebhookNotifier
 	reviewTmpl      *template.Template
+	dashboardTmpl   *template.Template
+	detailTmpl      *template.Template
 	reviewCSS       template.CSS
 	pluginStatus    map[string]bool
 	version         string
@@ -102,8 +109,9 @@ func NewServer(st *store.Store, cfg *config.Config, opts ...ServerOption) *Serve
 		opt(s)
 	}
 
-	// Parse review template
+	// Parse templates
 	s.initReviewTemplate()
+	s.initDashboardTemplates()
 
 	s.setupRouter()
 	return s
@@ -168,8 +176,16 @@ func (s *Server) setupRouter() {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// Static files (auth exempt via path check in AuthMiddleware)
+	staticSub, _ := fs.Sub(staticFS, "static")
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
+
 	// Review page (auth via review token, exempt from Bearer in AuthMiddleware)
 	r.Get("/review/{project_id}", s.handleReviewPage)
+
+	// Dashboard pages (auth via Bearer, handled by global middleware)
+	r.Get("/dashboard/", s.handleDashboardList)
+	r.Get("/dashboard/projects/{id}", s.handleProjectDetail)
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -178,6 +194,7 @@ func (s *Server) setupRouter() {
 		r.Get("/projects", s.handleListProjects)
 		r.Get("/projects/{id}", s.handleGetProject)
 		r.Delete("/projects/{id}", s.handleDeleteProject)
+		r.Patch("/projects/{id}/stage", s.handleSetStage)
 
 		// Pipeline control
 		r.Post("/projects/{id}/run", s.handleRunPipeline)

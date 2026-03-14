@@ -1,0 +1,24 @@
+{{define "scene_card"}}
+<div class="card mb-4" id="scene-{{.SceneNum}}">
+    <div class="card-body">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;font-size:0.75rem;font-weight:700;color:#fff;background:#1f2937;border-radius:9999px;">{{.SceneNum}}</span>
+                {{if .ImageStatus}}
+                <span class="badge {{if eq .ImageStatus "approved"}}badge-complete{{else if eq .ImageStatus "generated"}}badge-images{{else}}badge-pending{{end}}">
+                    IMG: {{.ImageStatus}}
+                </span>
+                {{end}}
+                {{if .TTSStatus}}
+                <span class="badge {{if eq .TTSStatus "approved"}}badge-complete{{else if eq .TTSStatus "generated"}}badge-tts{{else}}badge-pending{{end}}">
+                    TTS: {{.TTSStatus}}
+                </span>
+                {{end}}
+            </div>
+        </div>
+        {{if .Prompt}}
+        <p class="text-sm" style="line-height:1.5;">{{.Prompt}}</p>
+        {{end}}
+    </div>
+</div>
+{{end}}

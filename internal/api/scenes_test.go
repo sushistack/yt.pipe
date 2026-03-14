@@ -18,7 +18,7 @@ import (
 func createProjectAndApprovals(t *testing.T, st *store.Store, projectID, scpID string, scenes int, assetType string, markGenerated bool) {
 	t.Helper()
 	require.NoError(t, st.CreateProject(&domain.Project{
-		ID: projectID, SCPID: scpID, Status: domain.StatusPending,
+		ID: projectID, SCPID: scpID, Status: domain.StagePending,
 		SceneCount: scenes, WorkspacePath: "/w",
 	}))
 	for i := 1; i <= scenes; i++ {

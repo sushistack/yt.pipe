@@ -504,15 +504,15 @@ func (s *Server) handleApproveAll(w http.ResponseWriter, r *http.Request) {
 		s.webhooks.NotifyAllApproved(projectID, project.SCPID, assetType, BuildReviewURL(projectID, project.ReviewToken))
 	}
 
-	// When all images are approved: transition state immediately and auto-trigger TTS generation
+	// When all images are approved: set stage and auto-trigger TTS generation
 	ttsTriggered := false
 	if allApproved && assetType == domain.AssetTypeImage {
-		// Transition to tts_review immediately so the UI reflects the new state
-		if _, err := s.projectSvc.TransitionProject(r.Context(), projectID, domain.StatusTTSReview); err != nil {
-			slog.Warn("failed to transition to tts_review after image approval",
+		// Set stage to tts immediately so the UI reflects the new state
+		if _, err := s.projectSvc.SetProjectStage(r.Context(), projectID, domain.StageTTS); err != nil {
+			slog.Warn("failed to set stage to tts after image approval",
 				"project_id", projectID, "err", err)
 		} else {
-			slog.Info("transitioned to tts_review after all images approved", "project_id", projectID)
+			slog.Info("set stage to tts after all images approved", "project_id", projectID)
 			// Notification deferred to executeTTSGeneration completion
 		}
 
@@ -541,15 +541,15 @@ func (s *Server) handleApproveAll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// When all TTS are approved: transition to assembling and auto-trigger assembly
+	// When all TTS are approved: set stage to complete and auto-trigger assembly
 	assemblyTriggered := false
 	if allApproved && assetType == domain.AssetTypeTTS {
-		// Transition to assembling immediately
-		if _, err := s.projectSvc.TransitionProject(r.Context(), projectID, domain.StatusAssembling); err != nil {
-			slog.Warn("failed to transition to assembling after TTS approval",
+		// Set stage to complete immediately
+		if _, err := s.projectSvc.SetProjectStage(r.Context(), projectID, domain.StageComplete); err != nil {
+			slog.Warn("failed to set stage to complete after TTS approval",
 				"project_id", projectID, "err", err)
 		} else {
-			slog.Info("transitioned to assembling after all TTS approved", "project_id", projectID)
+			slog.Info("set stage to complete after all TTS approved", "project_id", projectID)
 			// Notification deferred to executeAssembly completion
 		}
 
@@ -665,11 +665,11 @@ func (s *Server) handleReviewApproveScene(w http.ResponseWriter, r *http.Request
 	assemblyTriggered := false
 
 	if allApproved && assetType == domain.AssetTypeImage {
-		if _, err := s.projectSvc.TransitionProject(r.Context(), projectID, domain.StatusTTSReview); err != nil {
-			slog.Warn("failed to transition to tts_review after image approval",
+		if _, err := s.projectSvc.SetProjectStage(r.Context(), projectID, domain.StageTTS); err != nil {
+			slog.Warn("failed to set stage to tts after image approval",
 				"project_id", projectID, "err", err)
 		} else {
-			slog.Info("transitioned to tts_review after all images approved (single approve)", "project_id", projectID)
+			slog.Info("set stage to tts after all images approved (single approve)", "project_id", projectID)
 			// Notification deferred to executeTTSGeneration completion
 		}
 
@@ -698,11 +698,11 @@ func (s *Server) handleReviewApproveScene(w http.ResponseWriter, r *http.Request
 	}
 
 	if allApproved && assetType == domain.AssetTypeTTS {
-		if _, err := s.projectSvc.TransitionProject(r.Context(), projectID, domain.StatusAssembling); err != nil {
-			slog.Warn("failed to transition to assembling after TTS approval",
+		if _, err := s.projectSvc.SetProjectStage(r.Context(), projectID, domain.StageComplete); err != nil {
+			slog.Warn("failed to set stage to complete after TTS approval",
 				"project_id", projectID, "err", err)
 		} else {
-			slog.Info("transitioned to assembling after all TTS approved (single approve)", "project_id", projectID)
+			slog.Info("set stage to complete after all TTS approved (single approve)", "project_id", projectID)
 			// Notification deferred to executeAssembly completion
 		}
 

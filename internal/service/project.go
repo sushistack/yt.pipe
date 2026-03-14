@@ -33,7 +33,7 @@ func (ps *ProjectService) CreateProject(_ context.Context, scpID, workspacePath 
 	p := &domain.Project{
 		ID:            uuid.New().String(),
 		SCPID:         scpID,
-		Status:        domain.StatusPending,
+		Status:        domain.StagePending,
 		WorkspacePath: workspacePath,
 		ReviewToken:   uuid.New().String(),
 	}
@@ -68,9 +68,10 @@ func (ps *ProjectService) ListProjects(_ context.Context) ([]*domain.Project, er
 	return ps.store.ListProjects()
 }
 
-// TransitionProject atomically transitions a project to a new state within a transaction.
-// It validates the transition, updates the project, and records an execution log entry.
-func (ps *ProjectService) TransitionProject(_ context.Context, projectID, newStatus string) (*domain.Project, error) {
+// SetProjectStage atomically sets a project's stage within a transaction.
+// No state-machine validation — stage string validation is done at the API layer.
+// Records the change in execution_logs for audit trail.
+func (ps *ProjectService) SetProjectStage(_ context.Context, projectID, stage string) (*domain.Project, error) {
 	db := ps.store.DB()
 
 	tx, err := db.Begin()
@@ -96,11 +97,8 @@ func (ps *ProjectService) TransitionProject(_ context.Context, projectID, newSta
 	p.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	p.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 
-	// Validate and apply transition
 	previousStatus := p.Status
-	if err := p.Transition(newStatus); err != nil {
-		return nil, err
-	}
+	p.SetStage(stage)
 
 	// Update project in transaction
 	now := time.Now().UTC()
@@ -113,21 +111,21 @@ func (ps *ProjectService) TransitionProject(_ context.Context, projectID, newSta
 	}
 	p.UpdatedAt = now
 
-	// Record transition in execution log
+	// Record stage change in execution log
 	_, err = tx.Exec(
 		`INSERT INTO execution_logs (project_id, stage, action, status, details, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
-		p.ID, "state_machine", "transition",
+		p.ID, "stage_change", "set_stage",
 		"completed",
-		fmt.Sprintf("%s -> %s", previousStatus, newStatus),
+		fmt.Sprintf("%s -> %s", previousStatus, stage),
 		now.Format(time.RFC3339),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("service: record transition log: %w", err)
+		return nil, fmt.Errorf("service: record stage change log: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("service: commit transition: %w", err)
+		return nil, fmt.Errorf("service: commit stage change: %w", err)
 	}
 
 	return &p, nil

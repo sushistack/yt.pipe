@@ -81,7 +81,7 @@ func TestGenerateScenario_Success(t *testing.T) {
 
 	assert.Equal(t, "SCP-173", scenario.SCPID)
 	assert.Len(t, scenario.Scenes, 2)
-	assert.Equal(t, domain.StatusScenarioReview, project.Status)
+	assert.Equal(t, domain.StageScenario, project.Status)
 	assert.Equal(t, 2, project.SceneCount)
 
 	// Verify files were created
@@ -115,21 +115,21 @@ func TestApproveScenario_Success(t *testing.T) {
 
 	approved, err := svc.ApproveScenario(ctx, project.ID)
 	require.NoError(t, err)
-	assert.Equal(t, domain.StatusApproved, approved.Status)
+	assert.Equal(t, domain.StageScenario, approved.Status)
 }
 
-func TestApproveScenario_WrongState(t *testing.T) {
+func TestApproveScenario_NoStateGate(t *testing.T) {
 	svc, _ := setupScenarioService(t)
 	ctx := context.Background()
 
 	// Create project but don't generate (status = pending)
+	// ApproveScenario no longer validates state — it just returns the project
 	project, err := svc.projectSvc.CreateProject(ctx, "SCP-173", "/tmp/ws")
 	require.NoError(t, err)
 
-	_, err = svc.ApproveScenario(ctx, project.ID)
-	require.Error(t, err)
-	var te *domain.TransitionError
-	assert.ErrorAs(t, err, &te)
+	got, err := svc.ApproveScenario(ctx, project.ID)
+	require.NoError(t, err)
+	assert.Equal(t, project.ID, got.ID)
 }
 
 func TestRegenerateSection_Success(t *testing.T) {

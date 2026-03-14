@@ -12,8 +12,8 @@
 <div id="toast-container" class="fixed top-0 right-0 p-4 z-50 space-y-2"></div>
 
 {{$status := .Dashboard.ProjectStatus}}
-{{$showImages := or (eq $status "image_review") (eq $status "generating_assets") (eq $status "tts_review") (eq $status "assembling") (eq $status "complete")}}
-{{$showTTS := or (eq $status "tts_review") (eq $status "assembling") (eq $status "complete")}}
+{{$showImages := or (eq $status "images") (eq $status "tts") (eq $status "complete")}}
+{{$showTTS := or (eq $status "tts") (eq $status "complete")}}
 
 <!-- Header -->
 <header class="bg-white shadow-sm sticky top-0 z-20 border-b border-gray-200">
@@ -23,7 +23,6 @@
             <div class="flex items-center gap-2 mt-1">
                 <span class="status-badge inline-block px-2 py-1 text-xs font-medium rounded-full
                     {{if eq $status "complete"}}bg-green-100 text-green-800
-                    {{else if eq $status "assembling"}}bg-yellow-100 text-yellow-800
                     {{else if eq $status "pending"}}bg-gray-100 text-gray-600
                     {{else}}bg-blue-50 text-blue-700{{end}}">
                     {{$status}}
@@ -33,15 +32,15 @@
         </div>
         <div class="flex items-center gap-2">
             <span id="unapproved-badge" class="text-sm text-gray-500"></span>
-            {{if eq $status "scenario_review"}}
+            {{if eq $status "scenario"}}
             <button onclick="approveScenario()" class="px-3 py-2 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700 transition">
                 Approve Scenario
             </button>
-            {{else if or (eq $status "image_review") (eq $status "generating_assets")}}
+            {{else if eq $status "images"}}
             <button onclick="approveAll('image')" class="px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition">
                 Approve All Images
             </button>
-            {{else if eq $status "tts_review"}}
+            {{else if eq $status "tts"}}
             <button id="approve-all-tts-btn" onclick="approveAll('tts')" class="px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition" style="display:none">
                 Approve All TTS
             </button>
@@ -49,20 +48,19 @@
         </div>
     </div>
     <!-- Progress bar / Stage label -->
-    {{if or (eq $status "pending") (eq $status "scenario_review") (eq $status "approved")}}
+    {{if or (eq $status "pending") (eq $status "scenario")}}
     <div class="h-6 bg-gray-100 flex items-center justify-center">
         <span class="text-xs font-semibold text-gray-500 uppercase">
             {{if eq $status "pending"}}Scenario Generation Pending
-            {{else if eq $status "scenario_review"}}Scenario Review
-            {{else if eq $status "approved"}}Image Generation Pending
+            {{else if eq $status "scenario"}}Scenario Review
             {{end}}
         </span>
     </div>
-    {{else if or (eq $status "image_review") (eq $status "generating_assets")}}
+    {{else if eq $status "images"}}
     <div class="h-1 bg-gray-200">
         <div class="h-1 bg-green-500 transition duration-300" style="width: {{progressPercent .Dashboard}}%"></div>
     </div>
-    {{else if eq $status "tts_review"}}
+    {{else if eq $status "tts"}}
     <div class="h-1 bg-gray-200">
         <div class="h-1 bg-blue-500 transition duration-300 animate-pulse" style="width: {{progressPercent .Dashboard}}%"></div>
     </div>
@@ -76,21 +74,17 @@
 <div class="max-w-6xl mx-auto px-4 mt-4">
     <div class="bg-gray-100 text-gray-400 rounded-lg p-4 text-center text-sm">Scenario generation pending...</div>
 </div>
-{{else if eq $status "scenario_review"}}
+{{else if eq $status "scenario"}}
 <div class="max-w-6xl mx-auto px-4 mt-4">
     <div class="bg-gray-100 text-gray-400 rounded-lg p-4 text-center text-sm">Next: Image generation</div>
 </div>
-{{else if eq $status "approved"}}
-<div class="max-w-6xl mx-auto px-4 mt-4">
-    <div class="bg-gray-100 text-gray-400 rounded-lg p-4 text-center text-sm">Image generation pending...</div>
-</div>
-{{else if or (eq $status "image_review") (eq $status "generating_assets")}}
+{{else if eq $status "images"}}
 <div class="max-w-6xl mx-auto px-4 mt-4">
     <div class="bg-gray-100 text-gray-400 rounded-lg p-4 text-center text-sm">Next: TTS generation</div>
 </div>
-{{else if eq $status "assembling"}}
+{{else if eq $status "tts"}}
 <div class="max-w-6xl mx-auto px-4 mt-4">
-    <div class="bg-gray-100 text-gray-400 rounded-lg p-4 text-center text-sm">Assembling...</div>
+    <div class="bg-gray-100 text-gray-400 rounded-lg p-4 text-center text-sm">Next: Assembly</div>
 </div>
 {{end}}
 

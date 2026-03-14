@@ -31,7 +31,7 @@ func createTestProject(t *testing.T, s *store.Store, projectID string) {
 	err := s.CreateProject(&domain.Project{
 		ID:            projectID,
 		SCPID:         "SCP-TEST",
-		Status:        domain.StatusApproved,
+		Status:        domain.StageImages,
 		WorkspacePath: "/tmp/test",
 	})
 	require.NoError(t, err)

@@ -1,0 +1,15 @@
+{{define "project_card"}}
+<div class="card mb-4">
+    <div class="card-body flex items-center justify-between gap-4 flex-wrap">
+        <div class="flex items-center gap-3">
+            <a href="/dashboard/projects/{{.ID}}" style="font-weight:600;">{{.SCPID}}</a>
+            <span class="text-xs text-gray" title="{{.ID}}">{{truncID .ID}}</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="badge badge-{{.Status}}">{{.Status}}</span>
+            <span class="text-xs text-gray">{{.SceneCount}} scenes</span>
+            <span class="text-xs text-gray">{{formatTime .CreatedAt}}</span>
+        </div>
+    </div>
+</div>
+{{end}}

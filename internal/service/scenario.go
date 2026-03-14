@@ -75,10 +75,10 @@ func (ss *ScenarioService) GenerateScenario(ctx context.Context, scpData *worksp
 		return nil, project, fmt.Errorf("scenario: update scene count: %w", err)
 	}
 
-	// Transition to scenario_review
-	project, err = ss.projectSvc.TransitionProject(ctx, project.ID, domain.StatusScenarioReview)
+	// Set stage to scenario
+	project, err = ss.projectSvc.SetProjectStage(ctx, project.ID, domain.StageScenario)
 	if err != nil {
-		return nil, project, fmt.Errorf("scenario: transition to review: %w", err)
+		return nil, project, fmt.Errorf("scenario: set stage to scenario: %w", err)
 	}
 
 	return scenario, project, nil
@@ -91,13 +91,7 @@ func (ss *ScenarioService) RegenerateSection(ctx context.Context, projectID stri
 		return nil, err
 	}
 
-	if project.Status != domain.StatusScenarioReview {
-		return nil, &domain.TransitionError{
-			Current:   project.Status,
-			Requested: "regenerate_section",
-			Allowed:   []string{domain.StatusScenarioReview},
-		}
-	}
+	// Regeneration is allowed whenever scenario exists (no state gate)
 
 	// Load existing scenario
 	scenarioPath := filepath.Join(project.WorkspacePath, "scenario.json")
@@ -184,17 +178,18 @@ func (ss *ScenarioService) GenerateScenarioForProject(ctx context.Context, proje
 		return nil, fmt.Errorf("scenario: update scene count: %w", err)
 	}
 
-	// Transition to scenario_review
-	if _, err := ss.projectSvc.TransitionProject(ctx, project.ID, domain.StatusScenarioReview); err != nil {
-		return nil, fmt.Errorf("scenario: transition to review: %w", err)
+	// Set stage to scenario
+	if _, err := ss.projectSvc.SetProjectStage(ctx, project.ID, domain.StageScenario); err != nil {
+		return nil, fmt.Errorf("scenario: set stage to scenario: %w", err)
 	}
 
 	return scenario, nil
 }
 
-// ApproveScenario transitions a project from scenario_review to approved.
+// ApproveScenario is a no-op in the new stage model — scenario approval
+// no longer changes the project stage. Returns the current project.
 func (ss *ScenarioService) ApproveScenario(ctx context.Context, projectID string) (*domain.Project, error) {
-	return ss.projectSvc.TransitionProject(ctx, projectID, domain.StatusApproved)
+	return ss.projectSvc.GetProject(ctx, projectID)
 }
 
 // LoadScenarioFromFile loads a ScenarioOutput from a JSON file.

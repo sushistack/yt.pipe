@@ -51,7 +51,7 @@ func TestReviewPage_ValidToken(t *testing.T) {
 	srv, st, cleanup := setupReviewTestServer(t)
 	defer cleanup()
 
-	createReviewTestProject(t, st, "p1", domain.StatusScenarioReview, "valid-token-123")
+	createReviewTestProject(t, st, "p1", domain.StageScenario, "valid-token-123")
 
 	req := httptest.NewRequest(http.MethodGet, "/review/p1?token=valid-token-123", nil)
 	w := httptest.NewRecorder()
@@ -66,7 +66,7 @@ func TestReviewPage_MissingToken(t *testing.T) {
 	srv, st, cleanup := setupReviewTestServer(t)
 	defer cleanup()
 
-	createReviewTestProject(t, st, "p1", domain.StatusScenarioReview, "valid-token-123")
+	createReviewTestProject(t, st, "p1", domain.StageScenario, "valid-token-123")
 
 	req := httptest.NewRequest(http.MethodGet, "/review/p1", nil)
 	w := httptest.NewRecorder()
@@ -79,7 +79,7 @@ func TestReviewPage_InvalidToken(t *testing.T) {
 	srv, st, cleanup := setupReviewTestServer(t)
 	defer cleanup()
 
-	createReviewTestProject(t, st, "p1", domain.StatusScenarioReview, "valid-token-123")
+	createReviewTestProject(t, st, "p1", domain.StageScenario, "valid-token-123")
 
 	req := httptest.NewRequest(http.MethodGet, "/review/p1?token=wrong-token", nil)
 	w := httptest.NewRecorder()
@@ -106,7 +106,7 @@ func TestReviewApprove_CsrfRequired(t *testing.T) {
 	defer cleanup()
 
 	token := "review-token-abc"
-	createReviewTestProject(t, st, "p1", domain.StatusImageReview, token)
+	createReviewTestProject(t, st, "p1", domain.StageImages, token)
 	require.NoError(t, st.InitApproval("p1", 1, domain.AssetTypeImage))
 	require.NoError(t, st.MarkGenerated("p1", 1, domain.AssetTypeImage))
 
@@ -128,7 +128,7 @@ func TestReviewApprove_WithCsrf_Success(t *testing.T) {
 	defer cleanup()
 
 	token := "review-token-abc"
-	createReviewTestProject(t, st, "p1", domain.StatusImageReview, token)
+	createReviewTestProject(t, st, "p1", domain.StageImages, token)
 	require.NoError(t, st.InitApproval("p1", 1, domain.AssetTypeImage))
 	require.NoError(t, st.MarkGenerated("p1", 1, domain.AssetTypeImage))
 
@@ -157,7 +157,7 @@ func TestUpdateNarration_WithReviewToken(t *testing.T) {
 	token := "review-token-abc"
 	tmpDir := t.TempDir()
 	require.NoError(t, st.CreateProject(&domain.Project{
-		ID: "p1", SCPID: "SCP-173", Status: domain.StatusScenarioReview,
+		ID: "p1", SCPID: "SCP-173", Status: domain.StageScenario,
 		SceneCount: 1, WorkspacePath: tmpDir, ReviewToken: token,
 	}))
 
@@ -184,7 +184,7 @@ func TestUpdateNarration_EmptyText(t *testing.T) {
 	token := "review-token-abc"
 	tmpDir := t.TempDir()
 	require.NoError(t, st.CreateProject(&domain.Project{
-		ID: "p1", SCPID: "SCP-173", Status: domain.StatusScenarioReview,
+		ID: "p1", SCPID: "SCP-173", Status: domain.StageScenario,
 		SceneCount: 1, WorkspacePath: tmpDir, ReviewToken: token,
 	}))
 
@@ -209,7 +209,7 @@ func TestRotateReviewToken_RequiresBearer(t *testing.T) {
 	srv, st, cleanup := setupReviewTestServer(t)
 	defer cleanup()
 
-	createReviewTestProject(t, st, "p1", domain.StatusScenarioReview, "old-token")
+	createReviewTestProject(t, st, "p1", domain.StageScenario, "old-token")
 
 	// POST with review token (not bearer) — should fail
 	req := httptest.NewRequest(http.MethodPost,
@@ -224,7 +224,7 @@ func TestRotateReviewToken_WithBearer(t *testing.T) {
 	srv, st, cleanup := setupReviewTestServer(t)
 	defer cleanup()
 
-	createReviewTestProject(t, st, "p1", domain.StatusScenarioReview, "old-token")
+	createReviewTestProject(t, st, "p1", domain.StageScenario, "old-token")
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/api/v1/projects/p1/review-token/rotate", nil)

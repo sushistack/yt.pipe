@@ -26,7 +26,7 @@ func setupReviewService(t *testing.T) (*ReviewService, *store.Store, string) {
 
 	// Create project in scenario_review state (allows mutations)
 	require.NoError(t, s.CreateProject(&domain.Project{
-		ID: "p1", SCPID: "SCP-173", Status: domain.StatusScenarioReview,
+		ID: "p1", SCPID: "SCP-173", Status: domain.StageScenario,
 		SceneCount: 1, WorkspacePath: tmpDir,
 	}))
 
@@ -108,7 +108,7 @@ func TestUpdateNarration_WrongProjectState(t *testing.T) {
 
 	// Create project in "pending" state (not allowed for mutations)
 	require.NoError(t, st.CreateProject(&domain.Project{
-		ID: "p2", SCPID: "SCP-999", Status: domain.StatusPending,
+		ID: "p2", SCPID: "SCP-999", Status: domain.StagePending,
 		SceneCount: 1, WorkspacePath: "/tmp",
 	}))
 
@@ -126,7 +126,7 @@ func TestValidateMutationState_AllowedStates(t *testing.T) {
 
 	svc := NewReviewService(s, slog.Default())
 
-	for _, status := range []string{domain.StatusScenarioReview, domain.StatusApproved, domain.StatusImageReview, domain.StatusTTSReview, domain.StatusAssembling, domain.StatusComplete, domain.StatusGeneratingAssets} {
+	for _, status := range []string{domain.StageScenario, domain.StageImages, domain.StageTTS, domain.StageComplete} {
 		pid := "p-" + status
 		require.NoError(t, s.CreateProject(&domain.Project{
 			ID: pid, SCPID: "SCP-173", Status: status,
@@ -145,7 +145,7 @@ func TestValidateMutationState_DisallowedStates(t *testing.T) {
 
 	svc := NewReviewService(s, slog.Default())
 
-	for _, status := range []string{domain.StatusPending} {
+	for _, status := range []string{domain.StagePending} {
 		pid := "p-" + status
 		require.NoError(t, s.CreateProject(&domain.Project{
 			ID: pid, SCPID: "SCP-173", Status: status,
@@ -239,7 +239,7 @@ func TestDeleteScene_WrongState(t *testing.T) {
 	svc, st, _ := setupReviewService(t)
 
 	require.NoError(t, st.CreateProject(&domain.Project{
-		ID: "p2", SCPID: "SCP-999", Status: domain.StatusPending,
+		ID: "p2", SCPID: "SCP-999", Status: domain.StagePending,
 		SceneCount: 1, WorkspacePath: "/tmp",
 	}))
 

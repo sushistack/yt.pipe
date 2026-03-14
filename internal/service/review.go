@@ -34,18 +34,16 @@ func (svc *ReviewService) getProjectLock(projectID string) *sync.Mutex {
 	return val.(*sync.Mutex)
 }
 
-// allowedMutationStates defines project states that allow review mutations.
+// allowedMutationStates defines project stages that allow review mutations.
+// All stages except pending allow mutations.
 var allowedMutationStates = map[string]bool{
-	domain.StatusScenarioReview: true,
-	domain.StatusApproved:       true,
-	domain.StatusImageReview:    true,
-	domain.StatusTTSReview:      true,
-	domain.StatusAssembling:     true,
-	domain.StatusComplete:       true,
-	domain.StatusGeneratingAssets: true,
+	domain.StageScenario: true,
+	domain.StageImages:   true,
+	domain.StageTTS:      true,
+	domain.StageComplete: true,
 }
 
-// ValidateMutationState checks that the project is in a state that allows mutations.
+// ValidateMutationState checks that the project is in a stage that allows mutations.
 func (svc *ReviewService) ValidateMutationState(projectID string) (*domain.Project, error) {
 	project, err := svc.store.GetProject(projectID)
 	if err != nil {
@@ -55,7 +53,7 @@ func (svc *ReviewService) ValidateMutationState(projectID string) (*domain.Proje
 		return nil, &domain.TransitionError{
 			Current:   project.Status,
 			Requested: "mutation",
-			Allowed:   []string{domain.StatusScenarioReview, domain.StatusApproved, domain.StatusImageReview, domain.StatusTTSReview, domain.StatusAssembling, domain.StatusComplete},
+			Allowed:   []string{domain.StageScenario, domain.StageImages, domain.StageTTS, domain.StageComplete},
 		}
 	}
 	return project, nil

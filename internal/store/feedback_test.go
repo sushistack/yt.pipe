@@ -17,7 +17,7 @@ func TestCreateAndListFeedback(t *testing.T) {
 	p := &domain.Project{
 		ID:            "proj-feedback-1",
 		SCPID:         "SCP-001",
-		Status:        domain.StatusPending,
+		Status:        domain.StagePending,
 		WorkspacePath: "/tmp/test",
 	}
 	require.NoError(t, db.CreateProject(p))
@@ -73,8 +73,8 @@ func TestListAllFeedback(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	p1 := &domain.Project{ID: "proj-fb-1", SCPID: "SCP-001", Status: domain.StatusPending, WorkspacePath: "/tmp/1"}
-	p2 := &domain.Project{ID: "proj-fb-2", SCPID: "SCP-002", Status: domain.StatusPending, WorkspacePath: "/tmp/2"}
+	p1 := &domain.Project{ID: "proj-fb-1", SCPID: "SCP-001", Status: domain.StagePending, WorkspacePath: "/tmp/1"}
+	p2 := &domain.Project{ID: "proj-fb-2", SCPID: "SCP-002", Status: domain.StagePending, WorkspacePath: "/tmp/2"}
 	require.NoError(t, db.CreateProject(p1))
 	require.NoError(t, db.CreateProject(p2))
 
@@ -91,7 +91,7 @@ func TestCreateFeedback_NullComment(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	p := &domain.Project{ID: "proj-fb-null", SCPID: "SCP-003", Status: domain.StatusPending, WorkspacePath: "/tmp/3"}
+	p := &domain.Project{ID: "proj-fb-null", SCPID: "SCP-003", Status: domain.StagePending, WorkspacePath: "/tmp/3"}
 	require.NoError(t, db.CreateProject(p))
 
 	f := &domain.Feedback{

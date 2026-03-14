@@ -283,7 +283,7 @@ func (s *Server) executeScenarioOnly(ctx context.Context, job *runningJob, proje
 	s.updateJobRecord(job.JobID, JobStatusWaitingApproval, 100, "scenario_review", "")
 
 	// Fire state_change webhook
-	s.webhooks.NotifyStateChange(project.ID, project.SCPID, previousState, domain.StatusScenarioReview, BuildReviewURL(project.ID, project.ReviewToken))
+	s.webhooks.NotifyStateChange(project.ID, project.SCPID, previousState, domain.StageScenario, BuildReviewURL(project.ID, project.ReviewToken))
 
 	slog.Info("scenario generation complete, waiting for approval",
 		"project_id", project.ID, "scp_id", project.SCPID)
@@ -331,7 +331,7 @@ func (s *Server) executeFullPipeline(ctx context.Context, job *runningJob, proje
 
 	job.setStatus(JobStatusComplete)
 	s.updateJobRecord(job.JobID, JobStatusComplete, 100, result.Status, "")
-	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, job.JobID, "pipeline_run", result.Status, domain.StatusComplete, BuildReviewURL(project.ID, project.ReviewToken))
+	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, job.JobID, "pipeline_run", result.Status, domain.StageComplete, BuildReviewURL(project.ID, project.ReviewToken))
 
 	slog.Info("full pipeline complete",
 		"project_id", project.ID, "scp_id", project.SCPID,
@@ -496,22 +496,28 @@ func (s *Server) handleApprovePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if project.Status != domain.StatusScenarioReview {
+	if project.Status != domain.StageScenario {
 		WriteError(w, r, http.StatusConflict, "CONFLICT",
-			"project is in '"+project.Status+"' state; must be in 'scenario_review' to approve")
+			"project is in '"+project.Status+"' state; must be in 'scenario' to approve")
 		return
 	}
 
-	// Transition to approved
-	previousState := project.Status
-	updated, err := s.projectSvc.TransitionProject(r.Context(), projectID, domain.StatusApproved)
-	if err != nil {
-		writeServiceError(w, r, err)
-		return
+	// Approve the scenario (no project stage transition needed — stage is a progress marker)
+	var updated *domain.Project
+	if s.scenarioSvc != nil {
+		updated, err = s.scenarioSvc.ApproveScenario(r.Context(), projectID)
+		if err != nil {
+			writeServiceError(w, r, err)
+			return
+		}
+	} else {
+		// Re-fetch the project to return current state
+		updated, err = s.store.GetProject(projectID)
+		if err != nil {
+			writeServiceError(w, r, err)
+			return
+		}
 	}
-
-	// Fire webhook notification
-	s.webhooks.NotifyStateChange(projectID, project.SCPID, previousState, domain.StatusApproved, BuildReviewURL(projectID, project.ReviewToken))
 
 	WriteJSON(w, r, http.StatusOK, toProjectResponse(updated))
 }

@@ -40,11 +40,11 @@ func TestPluginError_Unwrap(t *testing.T) {
 
 func TestTransitionError_Error(t *testing.T) {
 	err := &TransitionError{
-		Current:   StatusPending,
-		Requested: StatusComplete,
-		Allowed:   []string{StatusScenarioReview},
+		Current:   StagePending,
+		Requested: StageComplete,
+		Allowed:   []string{StageScenario},
 	}
-	expected := "cannot transition from pending to complete (allowed: [scenario_review])"
+	expected := "cannot transition from pending to complete (allowed: [scenario])"
 	if err.Error() != expected {
 		t.Errorf("got %q, want %q", err.Error(), expected)
 	}

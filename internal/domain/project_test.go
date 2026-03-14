@@ -1,79 +1,80 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+)
 
-func TestCanTransition_ValidTransitions(t *testing.T) {
+func TestIsValidStage(t *testing.T) {
 	tests := []struct {
 		name     string
-		current  string
-		next     string
+		stage    string
 		expected bool
 	}{
-		{"pending to scenario_review", StatusPending, StatusScenarioReview, true},
-		{"scenario_review to approved", StatusScenarioReview, StatusApproved, true},
-		{"scenario_review to pending (reject)", StatusScenarioReview, StatusPending, true},
-		// New approval flow
-		{"approved to image_review", StatusApproved, StatusImageReview, true},
-		{"image_review to tts_review", StatusImageReview, StatusTTSReview, true},
-		{"tts_review to assembling", StatusTTSReview, StatusAssembling, true},
-		// Backward compat: skip-approval path
-		{"approved to generating_assets (compat)", StatusApproved, StatusGeneratingAssets, true},
-		{"generating_assets to assembling (compat)", StatusGeneratingAssets, StatusAssembling, true},
-		{"assembling to complete", StatusAssembling, StatusComplete, true},
+		{"pending is valid", StagePending, true},
+		{"scenario is valid", StageScenario, true},
+		{"images is valid", StageImages, true},
+		{"tts is valid", StageTTS, true},
+		{"complete is valid", StageComplete, true},
+		{"empty string is invalid", "", false},
+		{"unknown is invalid", "unknown", false},
+		{"old status generating_assets is invalid", "generating_assets", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := CanTransition(tt.current, tt.next); got != tt.expected {
-				t.Errorf("CanTransition(%s, %s) = %v, want %v", tt.current, tt.next, got, tt.expected)
+			if got := IsValidStage(tt.stage); got != tt.expected {
+				t.Errorf("IsValidStage(%q) = %v, want %v", tt.stage, got, tt.expected)
 			}
 		})
 	}
 }
 
-func TestCanTransition_InvalidTransitions(t *testing.T) {
+func TestStageIndex(t *testing.T) {
 	tests := []struct {
-		name    string
-		current string
-		next    string
+		name     string
+		stage    string
+		expected int
 	}{
-		{"pending to approved (skip)", StatusPending, StatusApproved},
-		{"complete to pending (terminal)", StatusComplete, StatusPending},
-		{"approved to pending (backward)", StatusApproved, StatusPending},
-		{"unknown state", "unknown", StatusPending},
+		{"pending is 0", StagePending, 0},
+		{"scenario is 1", StageScenario, 1},
+		{"images is 2", StageImages, 2},
+		{"tts is 3", StageTTS, 3},
+		{"complete is 4", StageComplete, 4},
+		{"unknown returns -1", "unknown", -1},
+		{"empty returns -1", "", -1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if CanTransition(tt.current, tt.next) {
-				t.Errorf("CanTransition(%s, %s) should be false", tt.current, tt.next)
+			if got := StageIndex(tt.stage); got != tt.expected {
+				t.Errorf("StageIndex(%q) = %d, want %d", tt.stage, got, tt.expected)
 			}
 		})
 	}
 }
 
-func TestProject_Transition_Valid(t *testing.T) {
-	p := &Project{Status: StatusPending}
-	err := p.Transition(StatusScenarioReview)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+func TestProject_SetStage(t *testing.T) {
+	p := &Project{Status: StagePending}
+	p.SetStage(StageScenario)
+
+	if p.Status != StageScenario {
+		t.Errorf("expected status %q, got %q", StageScenario, p.Status)
 	}
-	if p.Status != StatusScenarioReview {
-		t.Errorf("expected status %s, got %s", StatusScenarioReview, p.Status)
+	if p.UpdatedAt.IsZero() {
+		t.Error("expected UpdatedAt to be set after SetStage")
 	}
 }
 
-func TestProject_Transition_Invalid(t *testing.T) {
-	p := &Project{Status: StatusPending}
-	err := p.Transition(StatusComplete)
-	if err == nil {
-		t.Fatal("expected error for invalid transition")
+func TestProject_SetStage_UpdatesTimestamp(t *testing.T) {
+	p := &Project{Status: StagePending}
+	p.SetStage(StageImages)
+	first := p.UpdatedAt
+
+	p.SetStage(StageTTS)
+	if p.UpdatedAt.Before(first) {
+		t.Error("expected UpdatedAt to advance on subsequent SetStage call")
 	}
-	te, ok := err.(*TransitionError)
-	if !ok {
-		t.Fatalf("expected *TransitionError, got %T", err)
-	}
-	if te.Current != StatusPending || te.Requested != StatusComplete {
-		t.Errorf("unexpected error fields: %+v", te)
+	if p.Status != StageTTS {
+		t.Errorf("expected status %q, got %q", StageTTS, p.Status)
 	}
 }

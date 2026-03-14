@@ -159,14 +159,8 @@ func (r *Runner) RunWithOptions(ctx context.Context, scpID string, opts RunOptio
 		result.ProjectID = existingProject.ID
 		result.SceneCount = existingProject.SceneCount
 
-		// Determine where to resume based on project status
-		resumableStatuses := map[string]bool{
-			domain.StatusApproved:         true,
-			domain.StatusGeneratingAssets: true,
-			domain.StatusImageReview:      true,
-			domain.StatusTTSReview:        true,
-		}
-		if checkpoint.HasCompletedStage(service.StageScenarioGenerate) && resumableStatuses[existingProject.Status] {
+		// Determine where to resume based on asset existence (dependency-based)
+		if checkpoint.HasCompletedStage(service.StageScenarioGenerate) {
 			scenario, err := service.LoadScenarioFromFile(existingProject.WorkspacePath + "/scenario.json")
 			if err != nil {
 				return nil, fmt.Errorf("pipeline: load scenario for resume: %w", err)
@@ -277,17 +271,7 @@ func (r *Runner) ResumeWithOptions(ctx context.Context, projectID string, skipAp
 		return nil, fmt.Errorf("pipeline: get project: %w", err)
 	}
 
-	resumableStatuses := map[string]bool{
-		domain.StatusApproved:    true,
-		domain.StatusImageReview: true,
-		domain.StatusTTSReview:   true,
-	}
-	if !resumableStatuses[project.Status] {
-		return nil, fmt.Errorf("pipeline: project %s is in %q state (expected approved, image_review, or tts_review). Approve with: yt-pipe scenario approve %s",
-			projectID, project.Status, project.SCPID)
-	}
-
-	// Load scenario from workspace
+	// Load scenario from workspace — the runner determines what to do based on asset existence
 	scenario, err := service.LoadScenarioFromFile(project.WorkspacePath + "/scenario.json")
 	if err != nil {
 		return nil, fmt.Errorf("pipeline: load scenario: %w", err)
@@ -333,13 +317,6 @@ func (r *Runner) resumeFromApproval(ctx context.Context, project *domain.Project
 
 // runSkipApprovalPath executes the legacy parallel generation path with auto-approval.
 func (r *Runner) runSkipApprovalPath(ctx context.Context, project *domain.Project, scenario *domain.ScenarioOutput, start time.Time, result *RunResult, projectSvc *service.ProjectService, approvalSvc *service.ApprovalService, sceneCount int) (*RunResult, error) {
-	// Transition: approved → generating_assets (backward compat path)
-	if project.Status == domain.StatusApproved {
-		if _, err := projectSvc.TransitionProject(ctx, project.ID, domain.StatusGeneratingAssets); err != nil {
-			return nil, fmt.Errorf("pipeline: transition to generating_assets: %w", err)
-		}
-	}
-
 	// Initialize and auto-approve all image/TTS approvals
 	_ = approvalSvc.InitApprovals(project.ID, sceneCount, domain.AssetTypeImage)
 	_ = approvalSvc.AutoApproveAll(project.ID, domain.AssetTypeImage)
@@ -372,12 +349,15 @@ func (r *Runner) runSkipApprovalPath(ctx context.Context, project *domain.Projec
 
 // runApprovalPath executes the per-scene approval flow with pauses at image_review and tts_review.
 func (r *Runner) runApprovalPath(ctx context.Context, project *domain.Project, scenario *domain.ScenarioOutput, start time.Time, result *RunResult, projectSvc *service.ProjectService, approvalSvc *service.ApprovalService, sceneCount int) (*RunResult, error) {
-	// Handle based on current project status
-	switch project.Status {
-	case domain.StatusApproved:
-		// Transition to image_review and generate images
-		if _, err := projectSvc.TransitionProject(ctx, project.ID, domain.StatusImageReview); err != nil {
-			return nil, fmt.Errorf("pipeline: transition to image_review: %w", err)
+	// Dependency-based flow: determine what to do based on asset existence
+	hasImages := r.workspaceHasImages(project.WorkspacePath, sceneCount)
+	hasTTS := r.workspaceHasTTS(project.WorkspacePath, sceneCount)
+
+	// If images not yet generated, generate them and pause for approval
+	if !hasImages {
+		// Set stage to images
+		if _, err := projectSvc.SetProjectStage(ctx, project.ID, domain.StageImages); err != nil {
+			return nil, fmt.Errorf("pipeline: set stage to images: %w", err)
 		}
 
 		// Initialize image approval records
@@ -418,22 +398,25 @@ func (r *Runner) runApprovalPath(ctx context.Context, project *domain.Project, s
 		r.logger.Info("pipeline paused for image approval",
 			"project_id", project.ID, "scene_count", sceneCount)
 		return result, nil
+	}
 
-	case domain.StatusImageReview:
-		// Check if all images are approved
-		allApproved, err := approvalSvc.AllApproved(project.ID, domain.AssetTypeImage)
-		if err != nil {
-			return nil, fmt.Errorf("pipeline: check image approvals: %w", err)
-		}
-		if !allApproved {
-			imgStatus, _ := approvalSvc.GetApprovalStatus(project.ID, domain.AssetTypeImage)
-			return nil, fmt.Errorf("pipeline: not all images approved (%d/%d). Use: yt-pipe scenes approve %s --type image --scene <num>",
-				imgStatus.Approved, imgStatus.Total, project.ID)
-		}
+	// Images exist — check if all images are approved before proceeding
+	allImgApproved, err := approvalSvc.AllApproved(project.ID, domain.AssetTypeImage)
+	if err != nil {
+		// No approval records means images were auto-approved or from skip-approval path
+		allImgApproved = true
+	}
+	if !allImgApproved {
+		imgStatus, _ := approvalSvc.GetApprovalStatus(project.ID, domain.AssetTypeImage)
+		return nil, fmt.Errorf("pipeline: not all images approved (%d/%d). Use: yt-pipe scenes approve %s --type image --scene <num>",
+			imgStatus.Approved, imgStatus.Total, project.ID)
+	}
 
-		// Transition to tts_review
-		if _, err := projectSvc.TransitionProject(ctx, project.ID, domain.StatusTTSReview); err != nil {
-			return nil, fmt.Errorf("pipeline: transition to tts_review: %w", err)
+	// If TTS not yet generated, generate it and pause for approval
+	if !hasTTS {
+		// Set stage to TTS
+		if _, err := projectSvc.SetProjectStage(ctx, project.ID, domain.StageTTS); err != nil {
+			return nil, fmt.Errorf("pipeline: set stage to tts: %w", err)
 		}
 
 		// Initialize TTS approval records
@@ -469,34 +452,30 @@ func (r *Runner) runApprovalPath(ctx context.Context, project *domain.Project, s
 		r.logger.Info("pipeline paused for TTS approval",
 			"project_id", project.ID, "scene_count", sceneCount)
 		return result, nil
-
-	case domain.StatusTTSReview:
-		// Check if all TTS are approved
-		allApproved, err := approvalSvc.AllApproved(project.ID, domain.AssetTypeTTS)
-		if err != nil {
-			return nil, fmt.Errorf("pipeline: check tts approvals: %w", err)
-		}
-		if !allApproved {
-			ttsStatus, _ := approvalSvc.GetApprovalStatus(project.ID, domain.AssetTypeTTS)
-			return nil, fmt.Errorf("pipeline: not all TTS approved (%d/%d). Use: yt-pipe scenes approve %s --type tts --scene <num>",
-				ttsStatus.Approved, ttsStatus.Total, project.ID)
-		}
-
-		// Load scenes from workspace for post-generation stages
-		imageScenes, err := loadScenesFromDir(project.WorkspacePath)
-		if err != nil {
-			imageScenes = make([]*domain.Scene, 0)
-		}
-		ttsScenes, err := loadScenesFromDir(project.WorkspacePath)
-		if err != nil {
-			ttsScenes = make([]*domain.Scene, 0)
-		}
-
-		return r.runPostGenerationStages(ctx, project, imageScenes, ttsScenes, start, result, projectSvc)
-
-	default:
-		return nil, fmt.Errorf("pipeline: unexpected status %q for resume", project.Status)
 	}
+
+	// TTS exists — check if all TTS are approved before proceeding
+	allTTSApproved, err := approvalSvc.AllApproved(project.ID, domain.AssetTypeTTS)
+	if err != nil {
+		allTTSApproved = true
+	}
+	if !allTTSApproved {
+		ttsStatus, _ := approvalSvc.GetApprovalStatus(project.ID, domain.AssetTypeTTS)
+		return nil, fmt.Errorf("pipeline: not all TTS approved (%d/%d). Use: yt-pipe scenes approve %s --type tts --scene <num>",
+			ttsStatus.Approved, ttsStatus.Total, project.ID)
+	}
+
+	// Both images and TTS exist and are approved — proceed to post-generation stages
+	imageScenes, err := loadScenesFromDir(project.WorkspacePath)
+	if err != nil {
+		imageScenes = make([]*domain.Scene, 0)
+	}
+	ttsScenes, err := loadScenesFromDir(project.WorkspacePath)
+	if err != nil {
+		ttsScenes = make([]*domain.Scene, 0)
+	}
+
+	return r.runPostGenerationStages(ctx, project, imageScenes, ttsScenes, start, result, projectSvc)
 }
 
 // runPostGenerationStages runs timing, subtitle, and assembly stages after all assets are approved.
@@ -540,12 +519,9 @@ func (r *Runner) runPostGenerationStages(ctx context.Context, project *domain.Pr
 	}
 	result.Stages = append(result.Stages, stageResult(string(service.StageSubtitleGenerate), stageStart, nil))
 
-	// Transition to assembling
-	if project.Status != domain.StatusAssembling {
-		if _, err := projectSvc.TransitionProject(ctx, project.ID, domain.StatusAssembling); err != nil {
-			// If already in assembling, continue
-			r.logger.Warn("transition to assembling failed (may already be in correct state)", "err", err)
-		}
+	// Set stage to complete (assembly service also does this, but keep explicit for the runner path)
+	if _, err := projectSvc.SetProjectStage(ctx, project.ID, domain.StageComplete); err != nil {
+		r.logger.Warn("set stage to complete failed (may already be in correct state)", "err", err)
 	}
 
 	// Stage 8: Assembly
@@ -991,6 +967,28 @@ func (r *Runner) generateCopyright(project *domain.Project, assemblerSvc *servic
 			r.logger.Error("copyright: failed to log special conditions", "error", err)
 		}
 	}
+}
+
+// workspaceHasImages checks if image assets exist for at least one scene in the workspace.
+func (r *Runner) workspaceHasImages(projectPath string, sceneCount int) bool {
+	for i := 1; i <= sceneCount; i++ {
+		imgPath := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", i), "image.png")
+		if _, err := os.Stat(imgPath); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// workspaceHasTTS checks if TTS audio assets exist for at least one scene in the workspace.
+func (r *Runner) workspaceHasTTS(projectPath string, sceneCount int) bool {
+	for i := 1; i <= sceneCount; i++ {
+		audioPath := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", i), "audio.mp3")
+		if _, err := os.Stat(audioPath); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) findProject(ctx context.Context, scpID string) (*domain.Project, error) {

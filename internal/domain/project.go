@@ -14,66 +14,47 @@ type Project struct {
 	UpdatedAt     time.Time
 }
 
-// Project status constants
+// Stage constants — dependency-based model replaces old state machine.
+// Status is a progress marker ("highest stage reached"), not a gate.
 const (
-	StatusPending        = "pending"
-	StatusScenarioReview = "scenario_review"
-	StatusApproved       = "approved"
-	StatusImageReview    = "image_review"
-	StatusTTSReview      = "tts_review"
-	StatusAssembling     = "assembling"
-	StatusComplete       = "complete"
-
-	// StatusGeneratingAssets is deprecated; kept for backward compatibility
-	// with existing checkpoints and database records. New code should use
-	// StatusImageReview and StatusTTSReview instead.
-	StatusGeneratingAssets = "generating_assets"
+	StagePending  = "pending"
+	StageScenario = "scenario"
+	StageImages   = "images"
+	StageTTS      = "tts"
+	StageComplete = "complete"
 )
 
-// allowedTransitions defines valid state transitions for projects.
-// The primary flow is: pending → scenario_review → approved → image_review → tts_review → assembling → complete
-// With --skip-approval, image_review and tts_review are auto-transitioned.
-var allowedTransitions = map[string][]string{
-	StatusPending:        {StatusScenarioReview},
-	StatusScenarioReview: {StatusApproved, StatusPending},
-	StatusApproved:       {StatusImageReview, StatusGeneratingAssets},
-	StatusImageReview:    {StatusTTSReview},
-	StatusTTSReview:      {StatusAssembling},
-	// Keep generating_assets → assembling for backward compat with existing projects
-	StatusGeneratingAssets: {StatusAssembling},
-	StatusAssembling:       {StatusComplete},
-	StatusComplete:         {},
+// ValidStages maps valid stage strings for validation.
+var ValidStages = map[string]bool{
+	StagePending:  true,
+	StageScenario: true,
+	StageImages:   true,
+	StageTTS:      true,
+	StageComplete: true,
 }
 
-// AllowedTransitions returns the allowed target states for the given status.
-func AllowedTransitions(status string) []string {
-	return allowedTransitions[status]
+// StageOrder defines the rendering order for progress bar display.
+// images and tts are parallel — StageIndex should NOT be used for dependency logic.
+var StageOrder = []string{StagePending, StageScenario, StageImages, StageTTS, StageComplete}
+
+// IsValidStage checks if a stage string is valid.
+func IsValidStage(stage string) bool {
+	return ValidStages[stage]
 }
 
-// CanTransition checks if a state transition is allowed
-func CanTransition(current, requested string) bool {
-	allowed, ok := allowedTransitions[current]
-	if !ok {
-		return false
-	}
-	for _, s := range allowed {
-		if s == requested {
-			return true
+// StageIndex returns the position of a stage in StageOrder for progress bar rendering.
+// Returns -1 for unknown stages.
+func StageIndex(stage string) int {
+	for i, s := range StageOrder {
+		if s == stage {
+			return i
 		}
 	}
-	return false
+	return -1
 }
 
-// Transition attempts to transition a project to a new state
-func (p *Project) Transition(newStatus string) error {
-	if !CanTransition(p.Status, newStatus) {
-		return &TransitionError{
-			Current:   p.Status,
-			Requested: newStatus,
-			Allowed:   allowedTransitions[p.Status],
-		}
-	}
-	p.Status = newStatus
+// SetStage sets the project's status to the given stage and updates the timestamp.
+func (p *Project) SetStage(stage string) {
+	p.Status = stage
 	p.UpdatedAt = time.Now().UTC()
-	return nil
 }

@@ -27,14 +27,10 @@ func setupAssemblerService(t *testing.T) (*AssemblerService, *mocks.MockAssemble
 	return NewAssemblerService(mockAsm, projectSvc), mockAsm, projectSvc
 }
 
-// transitionToGeneratingAssets is a test helper to advance project state.
-func transitionToGeneratingAssets(t *testing.T, ctx context.Context, projectSvc *ProjectService, projectID string) {
+// advanceToImages is a test helper to advance project stage to images.
+func advanceToImages(t *testing.T, ctx context.Context, projectSvc *ProjectService, projectID string) {
 	t.Helper()
-	_, err := projectSvc.TransitionProject(ctx, projectID, domain.StatusScenarioReview)
-	require.NoError(t, err)
-	_, err = projectSvc.TransitionProject(ctx, projectID, domain.StatusApproved)
-	require.NoError(t, err)
-	_, err = projectSvc.TransitionProject(ctx, projectID, domain.StatusGeneratingAssets)
+	_, err := projectSvc.SetProjectStage(ctx, projectID, domain.StageImages)
 	require.NoError(t, err)
 }
 
@@ -62,7 +58,7 @@ func TestAssemble_Success(t *testing.T) {
 
 	project, err := projectSvc.CreateProject(ctx, "SCP-173", wsPath)
 	require.NoError(t, err)
-	transitionToGeneratingAssets(t, ctx, projectSvc, project.ID)
+	advanceToImages(t, ctx, projectSvc, project.ID)
 
 	expectedOutput := filepath.Join(wsPath, "output", "draft_content.json")
 	expectedResult := mockAssembleResult(expectedOutput, 1)
@@ -80,7 +76,7 @@ func TestAssemble_Success(t *testing.T) {
 	// Verify project reached complete state
 	updated, err := projectSvc.GetProject(ctx, project.ID)
 	require.NoError(t, err)
-	assert.Equal(t, domain.StatusComplete, updated.Status)
+	assert.Equal(t, domain.StageComplete, updated.Status)
 }
 
 func TestAssemble_MultipleScenes(t *testing.T) {
@@ -90,7 +86,7 @@ func TestAssemble_MultipleScenes(t *testing.T) {
 
 	project, err := projectSvc.CreateProject(ctx, "SCP-999", wsPath)
 	require.NoError(t, err)
-	transitionToGeneratingAssets(t, ctx, projectSvc, project.ID)
+	advanceToImages(t, ctx, projectSvc, project.ID)
 
 	scenes := []domain.Scene{
 		{SceneNum: 1, ImagePath: "/img/1.png", AudioPath: "/audio/1.mp3", SubtitlePath: "/sub/1.srt", AudioDuration: 5.0},
@@ -205,7 +201,7 @@ func TestAssemble_ValidationFailure(t *testing.T) {
 
 	project, err := projectSvc.CreateProject(ctx, "SCP-173", wsPath)
 	require.NoError(t, err)
-	transitionToGeneratingAssets(t, ctx, projectSvc, project.ID)
+	advanceToImages(t, ctx, projectSvc, project.ID)
 
 	expectedOutput := filepath.Join(wsPath, "output", "draft_content.json")
 	expectedResult := mockAssembleResult(expectedOutput, 1)
@@ -229,7 +225,7 @@ func TestAssemble_WithConfig(t *testing.T) {
 
 	project, err := projectSvc.CreateProject(ctx, "SCP-173", wsPath)
 	require.NoError(t, err)
-	transitionToGeneratingAssets(t, ctx, projectSvc, project.ID)
+	advanceToImages(t, ctx, projectSvc, project.ID)
 
 	expectedOutput := filepath.Join(wsPath, "output", "draft_content.json")
 	expectedResult := mockAssembleResult(expectedOutput, 1)

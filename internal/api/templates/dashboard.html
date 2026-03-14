@@ -1,0 +1,56 @@
+{{template "_layout.html" .}}
+
+{{define "title"}}Projects - yt.pipe Dashboard{{end}}
+
+{{define "content"}}
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <h1 style="font-size:1.5rem;font-weight:700;">Projects</h1>
+    <div class="flex items-center gap-2">
+        <select class="select" id="stage-filter"
+                hx-get="/dashboard/"
+                hx-target="#project-list"
+                hx-swap="innerHTML"
+                hx-include="#scp-search"
+                name="stage">
+            <option value="">All stages</option>
+            {{range .Stages}}
+            <option value="{{.}}" {{if eq . $.CurrentStage}}selected{{end}}>{{.}}</option>
+            {{end}}
+        </select>
+        <input type="text" class="input" id="scp-search" name="scp" placeholder="SCP-#..."
+               value="{{.CurrentSCP}}"
+               hx-get="/dashboard/"
+               hx-target="#project-list"
+               hx-swap="innerHTML"
+               hx-include="#stage-filter"
+               hx-trigger="keyup changed delay:300ms">
+    </div>
+</div>
+
+<div id="project-list">
+    {{template "project_list" .}}
+</div>
+{{end}}
+
+{{define "project_list"}}
+{{if .Projects}}
+    {{range .Projects}}
+    {{template "project_card" .}}
+    {{end}}
+    {{if .HasMore}}
+    <div class="flex items-center justify-between mt-4" id="load-more">
+        <button class="btn btn-secondary"
+                hx-get="/dashboard/?page={{.NextPage}}&stage={{.CurrentStage}}&scp={{.CurrentSCP}}"
+                hx-target="#load-more"
+                hx-swap="outerHTML"
+                hx-indicator="#load-spinner">
+            Load more
+            <span class="htmx-indicator"><span class="spinner"></span></span>
+        </button>
+        <span class="text-xs text-gray">{{.Total}} total</span>
+    </div>
+    {{end}}
+{{else}}
+    <div style="text-align:center;padding:3rem;color:#9ca3af;">No projects found.</div>
+{{end}}
+{{end}}

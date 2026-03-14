@@ -45,17 +45,21 @@ type feedbackResponse struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// validImageGenStates defines project states that allow image generation.
+// validImageGenStates defines project stages that allow image generation.
+// Generation actions are gated by dependency checks, not state — permit all non-pending stages.
 var validImageGenStates = map[string]bool{
-	domain.StatusApproved:    true,
-	domain.StatusImageReview: true,
+	domain.StageScenario: true,
+	domain.StageImages:   true,
+	domain.StageTTS:      true,
+	domain.StageComplete: true,
 }
 
-// validTTSGenStates defines project states that allow TTS generation.
+// validTTSGenStates defines project stages that allow TTS generation.
 var validTTSGenStates = map[string]bool{
-	domain.StatusApproved:    true,
-	domain.StatusImageReview: true,
-	domain.StatusTTSReview:   true,
+	domain.StageScenario: true,
+	domain.StageImages:   true,
+	domain.StageTTS:      true,
+	domain.StageComplete: true,
 }
 
 // handleGenerateImages enqueues selective image regeneration.
@@ -227,10 +231,12 @@ func (s *Server) handleGenerateTTS(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// validAssemblyStates defines project states that allow assembly.
+// validAssemblyStates defines project stages that allow assembly.
 var validAssemblyStates = map[string]bool{
-	domain.StatusTTSReview: true,
-	domain.StatusApproved:  true,
+	domain.StageScenario: true,
+	domain.StageImages:   true,
+	domain.StageTTS:      true,
+	domain.StageComplete: true,
 }
 
 // handleAssemble triggers CapCut project assembly.
@@ -660,10 +666,10 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 			slog.Warn("failed to mark image generated", "project_id", project.ID, "scene_num", sceneNum, "err", err)
 		}
 	}
-	if _, err := s.projectSvc.TransitionProject(ctx, project.ID, domain.StatusImageReview); err != nil {
-		slog.Warn("failed to transition to image_review", "project_id", project.ID, "err", err)
+	if _, err := s.projectSvc.SetProjectStage(ctx, project.ID, domain.StageImages); err != nil {
+		slog.Warn("failed to set stage to images", "project_id", project.ID, "err", err)
 	}
-	s.webhooks.NotifyStateChange(project.ID, project.SCPID, domain.StatusApproved, domain.StatusImageReview, BuildReviewURL(project.ID, project.ReviewToken))
+	s.webhooks.NotifyStateChange(project.ID, project.SCPID, domain.StageScenario, domain.StageImages, BuildReviewURL(project.ID, project.ReviewToken))
 
 	result := strings.Join(resultPaths, ",")
 	s.updateJobRecord(jobID, JobStatusComplete, 100, result, "")
@@ -787,15 +793,15 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 			slog.Warn("failed to mark tts generated", "project_id", project.ID, "scene_num", sceneNum, "err", err)
 		}
 	}
-	// Only transition if not already in tts_review (handleApproveAll may have transitioned early)
+	// Only set stage if not already at tts (handleApproveAll may have set it early)
 	currentProject, _ := s.store.GetProject(project.ID)
-	if currentProject == nil || currentProject.Status != domain.StatusTTSReview {
-		if _, err := s.projectSvc.TransitionProject(ctx, project.ID, domain.StatusTTSReview); err != nil {
-			slog.Warn("failed to transition to tts_review", "project_id", project.ID, "err", err)
+	if currentProject == nil || currentProject.Status != domain.StageTTS {
+		if _, err := s.projectSvc.SetProjectStage(ctx, project.ID, domain.StageTTS); err != nil {
+			slog.Warn("failed to set stage to tts", "project_id", project.ID, "err", err)
 		}
 	}
-	// Always notify after TTS generation completes (not on state transition)
-	s.webhooks.NotifyStateChange(project.ID, project.SCPID, domain.StatusImageReview, domain.StatusTTSReview, BuildReviewURL(project.ID, project.ReviewToken))
+	// Always notify after TTS generation completes (not on stage transition)
+	s.webhooks.NotifyStateChange(project.ID, project.SCPID, domain.StageImages, domain.StageTTS, BuildReviewURL(project.ID, project.ReviewToken))
 
 	result := strings.Join(resultPaths, ",")
 	s.updateJobRecord(jobID, JobStatusComplete, 100, result, "")

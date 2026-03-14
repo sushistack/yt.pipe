@@ -120,7 +120,7 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Only allow deletion of completed or pending projects
-	if p.Status != domain.StatusComplete && p.Status != domain.StatusPending {
+	if p.Status != domain.StageComplete && p.Status != domain.StagePending {
 		WriteError(w, r, http.StatusConflict, "CONFLICT",
 			"cannot delete project in '"+p.Status+"' state; only 'complete' or 'pending' projects can be deleted")
 		return
@@ -151,12 +151,60 @@ func writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 		WriteError(w, r, http.StatusConflict, "CONFLICT", err.Error())
 		return
 	}
+	var depErr *domain.DependencyError
+	if errors.As(err, &depErr) {
+		WriteError(w, r, http.StatusConflict, "DEPENDENCY_ERROR", err.Error())
+		return
+	}
 	var conflictErr *domain.ConflictError
 	if errors.As(err, &conflictErr) {
 		WriteError(w, r, http.StatusConflict, "CONFLICT", err.Error())
 		return
 	}
 	WriteError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+}
+
+// handleSetStage sets the project stage explicitly.
+// PATCH /api/v1/projects/{id}/stage
+func (s *Server) handleSetStage(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var stage string
+	// Support both JSON (API) and form data (HTMX)
+	if isHTMX(r) {
+		if err := r.ParseForm(); err == nil {
+			stage = r.FormValue("stage")
+		}
+	}
+	if stage == "" {
+		var body struct {
+			Stage string `json:"stage"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+			WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
+			return
+		}
+		stage = body.Stage
+	}
+
+	if !domain.IsValidStage(stage) {
+		WriteError(w, r, http.StatusBadRequest, "VALIDATION_ERROR", "invalid stage: "+stage)
+		return
+	}
+
+	updated, err := s.projectSvc.SetProjectStage(r.Context(), id, stage)
+	if err != nil {
+		writeServiceError(w, r, err)
+		return
+	}
+
+	// HTMX: return updated project detail content
+	if isHTMX(r) {
+		s.handleProjectDetail(w, r)
+		return
+	}
+
+	WriteJSON(w, r, http.StatusOK, toProjectResponse(updated))
 }
 
 func parseIntQuery(r *http.Request, key string, defaultVal int) int {

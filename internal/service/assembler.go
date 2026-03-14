@@ -114,12 +114,9 @@ func (s *AssemblerService) Assemble(ctx context.Context, projectID string, scene
 		return nil, fmt.Errorf("assembler validation: %w", err)
 	}
 
-	// Transition to assembling then complete
-	if _, err := s.projectSvc.TransitionProject(ctx, projectID, domain.StatusAssembling); err != nil {
-		return nil, fmt.Errorf("assembler: transition to assembling: %w", err)
-	}
-	if _, err := s.projectSvc.TransitionProject(ctx, projectID, domain.StatusComplete); err != nil {
-		return nil, fmt.Errorf("assembler: transition to complete: %w", err)
+	// Set stage to complete
+	if _, err := s.projectSvc.SetProjectStage(ctx, projectID, domain.StageComplete); err != nil {
+		return nil, fmt.Errorf("assembler: set stage to complete: %w", err)
 	}
 
 	slog.Info("assembly complete",

@@ -20,7 +20,7 @@ func TestNew_MigrationApplied(t *testing.T) {
 	s := setupTestStore(t)
 	version, err := s.SchemaVersion()
 	require.NoError(t, err)
-	assert.Equal(t, 8, version)
+	assert.Equal(t, 9, version)
 }
 
 func TestNew_SceneApprovalsTableCreated(t *testing.T) {
@@ -114,7 +114,7 @@ func TestNew_BGMTablesCreated(t *testing.T) {
 func TestCreateProject_Success(t *testing.T) {
 	s := setupTestStore(t)
 	p := &domain.Project{
-		ID: "proj-1", SCPID: "SCP-173", Status: domain.StatusPending,
+		ID: "proj-1", SCPID: "SCP-173", Status: domain.StagePending,
 		SceneCount: 5, WorkspacePath: "/data/projects/proj-1",
 	}
 	err := s.CreateProject(p)
@@ -125,7 +125,7 @@ func TestCreateProject_Success(t *testing.T) {
 func TestGetProject_Success(t *testing.T) {
 	s := setupTestStore(t)
 	p := &domain.Project{
-		ID: "proj-1", SCPID: "SCP-173", Status: domain.StatusPending,
+		ID: "proj-1", SCPID: "SCP-173", Status: domain.StagePending,
 		SceneCount: 5, WorkspacePath: "/data/projects/proj-1",
 	}
 	require.NoError(t, s.CreateProject(p))
@@ -134,7 +134,7 @@ func TestGetProject_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "proj-1", got.ID)
 	assert.Equal(t, "SCP-173", got.SCPID)
-	assert.Equal(t, domain.StatusPending, got.Status)
+	assert.Equal(t, domain.StagePending, got.Status)
 }
 
 func TestGetProject_NotFound(t *testing.T) {
@@ -163,15 +163,15 @@ func TestListProjects_Multiple(t *testing.T) {
 
 func TestUpdateProject_Success(t *testing.T) {
 	s := setupTestStore(t)
-	p := &domain.Project{ID: "proj-1", SCPID: "SCP-173", Status: domain.StatusPending, WorkspacePath: "/w/1"}
+	p := &domain.Project{ID: "proj-1", SCPID: "SCP-173", Status: domain.StagePending, WorkspacePath: "/w/1"}
 	require.NoError(t, s.CreateProject(p))
 
-	p.Status = domain.StatusScenarioReview
+	p.Status = domain.StageScenario
 	err := s.UpdateProject(p)
 	require.NoError(t, err)
 
 	got, _ := s.GetProject("proj-1")
-	assert.Equal(t, domain.StatusScenarioReview, got.Status)
+	assert.Equal(t, domain.StageScenario, got.Status)
 }
 
 func TestUpdateProject_NotFound(t *testing.T) {

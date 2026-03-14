@@ -1,0 +1,82 @@
+{{template "_layout.html" .}}
+
+{{define "title"}}{{.Project.SCPID}} - yt.pipe Dashboard{{end}}
+
+{{define "content"}}
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <div>
+        <a href="/dashboard/" class="text-sm text-gray">&larr; Back to projects</a>
+        <h1 style="font-size:1.5rem;font-weight:700;margin-top:0.25rem;">{{.Project.SCPID}}</h1>
+        <span class="text-xs text-gray">{{.Project.ID}}</span>
+    </div>
+    <div class="flex items-center gap-2">
+        <span class="badge badge-{{.Project.Status}}">{{.Project.Status}}</span>
+        <span class="text-xs text-gray">{{.Project.SceneCount}} scenes</span>
+    </div>
+</div>
+
+<div id="project-content">
+    {{template "project_detail_content" .}}
+</div>
+{{end}}
+
+{{define "project_detail_content"}}
+<!-- Progress Bar -->
+<div class="card mb-4">
+    <div class="card-body">
+        {{template "progress_bar" .}}
+    </div>
+</div>
+
+<!-- Pipeline Actions -->
+<div class="card mb-4">
+    <div class="card-body flex items-center gap-2 flex-wrap">
+        <button class="btn btn-primary"
+                hx-post="/api/v1/projects/{{.Project.ID}}/images/generate"
+                hx-swap="none"
+                {{if not (index .DependenciesMet "scenario")}}disabled title="Scenario required"{{end}}
+                hx-indicator="#gen-img-spinner">
+            Generate Images
+            <span id="gen-img-spinner" class="htmx-indicator"><span class="spinner"></span></span>
+        </button>
+        <button class="btn btn-primary"
+                hx-post="/api/v1/projects/{{.Project.ID}}/tts/generate"
+                hx-swap="none"
+                {{if not (index .DependenciesMet "scenario")}}disabled title="Scenario required"{{end}}
+                hx-indicator="#gen-tts-spinner">
+            Generate TTS
+            <span id="gen-tts-spinner" class="htmx-indicator"><span class="spinner"></span></span>
+        </button>
+        <button class="btn btn-primary"
+                hx-post="/api/v1/projects/{{.Project.ID}}/assemble"
+                hx-swap="none"
+                {{if not (and (index .DependenciesMet "images") (index .DependenciesMet "tts"))}}disabled title="Images and TTS required"{{end}}
+                hx-indicator="#assemble-spinner">
+            Assemble
+            <span id="assemble-spinner" class="htmx-indicator"><span class="spinner"></span></span>
+        </button>
+        <div style="flex:1;"></div>
+        <button class="btn btn-danger"
+                hx-delete="/api/v1/projects/{{.Project.ID}}"
+                hx-confirm="Delete this project permanently?"
+                hx-swap="none"
+                hx-on::after-request="if(event.detail.successful) window.location='/dashboard/'">
+            Delete Project
+        </button>
+    </div>
+</div>
+
+<!-- Scenes -->
+{{if .Scenes}}
+<h2 style="font-size:1.1rem;font-weight:600;margin-bottom:0.75rem;">Scenes</h2>
+{{range .Scenes}}
+    {{template "scene_card" .}}
+{{end}}
+{{else}}
+<div class="card">
+    <div class="card-body" style="text-align:center;padding:2rem;color:#9ca3af;">
+        No scenes yet. Generate a scenario first.
+    </div>
+</div>
+{{end}}
+{{end}}

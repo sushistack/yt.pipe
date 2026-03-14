@@ -48,6 +48,16 @@ func (e *TransitionError) Error() string {
 	return fmt.Sprintf("cannot transition from %s to %s (allowed: %v)", e.Current, e.Requested, e.Allowed)
 }
 
+// DependencyError indicates missing prerequisites for a generation action (maps to API 409)
+type DependencyError struct {
+	Action  string
+	Missing []string
+}
+
+func (e *DependencyError) Error() string {
+	return fmt.Sprintf("cannot %s: missing dependencies: %v", e.Action, e.Missing)
+}
+
 // ConflictError indicates a conflict that prevents the operation (maps to API 409)
 type ConflictError struct {
 	Message string

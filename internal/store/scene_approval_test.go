@@ -12,7 +12,7 @@ func setupApprovalTestStore(t *testing.T) *Store {
 	t.Helper()
 	s := setupTestStore(t)
 	require.NoError(t, s.CreateProject(&domain.Project{
-		ID: "p1", SCPID: "SCP-173", Status: domain.StatusPending, WorkspacePath: "/w",
+		ID: "p1", SCPID: "SCP-173", Status: domain.StagePending, WorkspacePath: "/w",
 	}))
 	return s
 }

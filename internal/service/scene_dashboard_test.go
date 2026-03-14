@@ -17,7 +17,7 @@ func setupDashboardService(t *testing.T) (*SceneDashboardService, *store.Store) 
 	t.Cleanup(func() { s.Close() })
 
 	require.NoError(t, s.CreateProject(&domain.Project{
-		ID: "p1", SCPID: "SCP-173", Status: domain.StatusImageReview,
+		ID: "p1", SCPID: "SCP-173", Status: domain.StageImages,
 		SceneCount: 3, WorkspacePath: "/tmp/ws",
 	}))
 
@@ -45,7 +45,7 @@ func TestGetDashboard_WithApprovals(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "p1", dashboard.ProjectID)
-	assert.Equal(t, domain.StatusImageReview, dashboard.ProjectStatus)
+	assert.Equal(t, domain.StageImages, dashboard.ProjectStatus)
 	assert.Len(t, dashboard.Scenes, 3)
 
 	// Scene 1: approved
@@ -199,7 +199,7 @@ func TestGetDashboard_RejectResetsApprovalFlag(t *testing.T) {
 
 	// Reset: create a new project with a fresh approval set
 	require.NoError(t, s.CreateProject(&domain.Project{
-		ID: "p2", SCPID: "SCP-999", Status: domain.StatusImageReview,
+		ID: "p2", SCPID: "SCP-999", Status: domain.StageImages,
 		SceneCount: 2, WorkspacePath: "/tmp/ws2",
 	}))
 	for i := 1; i <= 2; i++ {
@@ -228,7 +228,7 @@ func TestGetDashboard_RejectRegenerateApproveCycle(t *testing.T) {
 	t.Cleanup(func() { s.Close() })
 
 	require.NoError(t, s.CreateProject(&domain.Project{
-		ID: "p1", SCPID: "SCP-173", Status: domain.StatusImageReview,
+		ID: "p1", SCPID: "SCP-173", Status: domain.StageImages,
 		SceneCount: 2, WorkspacePath: "/tmp/ws",
 	}))
 
@@ -305,7 +305,7 @@ func TestGetDashboard_SummariesAlwaysPresent(t *testing.T) {
 
 	// Project in "approved" status (not image_review or tts_review)
 	require.NoError(t, s.CreateProject(&domain.Project{
-		ID: "p1", SCPID: "SCP-173", Status: domain.StatusApproved,
+		ID: "p1", SCPID: "SCP-173", Status: domain.StageScenario,
 		SceneCount: 1, WorkspacePath: "/tmp/ws",
 	}))
 	require.NoError(t, s.CreateManifest(&domain.SceneManifest{ProjectID: "p1", SceneNum: 1, Status: "current"}))

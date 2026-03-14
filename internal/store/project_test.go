@@ -53,7 +53,7 @@ func TestDeleteProject_CascadeDeletesChildren(t *testing.T) {
 func TestListProjectsFiltered_NoFilters(t *testing.T) {
 	s := setupTestStore(t)
 	require.NoError(t, s.CreateProject(&domain.Project{ID: "p1", SCPID: "SCP-1", Status: "pending", WorkspacePath: "/w/1"}))
-	require.NoError(t, s.CreateProject(&domain.Project{ID: "p2", SCPID: "SCP-2", Status: "generating", WorkspacePath: "/w/2"}))
+	require.NoError(t, s.CreateProject(&domain.Project{ID: "p2", SCPID: "SCP-2", Status: "images", WorkspacePath: "/w/2"}))
 	require.NoError(t, s.CreateProject(&domain.Project{ID: "p3", SCPID: "SCP-3", Status: "complete", WorkspacePath: "/w/3"}))
 
 	projects, total, err := s.ListProjectsFiltered("", "", 10, 0)
@@ -65,7 +65,7 @@ func TestListProjectsFiltered_NoFilters(t *testing.T) {
 func TestListProjectsFiltered_ByStatus(t *testing.T) {
 	s := setupTestStore(t)
 	require.NoError(t, s.CreateProject(&domain.Project{ID: "p1", SCPID: "SCP-1", Status: "pending", WorkspacePath: "/w/1"}))
-	require.NoError(t, s.CreateProject(&domain.Project{ID: "p2", SCPID: "SCP-2", Status: "generating", WorkspacePath: "/w/2"}))
+	require.NoError(t, s.CreateProject(&domain.Project{ID: "p2", SCPID: "SCP-2", Status: "images", WorkspacePath: "/w/2"}))
 	require.NoError(t, s.CreateProject(&domain.Project{ID: "p3", SCPID: "SCP-3", Status: "pending", WorkspacePath: "/w/3"}))
 
 	projects, total, err := s.ListProjectsFiltered("pending", "", 10, 0)

@@ -26,7 +26,7 @@ func TestCreateProject_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.ID)
 	assert.Equal(t, "SCP-173", p.SCPID)
-	assert.Equal(t, domain.StatusPending, p.Status)
+	assert.Equal(t, domain.StagePending, p.Status)
 	assert.Equal(t, "/tmp/workspace/scp-173", p.WorkspacePath)
 	assert.False(t, p.CreatedAt.IsZero())
 }
@@ -90,130 +90,69 @@ func TestListProjects(t *testing.T) {
 	assert.Len(t, list, 2)
 }
 
-func TestTransitionProject_ValidFullLifecycle(t *testing.T) {
+func TestSetProjectStage_FullLifecycle(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
 	p, err := svc.CreateProject(ctx, "SCP-173", "/tmp/ws")
 	require.NoError(t, err)
-	assert.Equal(t, domain.StatusPending, p.Status)
+	assert.Equal(t, domain.StagePending, p.Status)
 
-	transitions := []string{
-		domain.StatusScenarioReview,
-		domain.StatusApproved,
-		domain.StatusGeneratingAssets,
-		domain.StatusAssembling,
-		domain.StatusComplete,
+	stages := []string{
+		domain.StageScenario,
+		domain.StageImages,
+		domain.StageTTS,
+		domain.StageComplete,
 	}
 
-	for _, next := range transitions {
-		p, err = svc.TransitionProject(ctx, p.ID, next)
-		require.NoError(t, err, "transition to %s failed", next)
+	for _, next := range stages {
+		p, err = svc.SetProjectStage(ctx, p.ID, next)
+		require.NoError(t, err, "set stage to %s failed", next)
 		assert.Equal(t, next, p.Status)
 	}
 }
 
-func TestTransitionProject_InvalidTransition(t *testing.T) {
+func TestSetProjectStage_NotFound(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
-	p, err := svc.CreateProject(ctx, "SCP-173", "/tmp/ws")
-	require.NoError(t, err)
-
-	// pending → complete is not allowed
-	_, err = svc.TransitionProject(ctx, p.ID, domain.StatusComplete)
-	require.Error(t, err)
-	var te *domain.TransitionError
-	assert.ErrorAs(t, err, &te)
-	assert.Equal(t, domain.StatusPending, te.Current)
-	assert.Equal(t, domain.StatusComplete, te.Requested)
-}
-
-func TestTransitionProject_NotFound(t *testing.T) {
-	svc := setupTestService(t)
-	ctx := context.Background()
-
-	_, err := svc.TransitionProject(ctx, "nonexistent", domain.StatusScenarioReview)
+	_, err := svc.SetProjectStage(ctx, "nonexistent", domain.StageScenario)
 	require.Error(t, err)
 	var nfe *domain.NotFoundError
 	assert.ErrorAs(t, err, &nfe)
 }
 
-func TestTransitionProject_RecordsExecutionLog(t *testing.T) {
+func TestSetProjectStage_RecordsExecutionLog(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
 	p, err := svc.CreateProject(ctx, "SCP-173", "/tmp/ws")
 	require.NoError(t, err)
 
-	_, err = svc.TransitionProject(ctx, p.ID, domain.StatusScenarioReview)
+	_, err = svc.SetProjectStage(ctx, p.ID, domain.StageScenario)
 	require.NoError(t, err)
 
 	// Verify execution log was recorded
 	logs, err := svc.store.ListExecutionLogsByProject(p.ID)
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
-	assert.Equal(t, "state_machine", logs[0].Stage)
-	assert.Equal(t, "transition", logs[0].Action)
-	assert.Contains(t, logs[0].Details, "pending -> scenario_review")
+	assert.Equal(t, "stage_change", logs[0].Stage)
+	assert.Equal(t, "set_stage", logs[0].Action)
+	assert.Contains(t, logs[0].Details, "pending -> scenario")
 }
 
-func TestTransitionProject_ScenarioReviewBackToPending(t *testing.T) {
+func TestSetProjectStage_BackToPending(t *testing.T) {
 	svc := setupTestService(t)
 	ctx := context.Background()
 
 	p, err := svc.CreateProject(ctx, "SCP-173", "/tmp/ws")
 	require.NoError(t, err)
 
-	p, err = svc.TransitionProject(ctx, p.ID, domain.StatusScenarioReview)
+	p, err = svc.SetProjectStage(ctx, p.ID, domain.StageScenario)
 	require.NoError(t, err)
 
-	// scenario_review → pending is allowed (rejection flow)
-	p, err = svc.TransitionProject(ctx, p.ID, domain.StatusPending)
+	// scenario → pending is allowed (reset/rejection flow)
+	p, err = svc.SetProjectStage(ctx, p.ID, domain.StagePending)
 	require.NoError(t, err)
-	assert.Equal(t, domain.StatusPending, p.Status)
-}
-
-func TestTransitionProject_ApprovalFlowLifecycle(t *testing.T) {
-	svc := setupTestService(t)
-	ctx := context.Background()
-
-	p, err := svc.CreateProject(ctx, "SCP-173", "/tmp/ws")
-	require.NoError(t, err)
-
-	// New approval flow: pending → scenario_review → approved → image_review → tts_review → assembling → complete
-	transitions := []string{
-		domain.StatusScenarioReview,
-		domain.StatusApproved,
-		domain.StatusImageReview,
-		domain.StatusTTSReview,
-		domain.StatusAssembling,
-		domain.StatusComplete,
-	}
-
-	for _, next := range transitions {
-		p, err = svc.TransitionProject(ctx, p.ID, next)
-		require.NoError(t, err, "transition to %s failed", next)
-		assert.Equal(t, next, p.Status)
-	}
-}
-
-func TestTransitionProject_CompleteHasNoTransitions(t *testing.T) {
-	svc := setupTestService(t)
-	ctx := context.Background()
-
-	p, err := svc.CreateProject(ctx, "SCP-173", "/tmp/ws")
-	require.NoError(t, err)
-
-	// Walk through all states to complete
-	for _, s := range []string{domain.StatusScenarioReview, domain.StatusApproved, domain.StatusGeneratingAssets, domain.StatusAssembling, domain.StatusComplete} {
-		p, err = svc.TransitionProject(ctx, p.ID, s)
-		require.NoError(t, err)
-	}
-
-	// complete → anything is not allowed
-	_, err = svc.TransitionProject(ctx, p.ID, domain.StatusPending)
-	require.Error(t, err)
-	var te *domain.TransitionError
-	assert.ErrorAs(t, err, &te)
+	assert.Equal(t, domain.StagePending, p.Status)
 }
