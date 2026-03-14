@@ -190,9 +190,9 @@
             }).then(function(r) {
                 if (!r.ok) throw r;
                 return r.json();
-            }).then(function(p) {
+            }).then(function(resp) {
                 showToast('Project created', 'success');
-                window.location = '/dashboard/projects/' + p.id;
+                window.location = '/dashboard/projects/' + resp.data.id;
             }).catch(function() { showToast('Failed to create project', 'error'); });
         }
     </script>
