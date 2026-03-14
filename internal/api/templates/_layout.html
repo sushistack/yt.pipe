@@ -97,6 +97,44 @@
                 else { showToast('Failed to insert', 'error'); }
             });
         }
+
+        function openNewProject() {
+            var modal = document.getElementById('new-project-modal');
+            var sel = document.getElementById('new-project-scp');
+            if (!modal || !sel) return;
+            modal.showModal();
+            if (sel.options.length <= 1) {
+                var key = document.querySelector('meta[name="api-key"]');
+                fetch('/dashboard/scps', {
+                    headers: { 'Authorization': 'Bearer ' + (key ? key.content : '') }
+                }).then(function(r) { return r.json(); }).then(function(scps) {
+                    sel.innerHTML = '<option value="" disabled selected>Select SCP...</option>';
+                    scps.forEach(function(s) {
+                        var opt = document.createElement('option');
+                        opt.value = s.scp_id;
+                        opt.textContent = s.title ? s.scp_id + ' \u2014 ' + s.title : s.scp_id;
+                        sel.appendChild(opt);
+                    });
+                });
+            }
+        }
+
+        function createProject() {
+            var sel = document.getElementById('new-project-scp');
+            if (!sel || !sel.value) { showToast('Select an SCP', 'error'); return; }
+            var key = document.querySelector('meta[name="api-key"]');
+            fetch('/api/v1/projects', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + (key ? key.content : ''), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scp_id: sel.value })
+            }).then(function(r) {
+                if (!r.ok) throw r;
+                return r.json();
+            }).then(function(p) {
+                showToast('Project created', 'success');
+                window.location = '/dashboard/projects/' + p.id;
+            }).catch(function() { showToast('Failed to create project', 'error'); });
+        }
     </script>
 </head>
 <body class="min-h-screen bg-base-200">

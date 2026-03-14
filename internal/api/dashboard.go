@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/sushistack/yt.pipe/internal/domain"
 	"github.com/sushistack/yt.pipe/internal/service"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
 const defaultPageSize = 20
@@ -408,6 +409,17 @@ func (s *Server) handleDashboardImage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDashboardAudio(w http.ResponseWriter, r *http.Request) {
 	s.handleDashboardAsset(w, r, "audio.wav")
+}
+
+// handleListAvailableSCPs returns available SCP entries from the data directory as JSON.
+func (s *Server) handleListAvailableSCPs(w http.ResponseWriter, r *http.Request) {
+	scps, err := workspace.ListAvailableSCPs(s.cfg.SCPDataPath)
+	if err != nil {
+		slog.Error("failed to list available scps", "error", err)
+		WriteJSON(w, r, http.StatusOK, []workspace.SCPListEntry{})
+		return
+	}
+	WriteJSON(w, r, http.StatusOK, scps)
 }
 
 // fileExistsWithExtensions checks if a file with the given base name and any of the extensions exists.

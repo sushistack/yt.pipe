@@ -2,7 +2,13 @@
 
 {{define "content"}}
 <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
-    <h1 class="text-2xl font-semibold">Projects</h1>
+    <div class="flex items-center gap-3">
+        <h1 class="text-2xl font-semibold">Projects</h1>
+        <button class="btn btn-primary btn-sm" onclick="openNewProject()">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+            New Project
+        </button>
+    </div>
     <div class="flex items-center gap-2">
         <select class="select select-bordered select-sm"
                 id="stage-filter" name="stage"
@@ -29,6 +35,26 @@
 <div id="project-list">
     {{template "scp_group_list" .}}
 </div>
+
+<!-- New Project Modal -->
+<dialog id="new-project-modal" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg">New Project</h3>
+        <div class="form-control mt-4">
+            <label class="label"><span class="label-text">SCP ID</span></label>
+            <select class="select select-bordered w-full" id="new-project-scp">
+                <option value="" disabled selected>Loading...</option>
+            </select>
+        </div>
+        <div class="modal-action">
+            <form method="dialog">
+                <button class="btn btn-ghost btn-sm">Cancel</button>
+            </form>
+            <button class="btn btn-primary btn-sm" onclick="createProject()">Create</button>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
 {{end}}
 
 {{define "scp_group_list"}}

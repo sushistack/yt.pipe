@@ -189,6 +189,7 @@ func (s *Server) setupRouter() {
 	r.Get("/dashboard/projects/{id}", s.handleProjectDetail)
 	r.Get("/dashboard/projects/{id}/scenes/{num}/image", s.handleDashboardImage)
 	r.Get("/dashboard/projects/{id}/scenes/{num}/audio", s.handleDashboardAudio)
+	r.Get("/dashboard/scps", s.handleListAvailableSCPs)
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {

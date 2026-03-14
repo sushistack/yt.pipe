@@ -43,6 +43,44 @@ type MetaFile struct {
 	CopyrightNotes string `json:"copyright_notes,omitempty"`
 }
 
+// SCPListEntry is a summary of an available SCP on the filesystem.
+type SCPListEntry struct {
+	SCPID string `json:"scp_id"`
+	Title string `json:"title,omitempty"`
+}
+
+// ListAvailableSCPs scans the SCP data directory and returns all valid SCP entries.
+func ListAvailableSCPs(basePath string) ([]SCPListEntry, error) {
+	entries, err := os.ReadDir(basePath)
+	if err != nil {
+		return nil, fmt.Errorf("list scps: read dir: %w", err)
+	}
+
+	var result []SCPListEntry
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		// Check that required files exist
+		metaPath := filepath.Join(basePath, name, "meta.json")
+		if _, statErr := os.Stat(metaPath); statErr != nil {
+			continue
+		}
+
+		entry := SCPListEntry{SCPID: name}
+		// Try to read title from meta.json
+		if data, readErr := os.ReadFile(metaPath); readErr == nil {
+			var m MetaFile
+			if json.Unmarshal(data, &m) == nil && m.Title != "" {
+				entry.Title = m.Title
+			}
+		}
+		result = append(result, entry)
+	}
+	return result, nil
+}
+
 // LoadSCPData loads and validates SCP structured data from the data directory.
 // It expects {basePath}/{scpID}/ to contain facts.json, meta.json, and main.txt.
 func LoadSCPData(basePath, scpID string) (*SCPData, error) {
