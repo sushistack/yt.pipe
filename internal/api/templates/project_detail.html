@@ -38,7 +38,7 @@
 <div class="card bg-base-100 shadow-sm mb-4">
     <div class="card-body py-3">
         <div class="flex items-center gap-2 flex-wrap">
-            {{/* === Primary action per stage === */}}
+            {{/* === Stage 1: pending — Generate Scenario only === */}}
             {{if eq .Project.Status "pending"}}
             <button class="btn btn-primary btn-sm"
                     hx-post="/api/v1/projects/{{.Project.ID}}/run"
@@ -49,27 +49,8 @@
                 <span class="loading loading-spinner loading-xs htmx-indicator"></span>
             </button>
 
-            {{else if eq .Project.Status "scenario"}}
-            <button class="btn btn-success btn-sm"
-                    hx-post="/api/v1/projects/{{.Project.ID}}/approve"
-                    hx-swap="none"
-                    hx-confirm="Approve scenario and proceed to image/TTS generation?">
-                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                Approve Scenario
-                <span class="loading loading-spinner loading-xs htmx-indicator"></span>
-            </button>
-            <div class="dropdown dropdown-end">
-                <label tabindex="0" class="btn btn-ghost btn-sm">
-                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
-                </label>
-                <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-200 rounded-box shadow w-48 z-10">
-                    <li><a hx-post="/api/v1/projects/{{.Project.ID}}/run" hx-vals='{"mode":"scenario"}' hx-swap="none"
-                           hx-confirm="Regenerate scenario? This will overwrite the current one.">
-                        Regenerate Scenario</a></li>
-                </ul>
-            </div>
-
-            {{else if eq .Project.Status "images"}}
+            {{else}}
+            {{/* === Stage 2+ — Images, TTS, Assemble buttons with dependency gates === */}}
             <button class="btn btn-primary btn-sm"
                     hx-post="/api/v1/projects/{{.Project.ID}}/images/generate"
                     hx-swap="none">
@@ -84,21 +65,12 @@
                 {{if (index .DependenciesMet "tts")}}Regenerate TTS{{else}}Generate TTS{{end}}
                 <span class="loading loading-spinner loading-xs htmx-indicator"></span>
             </button>
-
-            {{else if eq .Project.Status "tts"}}
-            <button class="btn btn-primary btn-sm"
-                    hx-post="/api/v1/projects/{{.Project.ID}}/tts/generate"
-                    hx-swap="none">
-                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
-                {{if (index .DependenciesMet "tts")}}Regenerate TTS{{else}}Generate TTS{{end}}
-                <span class="loading loading-spinner loading-xs htmx-indicator"></span>
-            </button>
             <button class="btn btn-primary btn-sm"
                     hx-post="/api/v1/projects/{{.Project.ID}}/assemble"
                     hx-swap="none"
                     {{if not (index .DependenciesMet "complete")}}disabled title="All images and TTS required"{{end}}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"/></svg>
-                Assemble
+                {{if eq .Project.Status "complete"}}Reassemble{{else}}Assemble{{end}}
                 <span class="loading loading-spinner loading-xs htmx-indicator"></span>
             </button>
             <div class="dropdown dropdown-end">
@@ -106,27 +78,9 @@
                     <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
                 </label>
                 <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-200 rounded-box shadow w-48 z-10">
-                    <li><a hx-post="/api/v1/projects/{{.Project.ID}}/images/generate" hx-swap="none">Regenerate Images</a></li>
-                </ul>
-            </div>
-
-            {{else if eq .Project.Status "complete"}}
-            <button class="btn btn-primary btn-sm"
-                    hx-post="/api/v1/projects/{{.Project.ID}}/assemble"
-                    hx-swap="none">
-                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"/></svg>
-                Reassemble
-                <span class="loading loading-spinner loading-xs htmx-indicator"></span>
-            </button>
-            <div class="dropdown dropdown-end">
-                <label tabindex="0" class="btn btn-ghost btn-sm">
-                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
-                </label>
-                <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-200 rounded-box shadow w-48 z-10">
-                    <li><a hx-post="/api/v1/projects/{{.Project.ID}}/images/generate" hx-swap="none">Regenerate Images</a></li>
-                    <li><a hx-post="/api/v1/projects/{{.Project.ID}}/tts/generate" hx-swap="none">Regenerate TTS</a></li>
                     <li><a hx-post="/api/v1/projects/{{.Project.ID}}/run" hx-vals='{"mode":"scenario"}' hx-swap="none"
-                           hx-confirm="Regenerate scenario? This will reset the project.">Regenerate Scenario</a></li>
+                           hx-confirm="Regenerate scenario? This will overwrite the current one.">
+                        Regenerate Scenario</a></li>
                 </ul>
             </div>
             {{end}}
