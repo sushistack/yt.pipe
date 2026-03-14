@@ -217,9 +217,9 @@ func TestDashboard_Detail_PipelineButtons(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	body := w.Body.String()
-	assert.Contains(t, body, "Generate Images")
-	assert.Contains(t, body, "Generate TTS")
-	assert.Contains(t, body, "Assemble")
+	// scenario stage shows Approve + Regenerate Scenario in dropdown
+	assert.Contains(t, body, "Approve Scenario")
+	assert.Contains(t, body, "Regenerate Scenario")
 	assert.Contains(t, body, "Delete")
 }
 
