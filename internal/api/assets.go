@@ -377,7 +377,14 @@ func (s *Server) executeAssembly(ctx context.Context, jobID string, project *dom
 		return
 	}
 
+	// Transition project to complete
+	previousState := project.Status
+	if _, err := s.projectSvc.SetProjectStage(ctx, project.ID, domain.StageComplete); err != nil {
+		slog.Warn("failed to set stage to complete", "project_id", project.ID, "err", err)
+	}
+
 	s.updateJobRecord(jobID, JobStatusComplete, 100, result.OutputPath, "")
+	s.webhooks.NotifyStateChange(project.ID, project.SCPID, previousState, domain.StageComplete, BuildReviewURL(project.ID, project.ReviewToken))
 	s.webhooks.NotifyJobComplete(project.ID, project.SCPID, jobID, "assembly", result.OutputPath, "", BuildReviewURL(project.ID, project.ReviewToken))
 	slog.Info("assembly complete",
 		"project_id", project.ID,
