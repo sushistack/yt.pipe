@@ -515,6 +515,68 @@ func generateSubtitleJSON(path string, timings []domain.WordTiming) error {
 	return workspace.WriteFileAtomic(path, data)
 }
 
+// generateSubtitleFromNarration creates a subtitle.json by splitting narration into
+// roughly equal segments when word timings are unavailable (e.g. Qwen3 TTS).
+func generateSubtitleFromNarration(path, narration string, durationSec float64) error {
+	if narration == "" || durationSec <= 0 {
+		return nil
+	}
+
+	// Split Korean text by sentences (periods, exclamation, question marks)
+	// then group into subtitle entries
+	sentences := splitSentences(narration)
+	if len(sentences) == 0 {
+		return nil
+	}
+
+	// Distribute duration proportionally by character count
+	totalChars := 0
+	for _, s := range sentences {
+		totalChars += len([]rune(s))
+	}
+
+	var entries []subtitleEntry
+	offset := 0.0
+	for i, sentence := range sentences {
+		charLen := len([]rune(sentence))
+		segDuration := durationSec * float64(charLen) / float64(totalChars)
+		entries = append(entries, subtitleEntry{
+			Index:    i + 1,
+			StartSec: offset,
+			EndSec:   offset + segDuration,
+			Text:     sentence,
+		})
+		offset += segDuration
+	}
+
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal subtitle: %w", err)
+	}
+	return workspace.WriteFileAtomic(path, data)
+}
+
+// splitSentences splits text into sentences by Korean/common punctuation.
+func splitSentences(text string) []string {
+	var sentences []string
+	var current strings.Builder
+	for _, r := range text {
+		current.WriteRune(r)
+		if r == '.' || r == '!' || r == '?' || r == '。' {
+			s := strings.TrimSpace(current.String())
+			if s != "" {
+				sentences = append(sentences, s)
+			}
+			current.Reset()
+		}
+	}
+	// Remaining text
+	if s := strings.TrimSpace(current.String()); s != "" {
+		sentences = append(sentences, s)
+	}
+	return sentences
+}
+
 // handleUpdatePrompt updates the image prompt for a specific scene.
 func (s *Server) handleUpdatePrompt(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "id")
@@ -825,14 +887,19 @@ func (s *Server) executeTTSGeneration(ctx context.Context, jobID string, project
 			sceneDir := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", sceneNum))
 			scene.ImagePath = filepath.Join(sceneDir, "image.png")
 
-			// Generate subtitle.json from word timings
+			// Generate subtitle.json
+			subtitlePath := filepath.Join(sceneDir, "subtitle.json")
+			var subtitleErr error
 			if len(scene.WordTimings) > 0 {
-				subtitlePath := filepath.Join(sceneDir, "subtitle.json")
-				if err := generateSubtitleJSON(subtitlePath, scene.WordTimings); err != nil {
-					slog.Warn("failed to generate subtitle", "project_id", project.ID, "scene_num", sceneNum, "err", err)
-				} else {
-					scene.SubtitlePath = subtitlePath
-				}
+				subtitleErr = generateSubtitleJSON(subtitlePath, scene.WordTimings)
+			} else {
+				// No word timings (e.g. Qwen3 TTS) — generate from narration text + duration
+				subtitleErr = generateSubtitleFromNarration(subtitlePath, sceneScript.Narration, scene.AudioDuration)
+			}
+			if subtitleErr != nil {
+				slog.Warn("failed to generate subtitle", "project_id", project.ID, "scene_num", sceneNum, "err", subtitleErr)
+			} else {
+				scene.SubtitlePath = subtitlePath
 			}
 
 			if err := writeSceneManifest(sceneDir, scene); err != nil {
