@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
 // projectResponse is the JSON representation of a project.
@@ -57,7 +59,15 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := s.projectSvc.CreateProject(r.Context(), req.SCPID, s.workspacePath)
+	// Initialize a unique workspace directory for this project
+	projectPath, err := workspace.InitProject(s.workspacePath, req.SCPID)
+	if err != nil {
+		slog.Error("failed to init workspace", "scp_id", req.SCPID, "error", err)
+		WriteError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to initialize workspace")
+		return
+	}
+
+	p, err := s.projectSvc.CreateProject(r.Context(), req.SCPID, projectPath)
 	if err != nil {
 		writeServiceError(w, r, err)
 		return

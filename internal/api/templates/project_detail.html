@@ -76,13 +76,10 @@
             {{/* === Stage 1: pending — Generate Scenario only === */}}
             {{if eq .Project.Status "pending"}}
             <button class="btn btn-primary btn-sm"
-                    hx-post="/api/v1/projects/{{.Project.ID}}/run"
-                    hx-vals='{"mode":"scenario"}'
-                    hx-swap="none"
+                    onclick="runScenario('{{.Project.ID}}')"
                     {{if .Job.IsRunning}}disabled{{end}}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
                 Generate Scenario
-                <span class="loading loading-spinner loading-xs htmx-indicator"></span>
             </button>
 
             {{else if eq .CurrentStage "scenario"}}
@@ -100,8 +97,7 @@
                 <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-200 rounded-box shadow w-52 z-10">
                     <li><a onclick="generateImages('{{.Project.ID}}')">Generate Images Only</a></li>
                     <li><a onclick="generateTTS('{{.Project.ID}}')">Generate TTS Only</a></li>
-                    <li class="border-t border-base-300 mt-1 pt-1"><a hx-post="/api/v1/projects/{{.Project.ID}}/run" hx-vals='{"mode":"scenario"}' hx-swap="none"
-                           hx-confirm="Regenerate scenario? This will overwrite the current one.">
+                    <li class="border-t border-base-300 mt-1 pt-1"><a onclick="if(confirm('Regenerate scenario? This will overwrite the current one.')) runScenario('{{.Project.ID}}')">
                         Regenerate Scenario</a></li>
                 </ul>
             </div>
@@ -121,13 +117,11 @@
                 {{if (index .DependenciesMet "tts")}}Regenerate TTS{{else}}Generate TTS{{end}}
             </button>
             <button class="btn btn-primary btn-sm"
-                    hx-post="/api/v1/projects/{{.Project.ID}}/assemble"
-                    hx-swap="none"
+                    onclick="runAssemble('{{.Project.ID}}')"
                     {{if or .Job.IsRunning (not (index .DependenciesMet "complete"))}}disabled{{end}}
                     {{if not (index .DependenciesMet "complete")}}title="All images and TTS required"{{end}}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"/></svg>
                 {{if eq .Project.Status "complete"}}Reassemble{{else}}Assemble{{end}}
-                <span class="loading loading-spinner loading-xs htmx-indicator"></span>
             </button>
             <div class="dropdown dropdown-end">
                 <label tabindex="0" class="btn btn-ghost btn-sm" {{if .Job.IsRunning}}style="pointer-events:none;opacity:0.5;"{{end}}>
@@ -135,8 +129,7 @@
                 </label>
                 <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-200 rounded-box shadow w-52 z-10">
                     <li><a onclick="generateAssets('{{.Project.ID}}')">Regenerate All Assets</a></li>
-                    <li class="border-t border-base-300 mt-1 pt-1"><a hx-post="/api/v1/projects/{{.Project.ID}}/run" hx-vals='{"mode":"scenario"}' hx-swap="none"
-                           hx-confirm="Regenerate scenario? This will overwrite the current one.">
+                    <li class="border-t border-base-300 mt-1 pt-1"><a onclick="if(confirm('Regenerate scenario? This will overwrite the current one.')) runScenario('{{.Project.ID}}')">
                         Regenerate Scenario</a></li>
                 </ul>
             </div>

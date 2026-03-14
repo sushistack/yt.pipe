@@ -137,6 +137,27 @@
             });
         }
 
+        function runScenario(projectID) {
+            var key = document.querySelector('meta[name="api-key"]');
+            fetch('/api/v1/projects/' + projectID + '/run', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + (key ? key.content : ''), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: 'scenario' })
+            }).then(function(r) {
+                if (r.ok) { showToast('Scenario generation started', 'success'); location.reload(); }
+                else if (r.status === 409) { showToast('Already running', 'info'); }
+                else { showToast('Failed to start scenario generation', 'error'); }
+            }).catch(function() { showToast('Failed to start', 'error'); });
+        }
+
+        function runAssemble(projectID) {
+            apiPost('/api/v1/projects/' + projectID + '/assemble').then(function(r) {
+                if (r.ok) { showToast('Assembly started', 'success'); location.reload(); }
+                else if (r.status === 409) { r.json().then(function(d) { showToast(d.error && d.error.message || 'Conflict', 'error'); }); }
+                else { showToast('Failed to start assembly', 'error'); }
+            }).catch(function() { showToast('Failed to start', 'error'); });
+        }
+
         var _scpItems = [];
         var _scpHasMore = false;
         var _scpLoading = false;
