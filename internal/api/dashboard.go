@@ -108,10 +108,23 @@ func (s *Server) initDashboardTemplates() {
 	slog.Info("dashboard templates loaded successfully")
 }
 
+const scpGroupPageSize = 20
+const projectsPerGroup = 3
+
+// scpGroupViewData is the view data for a single SCP accordion group.
+type scpGroupViewData struct {
+	SCPID        string
+	Count        int
+	LatestUpdate time.Time
+	Projects     []*domain.Project
+	HasMore      bool
+	CurrentStage string
+}
+
 // dashboardListData is the template data for the dashboard list page.
 type dashboardListData struct {
 	APIKey       string
-	Projects     []*domain.Project
+	Groups       []scpGroupViewData
 	Stages       []string
 	CurrentStage string
 	CurrentSCP   string
@@ -120,7 +133,7 @@ type dashboardListData struct {
 	NextPage     int
 }
 
-// handleDashboardList renders the project list page.
+// handleDashboardList renders the project list page grouped by SCP ID.
 func (s *Server) handleDashboardList(w http.ResponseWriter, r *http.Request) {
 	stage := r.URL.Query().Get("stage")
 	scp := r.URL.Query().Get("scp")
@@ -132,30 +145,48 @@ func (s *Server) handleDashboardList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	offset := (page - 1) * defaultPageSize
-	projects, total, err := s.store.ListProjectsFiltered(stage, scp, defaultPageSize, offset)
+	offset := (page - 1) * scpGroupPageSize
+	groups, total, err := s.store.ListSCPGroups(stage, scp, scpGroupPageSize, offset)
 	if err != nil {
-		slog.Error("failed to list projects for dashboard", "error", err)
+		slog.Error("failed to list scp groups", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
+	// For each SCP group, load first N projects
+	var viewGroups []scpGroupViewData
+	for _, g := range groups {
+		projects, projTotal, projErr := s.store.ListProjectsBySCP(g.SCPID, stage, projectsPerGroup, 0)
+		if projErr != nil {
+			slog.Warn("failed to list projects for scp group", "scp", g.SCPID, "error", projErr)
+			continue
+		}
+		viewGroups = append(viewGroups, scpGroupViewData{
+			SCPID:        g.SCPID,
+			Count:        g.Count,
+			LatestUpdate: g.LatestUpdate,
+			Projects:     projects,
+			HasMore:      projTotal > projectsPerGroup,
+			CurrentStage: stage,
+		})
+	}
+
 	data := dashboardListData{
 		APIKey:       s.cfg.API.Auth.Key,
-		Projects:     projects,
+		Groups:       viewGroups,
 		Stages:       domain.StageOrder,
 		CurrentStage: stage,
 		CurrentSCP:   scp,
 		Total:        total,
-		HasMore:      offset+len(projects) < total,
+		HasMore:      offset+len(groups) < total,
 		NextPage:     page + 1,
 	}
 
-	// HTMX partial: return just the project list
+	// HTMX partial: return just the group list
 	if isHTMX(r) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := s.dashboardTmpl.ExecuteTemplate(w, "project_list", data); err != nil {
-			slog.Error("failed to render project list partial", "error", err)
+		if err := s.dashboardTmpl.ExecuteTemplate(w, "scp_group_list", data); err != nil {
+			slog.Error("failed to render group list partial", "error", err)
 		}
 		return
 	}
@@ -163,6 +194,46 @@ func (s *Server) handleDashboardList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.dashboardTmpl.Execute(w, data); err != nil {
 		slog.Error("failed to render dashboard page", "error", err)
+	}
+}
+
+// handleSCPProjects returns projects for a specific SCP (HTMX partial for "load more" within accordion).
+func (s *Server) handleSCPProjects(w http.ResponseWriter, r *http.Request) {
+	scpID := chi.URLParam(r, "scpID")
+	stage := r.URL.Query().Get("stage")
+	pageStr := r.URL.Query().Get("page")
+	page := 1
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	offset := (page - 1) * projectsPerGroup
+	projects, total, err := s.store.ListProjectsBySCP(scpID, stage, projectsPerGroup, offset)
+	if err != nil {
+		slog.Error("failed to list projects by scp", "scp", scpID, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		SCPID        string
+		Projects     []*domain.Project
+		HasMore      bool
+		NextPage     int
+		CurrentStage string
+	}{
+		SCPID:        scpID,
+		Projects:     projects,
+		HasMore:      offset+len(projects) < total,
+		NextPage:     page + 1,
+		CurrentStage: stage,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.dashboardTmpl.ExecuteTemplate(w, "scp_project_rows", data); err != nil {
+		slog.Error("failed to render scp project rows", "error", err)
 	}
 }
 

@@ -126,6 +126,89 @@ func (s *Store) DeleteProject(id string) error {
 	return nil
 }
 
+// ListSCPGroups returns distinct SCP IDs with their project count, ordered by most recent activity.
+func (s *Store) ListSCPGroups(stage string, scpFilter string, limit, offset int) ([]SCPGroup, int, error) {
+	where := ""
+	var args []interface{}
+	if stage != "" {
+		where += " AND status = ?"
+		args = append(args, stage)
+	}
+	if scpFilter != "" {
+		where += " AND scp_id LIKE ?"
+		args = append(args, "%"+scpFilter+"%")
+	}
+
+	var total int
+	countQ := "SELECT COUNT(DISTINCT scp_id) FROM projects WHERE 1=1" + where
+	if err := s.db.QueryRow(countQ, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count scp groups: %w", err)
+	}
+
+	query := `SELECT scp_id, COUNT(*) as cnt, MAX(updated_at) as latest
+		FROM projects WHERE 1=1` + where + `
+		GROUP BY scp_id ORDER BY latest DESC LIMIT ? OFFSET ?`
+	qArgs := append(args, limit, offset)
+	rows, err := s.db.Query(query, qArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list scp groups: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []SCPGroup
+	for rows.Next() {
+		var g SCPGroup
+		var latest string
+		if err := rows.Scan(&g.SCPID, &g.Count, &latest); err != nil {
+			return nil, 0, fmt.Errorf("scan scp group: %w", err)
+		}
+		g.LatestUpdate, _ = time.Parse(time.RFC3339, latest)
+		groups = append(groups, g)
+	}
+	return groups, total, rows.Err()
+}
+
+// SCPGroup represents a group of projects sharing the same SCP ID.
+type SCPGroup struct {
+	SCPID        string
+	Count        int
+	LatestUpdate time.Time
+}
+
+// ListProjectsBySCP returns projects for a specific SCP ID, ordered by most recent first.
+func (s *Store) ListProjectsBySCP(scpID, stage string, limit, offset int) ([]*domain.Project, int, error) {
+	where := " AND scp_id = ?"
+	args := []interface{}{scpID}
+	if stage != "" {
+		where += " AND status = ?"
+		args = append(args, stage)
+	}
+
+	var total int
+	countQ := "SELECT COUNT(*) FROM projects WHERE 1=1" + where
+	if err := s.db.QueryRow(countQ, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count projects by scp: %w", err)
+	}
+
+	query := "SELECT " + projectColumns + " FROM projects WHERE 1=1" + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	qArgs := append(args, limit, offset)
+	rows, err := s.db.Query(query, qArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list projects by scp: %w", err)
+	}
+	defer rows.Close()
+
+	var projects []*domain.Project
+	for rows.Next() {
+		p, scanErr := scanProject(rows)
+		if scanErr != nil {
+			return nil, 0, fmt.Errorf("scan project: %w", scanErr)
+		}
+		projects = append(projects, p)
+	}
+	return projects, total, rows.Err()
+}
+
 // ListProjectsFiltered returns projects matching optional filters with pagination.
 func (s *Store) ListProjectsFiltered(state, scpID string, limit, offset int) ([]*domain.Project, int, error) {
 	where := ""

@@ -26,14 +26,14 @@
 </div>
 
 <div id="project-list">
-    {{template "project_list" .}}
+    {{template "scp_group_list" .}}
 </div>
 {{end}}
 
-{{define "project_list"}}
-{{if .Projects}}
-    {{range .Projects}}
-    {{template "project_card" .}}
+{{define "scp_group_list"}}
+{{if .Groups}}
+    {{range .Groups}}
+    {{template "scp_group" .}}
     {{end}}
     {{if .HasMore}}
     <div class="flex items-center justify-between mt-4" id="load-more">
@@ -50,5 +50,45 @@
     {{end}}
 {{else}}
     <div style="text-align:center;padding:3rem;color:#9ca3af;">No projects found.</div>
+{{end}}
+{{end}}
+
+{{define "scp_group"}}
+<details class="card mb-4" open>
+    <summary style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;cursor:pointer;user-select:none;list-style:none;">
+        <div class="flex items-center gap-2">
+            <span style="font-weight:700;font-size:1.1rem;">{{.SCPID}}</span>
+            <span class="text-xs text-gray">{{.Count}} project{{if gt .Count 1}}s{{end}}</span>
+        </div>
+        <span class="text-xs text-gray">{{formatTime .LatestUpdate}}</span>
+    </summary>
+    <div style="padding:0 1rem 0.75rem;max-height:280px;overflow-y:auto;" id="scp-{{.SCPID}}">
+        {{template "scp_project_rows" .}}
+    </div>
+</details>
+{{end}}
+
+{{define "scp_project_rows"}}
+{{range .Projects}}
+<a href="/dashboard/projects/{{.ID}}" style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0.5rem;border-bottom:1px solid #1f2937;text-decoration:none;color:inherit;gap:0.5rem;" class="project-row">
+    <div class="flex items-center gap-2" style="min-width:0;">
+        <span class="text-xs text-gray" title="{{.ID}}" style="font-family:monospace;">{{truncID .ID}}</span>
+    </div>
+    <div class="flex items-center gap-2" style="flex-shrink:0;">
+        <span class="badge badge-{{.Status}}" style="font-size:0.65rem;">{{.Status}}</span>
+        <span class="text-xs text-gray">{{.SceneCount}} scenes</span>
+        <span class="text-xs text-gray">{{formatTime .CreatedAt}}</span>
+    </div>
+</a>
+{{end}}
+{{if .HasMore}}
+<div style="padding:0.5rem;text-align:center;">
+    <button class="btn btn-secondary" style="font-size:0.75rem;padding:0.25rem 0.75rem;"
+            hx-get="/dashboard/scp/{{.SCPID}}/projects?page={{.NextPage}}&stage={{.CurrentStage}}"
+            hx-target="#scp-{{.SCPID}}"
+            hx-swap="innerHTML">
+        Load more
+    </button>
+</div>
 {{end}}
 {{end}}
