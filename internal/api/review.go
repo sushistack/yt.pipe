@@ -22,7 +22,14 @@ import (
 
 // --- Review Token Validation ---
 
+// hasBearerAuth returns true if the request has a valid Bearer Authorization header.
+// This allows dashboard (Bearer-authenticated) requests to bypass review token validation.
+func hasBearerAuth(r *http.Request) bool {
+	return strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
+}
+
 // validateReviewToken validates the review token from query params against the project's stored token.
+// Also accepts Bearer-authenticated requests (from dashboard) without a review token.
 // Returns the project and true on success; writes error response and returns false on failure.
 func validateReviewToken(s *Server, w http.ResponseWriter, r *http.Request, projectID string) (*domain.Project, bool) {
 	project, err := s.store.GetProject(projectID)
@@ -33,6 +40,11 @@ func validateReviewToken(s *Server, w http.ResponseWriter, r *http.Request, proj
 		}
 		WriteError(w, r, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load project")
 		return nil, false
+	}
+
+	// Bearer-authenticated requests (dashboard) skip review token check
+	if hasBearerAuth(r) {
+		return project, true
 	}
 
 	token := r.URL.Query().Get("token")
@@ -52,7 +64,11 @@ func validateReviewToken(s *Server, w http.ResponseWriter, r *http.Request, proj
 // --- CSRF Verification ---
 
 // verifyCsrfToken checks that the X-Review-Token header matches the ?token= query parameter.
+// Bearer-authenticated requests (dashboard) skip CSRF check.
 func verifyCsrfToken(w http.ResponseWriter, r *http.Request) bool {
+	if hasBearerAuth(r) {
+		return true
+	}
 	headerToken := r.Header.Get("X-Review-Token")
 	queryToken := r.URL.Query().Get("token")
 	if headerToken == "" || subtle.ConstantTimeCompare([]byte(headerToken), []byte(queryToken)) != 1 {

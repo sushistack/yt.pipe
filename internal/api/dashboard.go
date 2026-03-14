@@ -249,6 +249,7 @@ type projectDetailData struct {
 }
 
 type sceneViewData struct {
+	ProjectID   string
 	SceneNum    int
 	Prompt      string
 	ImagePrompt string
@@ -281,6 +282,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				hasImage := sc.ImagePath != "" || sc.ImageStatus == "generated" || sc.ImageStatus == "approved"
 				hasAudio := sc.TTSPath != "" || sc.TTSStatus == "generated" || sc.TTSStatus == "approved"
 				scenes = append(scenes, sceneViewData{
+					ProjectID:   projectID,
 					SceneNum:    sc.SceneNum,
 					Prompt:      sc.Prompt,
 					ImagePrompt: sc.ImagePrompt,

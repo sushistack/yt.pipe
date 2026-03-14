@@ -220,7 +220,7 @@ func TestDashboard_Detail_PipelineButtons(t *testing.T) {
 	assert.Contains(t, body, "Generate Images")
 	assert.Contains(t, body, "Generate TTS")
 	assert.Contains(t, body, "Assemble")
-	assert.Contains(t, body, "Delete Project")
+	assert.Contains(t, body, "Delete")
 }
 
 // --- Auth ---
@@ -372,7 +372,7 @@ func TestDashboard_List_Pagination(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "Load more")
-	assert.Contains(t, w.Body.String(), "25 total")
+	assert.Contains(t, w.Body.String(), "25 SCP groups")
 }
 
 // --- Dashboard without trailing slash ---

@@ -2,7 +2,7 @@
 
 {{define "content"}}
 <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-    <h1 style="font-size:1.5rem;font-weight:700;">Projects</h1>
+    <h1 style="font-family:'Google Sans',sans-serif;font-size:1.5rem;font-weight:400;color:#202124;">Projects</h1>
     <div class="flex items-center gap-2">
         <select class="select" id="stage-filter"
                 hx-get="/dashboard/"
@@ -15,8 +15,9 @@
             <option value="{{.}}" {{if eq . $.CurrentStage}}selected{{end}}>{{.}}</option>
             {{end}}
         </select>
-        <input type="text" class="input" id="scp-search" name="scp" placeholder="SCP-#..."
+        <input type="text" class="input" id="scp-search" name="scp" placeholder="Search SCP..."
                value="{{.CurrentSCP}}"
+               style="width:140px;"
                hx-get="/dashboard/"
                hx-target="#project-list"
                hx-swap="innerHTML"
@@ -42,27 +43,32 @@
                 hx-target="#load-more"
                 hx-swap="outerHTML"
                 hx-indicator="#load-spinner">
+            <span class="mi" style="font-size:18px;">expand_more</span>
             Load more
-            <span class="htmx-indicator"><span class="spinner"></span></span>
+            <span id="load-spinner" class="htmx-indicator"><span class="spinner"></span></span>
         </button>
-        <span class="text-xs text-gray">{{.Total}} total</span>
+        <span class="text-xs text-gray">{{.Total}} SCP groups</span>
     </div>
     {{end}}
 {{else}}
-    <div style="text-align:center;padding:3rem;color:#9ca3af;">No projects found.</div>
+    <div style="text-align:center;padding:4rem 2rem;color:#5f6368;">
+        <span class="mi" style="font-size:48px;color:#dadce0;display:block;margin-bottom:1rem;">folder_open</span>
+        No projects found.
+    </div>
 {{end}}
 {{end}}
 
 {{define "scp_group"}}
-<details class="card mb-4" open>
-    <summary style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;cursor:pointer;user-select:none;list-style:none;">
+<details class="scp-group" open>
+    <summary>
         <div class="flex items-center gap-2">
-            <span style="font-weight:700;font-size:1.1rem;">{{.SCPID}}</span>
-            <span class="text-xs text-gray">{{.Count}} project{{if gt .Count 1}}s{{end}}</span>
+            <span class="mi" style="font-size:18px;color:#5f6368;transition:transform 0.2s;">chevron_right</span>
+            <span class="scp-group-title">{{.SCPID}}</span>
+            <span class="scp-group-meta">{{.Count}} project{{if gt .Count 1}}s{{end}}</span>
         </div>
         <span class="text-xs text-gray">{{formatTime .LatestUpdate}}</span>
     </summary>
-    <div style="padding:0 1rem 0.75rem;max-height:280px;overflow-y:auto;" id="scp-{{.SCPID}}">
+    <div class="scp-group-body" id="scp-{{.SCPID}}">
         {{template "scp_project_rows" .}}
     </div>
 </details>
@@ -70,24 +76,24 @@
 
 {{define "scp_project_rows"}}
 {{range .Projects}}
-<a href="/dashboard/projects/{{.ID}}" style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0.5rem;border-bottom:1px solid #1f2937;text-decoration:none;color:inherit;gap:0.5rem;" class="project-row">
-    <div class="flex items-center gap-2" style="min-width:0;">
-        <span class="text-xs text-gray" title="{{.ID}}" style="font-family:monospace;">{{truncID .ID}}</span>
+<a href="/dashboard/projects/{{.ID}}" class="project-row">
+    <div class="flex items-center gap-2">
+        <span class="project-id" title="{{.ID}}">{{truncID .ID}}</span>
     </div>
-    <div class="flex items-center gap-2" style="flex-shrink:0;">
-        <span class="badge badge-{{.Status}}" style="font-size:0.65rem;">{{.Status}}</span>
-        <span class="text-xs text-gray">{{.SceneCount}} scenes</span>
+    <div class="flex items-center gap-3">
+        <span class="badge badge-{{.Status}}">{{.Status}}</span>
+        <span class="text-xs text-gray" style="min-width:4.5rem;">{{.SceneCount}} scenes</span>
         <span class="text-xs text-gray">{{formatTime .CreatedAt}}</span>
     </div>
 </a>
 {{end}}
 {{if .HasMore}}
-<div style="padding:0.5rem;text-align:center;">
-    <button class="btn btn-secondary" style="font-size:0.75rem;padding:0.25rem 0.75rem;"
+<div style="padding:0.5rem 1.25rem;text-align:center;border-top:1px solid #f1f3f4;">
+    <button class="btn btn-secondary" style="height:1.75rem;font-size:0.75rem;"
             hx-get="/dashboard/scp/{{.SCPID}}/projects?page={{.NextPage}}&stage={{.CurrentStage}}"
             hx-target="#scp-{{.SCPID}}"
             hx-swap="innerHTML">
-        Load more
+        Show more projects
     </button>
 </div>
 {{end}}

@@ -3,9 +3,11 @@
 {{define "content"}}
 <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
     <div>
-        <a href="/dashboard/" class="text-sm text-gray">&larr; Back to projects</a>
-        <h1 style="font-size:1.5rem;font-weight:700;margin-top:0.25rem;">{{.Project.SCPID}}</h1>
-        <span class="text-xs text-gray">{{.Project.ID}}</span>
+        <a href="/dashboard/" class="text-sm text-gray" style="display:inline-flex;align-items:center;gap:0.25rem;">
+            <span class="mi" style="font-size:16px;">arrow_back</span> Back to projects
+        </a>
+        <h1 style="font-family:'Google Sans',sans-serif;font-size:1.5rem;font-weight:400;margin-top:0.25rem;">{{.Project.SCPID}}</h1>
+        <span class="text-xs text-gray" style="font-family:'Roboto Mono',monospace;">{{.Project.ID}}</span>
     </div>
     <div class="flex items-center gap-2">
         <span class="badge badge-{{.Project.Status}}">{{.Project.Status}}</span>
@@ -34,6 +36,7 @@
                 hx-swap="none"
                 {{if not (index .DependenciesMet "scenario")}}disabled title="Scenario required"{{end}}
                 hx-indicator="#gen-img-spinner">
+            <span class="mi" style="font-size:18px;">image</span>
             Generate Images
             <span id="gen-img-spinner" class="htmx-indicator"><span class="spinner"></span></span>
         </button>
@@ -42,6 +45,7 @@
                 hx-swap="none"
                 {{if not (index .DependenciesMet "scenario")}}disabled title="Scenario required"{{end}}
                 hx-indicator="#gen-tts-spinner">
+            <span class="mi" style="font-size:18px;">mic</span>
             Generate TTS
             <span id="gen-tts-spinner" class="htmx-indicator"><span class="spinner"></span></span>
         </button>
@@ -50,6 +54,7 @@
                 hx-swap="none"
                 {{if not (and (index .DependenciesMet "images") (index .DependenciesMet "tts"))}}disabled title="Images and TTS required"{{end}}
                 hx-indicator="#assemble-spinner">
+            <span class="mi" style="font-size:18px;">movie_creation</span>
             Assemble
             <span id="assemble-spinner" class="htmx-indicator"><span class="spinner"></span></span>
         </button>
@@ -59,20 +64,28 @@
                 hx-confirm="Delete this project permanently?"
                 hx-swap="none"
                 hx-on::after-request="if(event.detail.successful) window.location='/dashboard/'">
-            Delete Project
+            <span class="mi" style="font-size:18px;">delete</span>
+            Delete
         </button>
     </div>
 </div>
 
 <!-- Scenes -->
 {{if .Scenes}}
-<h2 style="font-size:1.1rem;font-weight:600;margin-bottom:0.75rem;">Scenes</h2>
-{{range .Scenes}}
-    {{template "scene_card" .}}
+<div class="flex items-center justify-between" style="margin-bottom:0.75rem;">
+    <h2 style="font-family:'Google Sans',sans-serif;font-size:1.125rem;font-weight:400;">Scenes</h2>
+    <span class="text-xs text-gray">{{len .Scenes}} scenes</span>
+</div>
+{{range $i, $sc := .Scenes}}
+    {{if $i}}
+    {{template "insert_scene_btn" $sc}}
+    {{end}}
+    {{template "scene_card" $sc}}
 {{end}}
 {{else}}
 <div class="card">
-    <div class="card-body" style="text-align:center;padding:2rem;color:#9ca3af;">
+    <div class="card-body" style="text-align:center;padding:3rem;color:#5f6368;">
+        <span class="mi" style="font-size:48px;color:#dadce0;display:block;margin-bottom:1rem;">movie_creation</span>
         No scenes yet. Generate a scenario first.
     </div>
 </div>

@@ -1,19 +1,44 @@
 {{define "scene_card"}}
 <div class="card mb-4" id="scene-{{.SceneNum}}">
     <div class="card-body">
-        {{/* Header: scene number + badges */}}
-        <div class="flex items-center gap-2" style="margin-bottom:0.75rem;">
-            <span style="display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;font-size:0.75rem;font-weight:700;color:#fff;background:#1f2937;border-radius:9999px;">{{.SceneNum}}</span>
-            {{if .ImageStatus}}
-            <span class="badge {{if eq .ImageStatus "approved"}}badge-complete{{else if eq .ImageStatus "generated"}}badge-images{{else}}badge-pending{{end}}">
-                IMG: {{.ImageStatus}}
-            </span>
-            {{end}}
-            {{if .TTSStatus}}
-            <span class="badge {{if eq .TTSStatus "approved"}}badge-complete{{else if eq .TTSStatus "generated"}}badge-tts{{else}}badge-pending{{end}}">
-                TTS: {{.TTSStatus}}
-            </span>
-            {{end}}
+        {{/* Header: scene number + badges + actions */}}
+        <div class="flex items-center justify-between" style="margin-bottom:0.75rem;">
+            <div class="flex items-center gap-2">
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;font-size:0.75rem;font-weight:700;color:#fff;background:#1f2937;border-radius:9999px;">{{.SceneNum}}</span>
+                {{if .ImageStatus}}
+                <span class="badge {{if eq .ImageStatus "approved"}}badge-complete{{else if eq .ImageStatus "generated"}}badge-images{{else}}badge-pending{{end}}">
+                    IMG: {{.ImageStatus}}
+                </span>
+                {{end}}
+                {{if .TTSStatus}}
+                <span class="badge {{if eq .TTSStatus "approved"}}badge-complete{{else if eq .TTSStatus "generated"}}badge-tts{{else}}badge-pending{{end}}">
+                    TTS: {{.TTSStatus}}
+                </span>
+                {{end}}
+            </div>
+            <div class="flex items-center gap-1">
+                <button class="btn-icon" title="Regenerate Image"
+                        hx-post="/api/v1/projects/{{.ProjectID}}/images/generate"
+                        hx-vals='{"scenes":[{{.SceneNum}}]}'
+                        hx-swap="none"
+                        hx-confirm="Regenerate image for scene {{.SceneNum}}?">
+                    🖼
+                </button>
+                <button class="btn-icon" title="Regenerate TTS"
+                        hx-post="/api/v1/projects/{{.ProjectID}}/tts/generate"
+                        hx-vals='{"scenes":[{{.SceneNum}}]}'
+                        hx-swap="none"
+                        hx-confirm="Regenerate TTS for scene {{.SceneNum}}?">
+                    🔊
+                </button>
+                <button class="btn-icon btn-icon-danger" title="Delete Scene"
+                        hx-delete="/api/v1/projects/{{.ProjectID}}/scenes/{{.SceneNum}}"
+                        hx-swap="none"
+                        hx-confirm="Delete scene {{.SceneNum}}? This cannot be undone."
+                        hx-on::after-request="if(event.detail.successful) location.reload()">
+                    ✕
+                </button>
+            </div>
         </div>
 
         {{/* Two-column layout: image left, narration+audio right */}}
@@ -30,11 +55,19 @@
 
             {{/* Right: Narration + Audio (50%) */}}
             <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:0.75rem;">
-                {{if .Prompt}}
-                <div style="flex:1;overflow-y:auto;max-height:250px;">
-                    <p class="text-sm" style="line-height:1.6;margin:0;">{{.Prompt}}</p>
+                <div style="flex:1;overflow-y:auto;max-height:250px;" id="narration-{{.SceneNum}}">
+                    {{if .Prompt}}
+                    <p class="text-sm" style="line-height:1.6;margin:0;" id="narration-text-{{.SceneNum}}">{{.Prompt}}</p>
+                    {{else}}
+                    <p class="text-sm text-gray" style="margin:0;">No narration yet.</p>
+                    {{end}}
                 </div>
-                {{end}}
+                <div class="flex items-center gap-1">
+                    <button class="btn-icon" title="Edit Narration"
+                            onclick="editNarration('{{.ProjectID}}', {{.SceneNum}})">
+                        ✏️
+                    </button>
+                </div>
 
                 {{if .HasAudio}}
                 <div>
@@ -54,5 +87,16 @@
         </details>
         {{end}}
     </div>
+</div>
+{{end}}
+
+{{define "insert_scene_btn"}}
+<div style="display:flex;justify-content:center;margin:-0.5rem 0;">
+    <button class="btn-icon" title="Insert scene after {{.SceneNum}}"
+            style="opacity:0.3;transition:opacity 0.2s;"
+            onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.3'"
+            onclick="insertScene('{{.ProjectID}}', {{.SceneNum}})">
+        ＋
+    </button>
 </div>
 {{end}}
