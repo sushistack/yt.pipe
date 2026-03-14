@@ -102,10 +102,8 @@
         var _selectedSCP = '';
 
         function openNewProject() {
-            console.log('openNewProject called');
             var modal = document.getElementById('new-project-modal');
-            console.log('modal element:', modal);
-            if (!modal) { alert('Modal element not found in DOM'); return; }
+            if (!modal) return;
             modal.showModal();
             if (!_scpData) {
                 var key = document.querySelector('meta[name="api-key"]');

@@ -32,10 +32,6 @@
     </div>
 </div>
 
-<div id="project-list">
-    {{template "scp_group_list" .}}
-</div>
-
 <!-- New Project Modal -->
 <dialog id="new-project-modal" class="modal">
     <div class="modal-box max-w-lg">
@@ -56,6 +52,10 @@
     </div>
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
+
+<div id="project-list">
+    {{template "scp_group_list" .}}
+</div>
 {{end}}
 
 {{define "scp_group_list"}}
