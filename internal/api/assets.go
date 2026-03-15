@@ -48,18 +48,20 @@ type feedbackResponse struct {
 // validImageGenStates defines project stages that allow image generation.
 // Generation actions are gated by dependency checks, not state — permit all non-pending stages.
 var validImageGenStates = map[string]bool{
-	domain.StageScenario: true,
-	domain.StageImages:   true,
-	domain.StageTTS:      true,
-	domain.StageComplete: true,
+	domain.StageScenario:  true,
+	domain.StageCharacter: true,
+	domain.StageImages:    true,
+	domain.StageTTS:       true,
+	domain.StageComplete:  true,
 }
 
 // validTTSGenStates defines project stages that allow TTS generation.
 var validTTSGenStates = map[string]bool{
-	domain.StageScenario: true,
-	domain.StageImages:   true,
-	domain.StageTTS:      true,
-	domain.StageComplete: true,
+	domain.StageScenario:  true,
+	domain.StageCharacter: true,
+	domain.StageImages:    true,
+	domain.StageTTS:       true,
+	domain.StageComplete:  true,
 }
 
 // handleGenerateImages enqueues selective image regeneration.
@@ -234,10 +236,11 @@ func (s *Server) handleGenerateTTS(w http.ResponseWriter, r *http.Request) {
 
 // validAssemblyStates defines project stages that allow assembly.
 var validAssemblyStates = map[string]bool{
-	domain.StageScenario: true,
-	domain.StageImages:   true,
-	domain.StageTTS:      true,
-	domain.StageComplete: true,
+	domain.StageScenario:  true,
+	domain.StageCharacter: true,
+	domain.StageImages:    true,
+	domain.StageTTS:       true,
+	domain.StageComplete:  true,
 }
 
 // handleAssemble triggers CapCut project assembly.
