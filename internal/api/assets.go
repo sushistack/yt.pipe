@@ -715,6 +715,24 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 		}
 	}
 
+	// Load scenario to get visual descriptions for image prompts
+	scenarioPath := filepath.Join(projectPath, "scenario.json")
+	scenario, scenarioErr := service.LoadScenarioFromFile(scenarioPath)
+	if scenarioErr != nil {
+		slog.Warn("could not load scenario for image prompts, using fallback",
+			"project_id", project.ID, "err", scenarioErr)
+	}
+
+	// Build scene visual description lookup
+	sceneVisuals := make(map[int]string)
+	sceneNarrations := make(map[int]string)
+	if scenario != nil {
+		for _, sc := range scenario.Scenes {
+			sceneVisuals[sc.SceneNum] = sc.VisualDescription
+			sceneNarrations[sc.SceneNum] = sc.Narration
+		}
+	}
+
 	slog.Info("image generation started",
 		"project_id", project.ID,
 		"job_id", jobID,
@@ -730,14 +748,19 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 			return
 		}
 
-		// Build a minimal prompt for the scene
+		// Build prompt from scenario visual description
+		promptText := sceneVisuals[sceneNum]
+		if promptText == "" {
+			promptText = fmt.Sprintf("Scene %d image for project %s", sceneNum, project.SCPID)
+		}
 		prompt := service.ImagePromptResult{
 			SceneNum:        sceneNum,
-			SanitizedPrompt: fmt.Sprintf("Scene %d image for project %s", sceneNum, project.SCPID),
+			SanitizedPrompt: promptText,
 			SCPID:           project.SCPID,
+			SceneText:       sceneNarrations[sceneNum],
 		}
 
-		// Try to read a manual prompt from the scene directory
+		// Try to read a manual prompt from the scene directory (overrides scenario)
 		if manualPrompt, exists, err := s.imageGenSvc.ReadManualPrompt(projectPath, sceneNum); err == nil && exists {
 			prompt.SanitizedPrompt = manualPrompt
 		}

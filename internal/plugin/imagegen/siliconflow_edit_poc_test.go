@@ -18,9 +18,9 @@ import (
 //
 // Run: SILICONFLOW_API_KEY=<key> go test -tags=integration -run TestImageEditPoC -v ./internal/plugin/imagegen/...
 func TestImageEditPoC(t *testing.T) {
-	apiKey := os.Getenv("SILICONFLOW_API_KEY")
+	apiKey := os.Getenv("YTP_IMAGEGEN_API_KEY")
 	if apiKey == "" {
-		t.Skip("SILICONFLOW_API_KEY not set")
+		t.Skip("YTP_IMAGEGEN_API_KEY not set")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)

@@ -71,7 +71,7 @@ func TestGeminiScenarioGeneration(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	apiKey := skipIfNoKey(t, "GEMINI_API_KEY")
+	apiKey := skipIfNoKey(t, "YTP_LLM_API_KEY")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -116,7 +116,7 @@ func TestSiliconFlowImageGeneration(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	apiKey := skipIfNoKey(t, "SILICONFLOW_API_KEY")
+	apiKey := skipIfNoKey(t, "YTP_IMAGEGEN_API_KEY")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -152,7 +152,7 @@ func TestDashScopeTTSSynthesis(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	apiKey := skipIfNoKey(t, "DASHSCOPE_API_KEY")
+	apiKey := skipIfNoKey(t, "YTP_TTS_API_KEY")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -160,7 +160,7 @@ func TestDashScopeTTSSynthesis(t *testing.T) {
 	// Create DashScope provider
 	provider, err := tts.DashScopeFactory(map[string]interface{}{
 		"api_key": apiKey,
-		"model":   "cosyvoice-v1",
+		"model":   "qwen3-tts-flash",
 	})
 	require.NoError(t, err)
 
@@ -187,12 +187,9 @@ func TestFallbackChainActivation(t *testing.T) {
 	}
 
 	// Need at least one working fallback key
-	fallbackKey := os.Getenv("GEMINI_API_KEY")
+	fallbackKey := os.Getenv("YTP_LLM_API_KEY")
 	if fallbackKey == "" {
-		fallbackKey = os.Getenv("QWEN_API_KEY")
-	}
-	if fallbackKey == "" {
-		t.Skip("no fallback API key available (GEMINI_API_KEY or QWEN_API_KEY)")
+		t.Skip("YTP_LLM_API_KEY not set")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -241,9 +238,9 @@ func TestFullPipelineE2E(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	geminiKey := skipIfNoKey(t, "GEMINI_API_KEY")
-	siliconflowKey := skipIfNoKey(t, "SILICONFLOW_API_KEY")
-	dashscopeKey := skipIfNoKey(t, "DASHSCOPE_API_KEY")
+	geminiKey := skipIfNoKey(t, "YTP_LLM_API_KEY")
+	siliconflowKey := skipIfNoKey(t, "YTP_IMAGEGEN_API_KEY")
+	dashscopeKey := skipIfNoKey(t, "YTP_TTS_API_KEY")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
@@ -265,7 +262,7 @@ func TestFullPipelineE2E(t *testing.T) {
 
 	ttsRaw, err := tts.DashScopeFactory(map[string]interface{}{
 		"api_key": dashscopeKey,
-		"model":   "cosyvoice-v1",
+		"model":   "qwen3-tts-flash",
 	})
 	require.NoError(t, err)
 	ttsProvider := ttsRaw.(tts.TTS)
