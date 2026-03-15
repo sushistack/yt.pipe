@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 
 	"github.com/sushistack/yt.pipe/internal/domain"
@@ -176,68 +177,44 @@ func LoadScenarioFromFile(path string) (*domain.ScenarioOutput, error) {
 
 // generateScenarioInternal tries 4-stage pipeline first, falls back to legacy one-shot.
 func (ss *ScenarioService) generateScenarioInternal(ctx context.Context, scpData *workspace.SCPData, workspacePath string) (*domain.ScenarioOutput, error) {
-	// Try 4-stage pipeline if templates are configured
-	if ss.templatesDir != "" {
-		pipe, pipeErr := NewScenarioPipeline(ss.llm, ss.glossary, ScenarioPipelineConfig{
-			TemplatesDir: ss.templatesDir,
-		})
-		if pipeErr == nil {
-			slog.Info("using 4-stage scenario pipeline", "templates_dir", ss.templatesDir)
-			pipeResult, runErr := pipe.Run(ctx, scpData, workspacePath)
-			if runErr != nil {
-				return nil, fmt.Errorf("scenario: 4-stage pipeline: %w", runErr)
-			}
-			scenario := pipeResult.Scenario
+	// Clear previous stage checkpoints so templates changes take effect.
+	// Without this, cached stages from previous runs would be reused even after prompt updates.
+	stagesDir := filepath.Join(workspacePath, "stages")
+	_ = os.RemoveAll(stagesDir)
 
-			// Record pipeline mode in metadata
-			if scenario.Metadata == nil {
-				scenario.Metadata = make(map[string]string)
-			}
-			scenario.Metadata["pipeline_mode"] = "4-stage"
-			scenario.Metadata["templates_dir"] = ss.templatesDir
-			scenario.Metadata["format_guide"] = "applied"
-
-			// Save output files
-			scenarioJSON, _ := json.MarshalIndent(scenario, "", "  ")
-			_ = workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.json"), scenarioJSON)
-			md := RenderScenarioMarkdown(scenario)
-			_ = workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.md"), []byte(md))
-
-			return scenario, nil
-		}
-		slog.Warn("4-stage pipeline init failed, falling back to legacy", "err", pipeErr)
+	// 4-stage pipeline is the ONLY scenario generation path
+	if ss.templatesDir == "" {
+		return nil, fmt.Errorf("scenario: templates_path is not configured — cannot generate scenario. Set templates_path in config or YTP_TEMPLATES_PATH env var")
 	}
 
-	// Legacy: single-shot LLM generation
-	var factTags []domain.FactTag
-	for k, v := range scpData.Facts.Facts {
-		factTags = append(factTags, domain.FactTag{Key: k, Content: v})
-	}
-	metadata := map[string]string{
-		"title":        scpData.Meta.Title,
-		"object_class": scpData.Meta.ObjectClass,
-		"series":       scpData.Meta.Series,
+	pipe, pipeErr := NewScenarioPipeline(ss.llm, ss.glossary, ScenarioPipelineConfig{
+		TemplatesDir: ss.templatesDir,
+	})
+	if pipeErr != nil {
+		return nil, fmt.Errorf("scenario: init 4-stage pipeline: %w", pipeErr)
 	}
 
-	metadata["pipeline_mode"] = "legacy-single-prompt"
-	metadata["format_guide"] = "none"
+	slog.Info("using 4-stage scenario pipeline", "templates_dir", ss.templatesDir)
+	pipeResult, runErr := pipe.Run(ctx, scpData, workspacePath)
+	if runErr != nil {
+		return nil, fmt.Errorf("scenario: 4-stage pipeline: %w", runErr)
+	}
+	scenario := pipeResult.Scenario
 
-	scenario, err := ss.llm.GenerateScenario(ctx, scpData.SCPID, scpData.MainText, factTags, metadata)
-	if err != nil {
-		return nil, fmt.Errorf("scenario: llm generation: %w", err)
+	// Record pipeline mode in metadata
+	if scenario.Metadata == nil {
+		scenario.Metadata = make(map[string]string)
 	}
+	scenario.Metadata["pipeline_mode"] = "4-stage"
+	scenario.Metadata["templates_dir"] = ss.templatesDir
+	scenario.Metadata["format_guide"] = "applied"
+	scenario.Metadata["attempts"] = fmt.Sprintf("%d", pipeResult.Attempts)
 
-	scenarioJSON, err := json.MarshalIndent(scenario, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("scenario: marshal output: %w", err)
-	}
-	if err := workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.json"), scenarioJSON); err != nil {
-		return nil, fmt.Errorf("scenario: save json: %w", err)
-	}
+	// Save output files
+	scenarioJSON, _ := json.MarshalIndent(scenario, "", "  ")
+	_ = workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.json"), scenarioJSON)
 	md := RenderScenarioMarkdown(scenario)
-	if err := workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.md"), []byte(md)); err != nil {
-		return nil, fmt.Errorf("scenario: save markdown: %w", err)
-	}
+	_ = workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.md"), []byte(md))
 
 	return scenario, nil
 }

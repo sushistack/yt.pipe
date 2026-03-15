@@ -179,7 +179,7 @@ func setDefaults(v *viper.Viper) {
 
 	v.SetDefault("job_retention_days", 7)
 	v.SetDefault("glossary_path", "")
-	v.SetDefault("templates_path", "")
+	v.SetDefault("templates_path", "templates")
 	v.SetDefault("log_level", "info")
 	v.SetDefault("log_format", "json")
 }

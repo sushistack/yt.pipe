@@ -3,11 +3,14 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/glossary"
 	"github.com/sushistack/yt.pipe/internal/mocks"
+	"github.com/sushistack/yt.pipe/internal/plugin/llm"
 	"github.com/sushistack/yt.pipe/internal/store"
 	"github.com/sushistack/yt.pipe/internal/workspace"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupScenarioService(t *testing.T) (*ScenarioService, *mocks.MockLLM) {
+func setupScenarioService(t *testing.T) (*ScenarioService, *mocks.MockLLM, string) {
 	t.Helper()
 	s, err := store.New(":memory:")
 	require.NoError(t, err)
@@ -23,7 +26,56 @@ func setupScenarioService(t *testing.T) (*ScenarioService, *mocks.MockLLM) {
 
 	mockLLM := mocks.NewMockLLM(t)
 	projectSvc := NewProjectService(s)
-	return NewScenarioService(s, mockLLM, projectSvc), mockLLM
+	svc := NewScenarioService(s, mockLLM, projectSvc)
+
+	// Create templates dir with minimal templates for 4-stage pipeline
+	tplDir := t.TempDir()
+	scenarioDir := filepath.Join(tplDir, "scenario")
+	require.NoError(t, os.MkdirAll(scenarioDir, 0o755))
+	templates := map[string]string{
+		"01_research.md":  "Research {scp_id}\n{scp_fact_sheet}\n{main_text}\n{glossary_section}\n{format_guide}",
+		"02_structure.md": "Structure {scp_id}\n{research_packet}\n{scp_visual_reference}\n{target_duration}\n{glossary_section}\n{format_guide}",
+		"03_writing.md":   "Writing {scp_id}\n{scene_structure}\n{scp_visual_reference}\n{glossary_section}\n{format_guide}\n{quality_feedback}",
+		"04_review.md":    "Review {scp_id}\n{narration_script}\n{scp_visual_reference}\n{scp_fact_sheet}\n{glossary_section}",
+	}
+	for name, content := range templates {
+		require.NoError(t, os.WriteFile(filepath.Join(scenarioDir, name), []byte(content), 0o644))
+	}
+	svc.SetTemplatesDir(tplDir)
+	svc.SetGlossary(glossary.New())
+
+	return svc, mockLLM, tplDir
+}
+
+// setup4StageMocks configures mock LLM to handle all 4 stages of the pipeline.
+func setup4StageMocks(mockLLM *mocks.MockLLM) {
+	// Stage 1: Research
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Research")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: "### Visual Identity Profile\nTall concrete statue", InputTokens: 100, OutputTokens: 200, Model: "test",
+	}, nil).Maybe()
+
+	// Stage 2: Structure
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Structure")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: `[{"scene_num":1},{"scene_num":2}]`, InputTokens: 100, OutputTokens: 100, Model: "test",
+	}, nil).Maybe()
+
+	// Stage 3: Writing
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Writing")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: sampleWritingOutput(), InputTokens: 200, OutputTokens: 300, Model: "test",
+	}, nil).Maybe()
+
+	// Stage 4: Review
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Review")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: sampleReviewOutput(), InputTokens: 100, OutputTokens: 50, Model: "test",
+	}, nil).Maybe()
 }
 
 func sampleSCPData() *workspace.SCPData {
@@ -68,47 +120,47 @@ func sampleScenarioOutput() *domain.ScenarioOutput {
 }
 
 func TestGenerateScenario_Success(t *testing.T) {
-	svc, mockLLM := setupScenarioService(t)
+	svc, mockLLM, _ := setupScenarioService(t)
 	ctx := context.Background()
 	wsPath := t.TempDir()
-	scpData := sampleSCPData()
 
-	mockLLM.On("GenerateScenario", mock.Anything, "SCP-173", scpData.MainText, mock.Anything, mock.Anything).
-		Return(sampleScenarioOutput(), nil)
+	setup4StageMocks(mockLLM)
 
-	scenario, project, err := svc.GenerateScenario(ctx, scpData, wsPath)
+	scenario, project, err := svc.GenerateScenario(ctx, sampleSCPData(), wsPath)
 	require.NoError(t, err)
 
 	assert.Equal(t, "SCP-173", scenario.SCPID)
 	assert.Len(t, scenario.Scenes, 2)
 	assert.Equal(t, domain.StageScenario, project.Status)
 	assert.Equal(t, 2, project.SceneCount)
+	assert.Equal(t, "4-stage", scenario.Metadata["pipeline_mode"])
 
 	// Verify files were created
 	assert.FileExists(t, filepath.Join(wsPath, "scenario.json"))
 	assert.FileExists(t, filepath.Join(wsPath, "scenario.md"))
 }
 
-func TestGenerateScenario_LLMError(t *testing.T) {
-	svc, mockLLM := setupScenarioService(t)
-	ctx := context.Background()
-	wsPath := t.TempDir()
+func TestGenerateScenario_NoTemplatesPath(t *testing.T) {
+	s, err := store.New(":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { s.Close() })
 
-	mockLLM.On("GenerateScenario", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(nil, &domain.PluginError{Plugin: "openai", Operation: "generate", Err: assert.AnError})
+	mockLLM := mocks.NewMockLLM(t)
+	projectSvc := NewProjectService(s)
+	svc := NewScenarioService(s, mockLLM, projectSvc)
+	// NOT setting templates dir → should fail with clear error
 
-	_, _, err := svc.GenerateScenario(ctx, sampleSCPData(), wsPath)
+	_, _, err = svc.GenerateScenario(context.Background(), sampleSCPData(), t.TempDir())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "llm generation")
+	assert.Contains(t, err.Error(), "templates_path is not configured")
 }
 
 func TestApproveScenario_Success(t *testing.T) {
-	svc, mockLLM := setupScenarioService(t)
+	svc, mockLLM, _ := setupScenarioService(t)
 	ctx := context.Background()
 	wsPath := t.TempDir()
 
-	mockLLM.On("GenerateScenario", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(sampleScenarioOutput(), nil)
+	setup4StageMocks(mockLLM)
 
 	_, project, err := svc.GenerateScenario(ctx, sampleSCPData(), wsPath)
 	require.NoError(t, err)
@@ -119,11 +171,9 @@ func TestApproveScenario_Success(t *testing.T) {
 }
 
 func TestApproveScenario_NoStateGate(t *testing.T) {
-	svc, _ := setupScenarioService(t)
+	svc, _, _ := setupScenarioService(t)
 	ctx := context.Background()
 
-	// Create project but don't generate (status = pending)
-	// ApproveScenario no longer validates state — it just returns the project
 	project, err := svc.projectSvc.CreateProject(ctx, "SCP-173", "/tmp/ws")
 	require.NoError(t, err)
 
@@ -133,12 +183,11 @@ func TestApproveScenario_NoStateGate(t *testing.T) {
 }
 
 func TestRegenerateSection_Success(t *testing.T) {
-	svc, mockLLM := setupScenarioService(t)
+	svc, mockLLM, _ := setupScenarioService(t)
 	ctx := context.Background()
 	wsPath := t.TempDir()
 
-	mockLLM.On("GenerateScenario", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(sampleScenarioOutput(), nil)
+	setup4StageMocks(mockLLM)
 
 	newScene := &domain.SceneScript{
 		SceneNum:          1,
@@ -158,7 +207,7 @@ func TestRegenerateSection_Success(t *testing.T) {
 }
 
 func TestRegenerateSection_WrongState(t *testing.T) {
-	svc, _ := setupScenarioService(t)
+	svc, _, _ := setupScenarioService(t)
 	ctx := context.Background()
 
 	project, err := svc.projectSvc.CreateProject(ctx, "SCP-173", "/tmp/ws")

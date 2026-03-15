@@ -74,12 +74,16 @@ func runServeCmd(cmd *cobra.Command, _ []string) error {
 
 	// Resolve templates path with fallback for local development
 	tplPath := c.TemplatesPath
-	if tplPath != "" {
-		if _, err := os.Stat(filepath.Join(tplPath, "scenario")); os.IsNotExist(err) {
-			if _, err2 := os.Stat(filepath.Join("templates", "scenario")); err2 == nil {
-				tplPath = "templates"
-				slog.Info("templates_path fallback to relative ./templates", "configured", c.TemplatesPath)
-			}
+	if tplPath == "" {
+		tplPath = "templates"
+	}
+	if _, err := os.Stat(filepath.Join(tplPath, "scenario")); os.IsNotExist(err) {
+		if _, err2 := os.Stat(filepath.Join("templates", "scenario")); err2 == nil {
+			tplPath = "templates"
+			slog.Info("templates_path fallback to relative ./templates", "configured", c.TemplatesPath)
+		} else {
+			slog.Warn("templates_path not found — 4-stage pipeline will be DISABLED", "path", tplPath)
+			tplPath = ""
 		}
 	}
 
