@@ -30,8 +30,25 @@ import (
 	"github.com/sushistack/yt.pipe/internal/store"
 )
 
-// scpDataPath is the path to real SCP data files used by the pipeline.
-const scpDataPath = "/mnt/data/raw"
+// projectRoot returns the root directory of the yt.pipe project by walking up
+// from the current file until go.mod is found. Works in both local and CI environments.
+func projectRoot() string {
+	// Start from working directory
+	dir, err := os.Getwd()
+	if err != nil {
+		panic("cannot get working directory: " + err.Error())
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			panic("cannot find project root (go.mod)")
+		}
+		dir = parent
+	}
+}
 
 // --- Fake plugins ---
 
@@ -238,9 +255,10 @@ func StartTestServer(t *testing.T) (string, *store.Store) {
 	st, err := store.New(dbPath)
 	require.NoError(t, err)
 
+	root := projectRoot()
 	cfg := &config.Config{
 		WorkspacePath: t.TempDir(),
-		SCPDataPath:   scpDataPath, // Real SCP data for scenario generation
+		SCPDataPath:   filepath.Join(root, "testdata"), // Use bundled test SCP data
 		API:           config.APIConfig{Host: "127.0.0.1", Port: 0},
 	}
 
@@ -251,7 +269,7 @@ func StartTestServer(t *testing.T) (string, *store.Store) {
 
 	projectSvc := service.NewProjectService(st)
 	scenarioSvc := service.NewScenarioService(st, fl, projectSvc)
-	scenarioSvc.SetTemplatesDir("/mnt/work/projects/yt.pipe/templates") // Enable 4-stage pipeline
+	scenarioSvc.SetTemplatesDir(filepath.Join(root, "templates")) // Enable 4-stage pipeline
 	imageGenSvc := service.NewImageGenService(fig, st, slog.Default())
 	ttsSvc := service.NewTTSService(ft, glossary.New(), st, slog.Default())
 	characterSvc := service.NewCharacterService(st)
