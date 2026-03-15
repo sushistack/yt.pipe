@@ -69,6 +69,51 @@ func TestCharacter_Deselect(t *testing.T) {
 	assert.NoError(t, err, "page should render after character deselection")
 }
 
+func TestCharacter_GenerateNewReplacesExisting(t *testing.T) {
+	baseURL, st := StartTestServer(t)
+	page := newPage(t)
+	acceptDialogs(page)
+
+	// Start at character stage (already has a selected character)
+	projectID := seedProjectAtStage(t, baseURL, st, "SCP-173", "character")
+
+	_, err := page.Goto(baseURL + "/dashboard/projects/" + projectID)
+	require.NoError(t, err)
+
+	// VERIFY: "Selected" badge and "Generate New" button are visible
+	err = page.Locator("text=Selected").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(5000),
+	})
+	require.NoError(t, err, "Selected badge should be visible at character stage")
+
+	generateNewBtn := page.Locator("text=Generate New").First()
+	err = generateNewBtn.WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(5000),
+	})
+	require.NoError(t, err, "Generate New button should be visible")
+
+	// Click "Generate New" (triggers confirm dialog → auto-accepted)
+	err = generateNewBtn.Click()
+	require.NoError(t, err)
+
+	// Wait for character generation job to complete
+	waitForJobCompletion(t, page, baseURL, projectID, 20000)
+
+	// VERIFY: page shows either new candidates to select or updated character
+	// The key assertion: page should not error out and should show character section
+	err = page.Locator("h1:has-text('SCP-173')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(5000),
+	})
+	assert.NoError(t, err, "project detail should render after Generate New")
+
+	// VERIFY: Character section rendered (either candidates or re-selected)
+	charSection := page.Locator("#character-section")
+	err = charSection.WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(5000),
+	})
+	assert.NoError(t, err, "character section should be present after Generate New")
+}
+
 func TestCharacter_CandidatePolling(t *testing.T) {
 	baseURL, st := StartTestServer(t)
 	page := newPage(t)

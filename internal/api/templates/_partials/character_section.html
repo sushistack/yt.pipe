@@ -26,7 +26,7 @@
                             Change Selection
                         </button>
                         <button class="btn btn-outline btn-sm"
-                                onclick="if(confirm('Generate new character candidates? This will replace the current character.')) generateCharacters('{{.ProjectID}}')">
+                                onclick="if(confirm('Generate new character candidates? This will replace the current character.')) generateCharacters('{{.ProjectID}}', true)">
                             Generate New
                         </button>
                     </div>
@@ -52,7 +52,7 @@
                             Reuse This Character
                         </button>
                         <button class="btn btn-outline btn-sm"
-                                onclick="generateCharacters('{{$.ProjectID}}')">
+                                onclick="if(confirm('Generate new character candidates?')) generateCharacters('{{$.ProjectID}}', true)">
                             Generate New
                         </button>
                     </div>
@@ -161,7 +161,7 @@
             </span>
             <span class="text-sm">{{.Character.CanonicalName}}</span>
             <button class="btn btn-ghost btn-xs"
-                    onclick="if(confirm('Generate new character candidates? This will replace the current character.')) generateCharacters('{{.ProjectID}}')">
+                    onclick="if(confirm('Generate new character candidates? This will replace the current character.')) generateCharacters('{{.ProjectID}}', true)">
                 Generate New
             </button>
         </div>

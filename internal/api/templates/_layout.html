@@ -158,8 +158,10 @@
             }).catch(function() { showToast('Failed to start', 'error'); });
         }
 
-        function generateCharacters(projectID) {
-            apiPost('/api/v1/projects/' + projectID + '/characters/generate').then(function(r) {
+        function generateCharacters(projectID, force) {
+            var url = '/api/v1/projects/' + projectID + '/characters/generate';
+            if (force) { url += '?force=true'; }
+            apiPost(url).then(function(r) {
                 if (r.ok) { showToast('Character generation started', 'success'); location.reload(); }
                 else if (r.status === 409) { r.json().then(function(d) { showToast(d.error && d.error.message || 'Conflict', 'error'); }); }
                 else { r.json().then(function(d) { showToast(d.error && d.error.message || 'Failed', 'error'); }); }

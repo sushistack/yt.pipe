@@ -48,16 +48,20 @@ func (s *Server) handleGenerateCharacters(w http.ResponseWriter, r *http.Request
 	}
 
 	// Check if an existing character already exists for this SCP ID (cross-project reuse)
-	existingChar, _ := s.characterSvc.CheckExistingCharacter(project.SCPID)
-	if existingChar != nil && existingChar.SelectedImagePath != "" {
-		// Don't generate — just set stage to character so the reuse prompt appears
-		projectSvc := service.NewProjectService(s.store)
-		_, _ = projectSvc.SetProjectStage(r.Context(), project.ID, domain.StageCharacter)
-		WriteJSON(w, r, http.StatusOK, map[string]interface{}{
-			"action":    "reuse_available",
-			"character": existingChar,
-		})
-		return
+	// Skip reuse check when force=true (user explicitly clicked "Generate New")
+	force := r.URL.Query().Get("force") == "true"
+	if !force {
+		existingChar, _ := s.characterSvc.CheckExistingCharacter(project.SCPID)
+		if existingChar != nil && existingChar.SelectedImagePath != "" {
+			// Don't generate — just set stage to character so the reuse prompt appears
+			projectSvc := service.NewProjectService(s.store)
+			_, _ = projectSvc.SetProjectStage(r.Context(), project.ID, domain.StageCharacter)
+			WriteJSON(w, r, http.StatusOK, map[string]interface{}{
+				"action":    "reuse_available",
+				"character": existingChar,
+			})
+			return
+		}
 	}
 
 	// Set project stage to character
