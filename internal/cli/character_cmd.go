@@ -112,6 +112,18 @@ func openCharacterService(cmd *cobra.Command) (*service.CharacterService, func()
 		return nil, nil, fmt.Errorf("open database: %w", err)
 	}
 	svc := service.NewCharacterService(db)
+
+	// Wire LLM and ImageGen plugins for character generation
+	llmPlugin, imgPlugin, _, pluginErr := createPlugins(cfg)
+	if pluginErr == nil {
+		if llmPlugin != nil {
+			svc.SetLLM(llmPlugin)
+		}
+		if imgPlugin != nil {
+			svc.SetImageGen(imgPlugin)
+		}
+	}
+
 	return svc, func() { db.Close() }, nil
 }
 

@@ -754,7 +754,23 @@ func (r *Runner) runParallelGeneration(ctx context.Context, scenario *domain.Sce
 	go func() {
 		defer wg.Done()
 		ttsSvc := service.NewTTSService(r.tts, r.glossary, r.store, r.logger)
-		ttsScenes, ttsErr = ttsSvc.SynthesizeAll(ctx, scenario.Scenes, project.ID, project.WorkspacePath, r.voice, nil)
+
+		// Wire voice cloner if TTS provider supports it
+		if vc, ok := r.tts.(tts.VoiceCloner); ok {
+			ttsSvc.SetVoiceCloner(vc)
+		}
+
+		// Resolve voice — auto-enroll clone voice if configured
+		voice := r.voice
+		resolvedVoice, ensureErr := ttsSvc.EnsureVoiceID(ctx, project.ID, voice)
+		if ensureErr != nil {
+			r.logger.Warn("voice enrollment failed, using default voice",
+				"project_id", project.ID, "err", ensureErr)
+		} else {
+			voice = resolvedVoice
+		}
+
+		ttsScenes, ttsErr = ttsSvc.SynthesizeAll(ctx, scenario.Scenes, project.ID, project.WorkspacePath, voice, nil)
 	}()
 
 	wg.Wait()

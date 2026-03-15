@@ -71,12 +71,13 @@ func createPlugins(cfg *config.LoadResult) (llm.LLM, imagegen.ImageGen, tts.TTS,
 
 	// Create TTS plugin
 	ttsCfg := map[string]interface{}{
-		"endpoint": c.TTS.Endpoint,
-		"api_key":  c.TTS.APIKey,
-		"model":    c.TTS.Model,
-		"voice":    c.TTS.Voice,
-		"language": c.TTS.Language,
-		"format":   c.TTS.Format,
+		"endpoint":    c.TTS.Endpoint,
+		"api_key":     c.TTS.APIKey,
+		"model":       c.TTS.Model,
+		"clone_model": c.TTS.Clone.Model,
+		"voice":       c.TTS.Voice,
+		"language":    c.TTS.Language,
+		"format":      c.TTS.Format,
 	}
 	ttsRaw, err := pluginRegistry.Create(plugin.PluginTypeTTS, c.TTS.Provider, ttsCfg)
 	if err != nil {

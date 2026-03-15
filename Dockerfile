@@ -20,6 +20,9 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Binary
 COPY --from=builder /yt-pipe /yt-pipe
 
+# Template files for scenario pipeline
+COPY --from=builder /app/templates /templates
+
 # Non-root user
 USER 65534:65534
 
