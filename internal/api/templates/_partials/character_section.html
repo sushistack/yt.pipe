@@ -6,8 +6,31 @@
         {{/* Active character stage — expanded view */}}
         {{if eq .CurrentStage "character"}}
 
-            {{/* Existing character from other project — reuse prompt */}}
-            {{if and .Character (eq .CharacterStatus "empty")}}
+            {{/* Character already selected — show confirmed state */}}
+            {{if and .Character .Character.SelectedImagePath}}
+            <div class="flex items-center gap-3 mb-3">
+                <span class="badge badge-success gap-1">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                    Selected
+                </span>
+                <h3 class="font-semibold">{{.Character.CanonicalName}}</h3>
+            </div>
+            <div class="flex gap-4 items-start">
+                <img src="/dashboard/projects/{{.ProjectID}}/characters/image"
+                     class="w-32 h-32 rounded-lg object-cover" alt="Character" />
+                <div class="flex-1">
+                    <p class="text-sm opacity-70 line-clamp-3">{{.Character.VisualDescriptor}}</p>
+                    <div class="flex gap-2 mt-3">
+                        <button class="btn btn-outline btn-sm"
+                                onclick="if(confirm('Generate new character candidates? This will replace the current character.')) generateCharacters('{{.ProjectID}}')">
+                            Generate New
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {{/* Existing character from other project (no candidates yet) — reuse prompt */}}
+            {{else if and .Character (eq .CharacterStatus "empty")}}
             <div class="flex items-center gap-3 mb-3">
                 <h3 class="font-semibold">Existing Character Found</h3>
             </div>
