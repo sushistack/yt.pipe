@@ -103,7 +103,7 @@ func TestGenerateScenePrompt_Success(t *testing.T) {
 	assert.Equal(t, "wide", output.ShotDesc.CameraType)
 	assert.True(t, output.ShotDesc.EntityVisible)
 	assert.NotEmpty(t, output.FinalPrompt)
-	assert.Contains(t, output.FinalPrompt, "cinematic still")
+	assert.Contains(t, output.FinalPrompt, "anime")
 	assert.NotEmpty(t, output.NegativePrompt)
 }
 
@@ -155,14 +155,14 @@ func TestSanitizeImagePrompt(t *testing.T) {
 		excludes string
 	}{
 		{
-			name:     "adds cinematic suffix",
+			name:     "adds anime suffix",
 			input:    "a dark hallway",
-			contains: "cinematic still",
+			contains: "anime illustration",
 		},
 		{
 			name:     "does not duplicate suffix",
-			input:    "a dark hallway, cinematic still, dark horror photography",
-			contains: "cinematic still",
+			input:    "a dark hallway, anime illustration, dark horror anime style",
+			contains: "anime",
 		},
 		{
 			name:     "removes dangerous terms",

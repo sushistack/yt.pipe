@@ -24,7 +24,7 @@ func TestGenerateImagePrompts_Basic(t *testing.T) {
 	assert.Equal(t, 1, results[0].SceneNum)
 	assert.Contains(t, results[0].OriginalPrompt, "A dark containment cell")
 	assert.Contains(t, results[0].OriginalPrompt, "mood: tense")
-	assert.Contains(t, results[0].SanitizedPrompt, "digital illustration")
+	assert.Contains(t, results[0].SanitizedPrompt, "anime illustration")
 	assert.NotEmpty(t, results[0].TemplateVersion)
 }
 

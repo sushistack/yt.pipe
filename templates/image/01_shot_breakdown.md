@@ -1,4 +1,4 @@
-You are a professional cinematographer breaking down a scene from an SCP horror/documentary video into a single cinematic shot.
+You are a professional anime art director breaking down a scene from an SCP horror/documentary anime into a single illustrated shot.
 
 ## Entity Visual Identity
 {entity_visual_identity}

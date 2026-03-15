@@ -14,9 +14,9 @@ import (
 
 // DefaultSafetyModifiers are appended to image prompts to avoid NSFW filter triggers.
 var DefaultSafetyModifiers = []string{
-	"digital illustration",
+	"anime illustration",
+	"cel shading",
 	"safe for work",
-	"artistic style",
 	"clean composition",
 }
 

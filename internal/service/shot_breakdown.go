@@ -234,9 +234,9 @@ func sanitizeImagePrompt(prompt string) string {
 	sanitized = multiSpaceRe.ReplaceAllString(sanitized, " ")
 	sanitized = strings.TrimSpace(sanitized)
 
-	// Ensure cinematic suffix is present
-	suffix := "cinematic still, dark horror photography, highly detailed, 8k, sharp focus, volumetric lighting, film grain, 16:9 aspect ratio"
-	if !strings.Contains(strings.ToLower(sanitized), "cinematic still") {
+	// Ensure anime style suffix is present
+	suffix := "anime illustration, dark horror anime style, highly detailed, vibrant colors, cel shading, sharp lines, dramatic lighting, 16:9 aspect ratio"
+	if !strings.Contains(strings.ToLower(sanitized), "anime") {
 		sanitized = sanitized + ", " + suffix
 	}
 

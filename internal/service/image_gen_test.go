@@ -45,7 +45,7 @@ func TestGenerateSceneImage_Success(t *testing.T) {
 	projectID := "test-project"
 	createTestProject(t, st, projectID)
 
-	mockIG.On("Generate", mock.Anything, "sanitized prompt, digital illustration", mock.Anything).
+	mockIG.On("Generate", mock.Anything, "sanitized prompt, anime illustration", mock.Anything).
 		Return(&imagegen.ImageResult{
 			ImageData: []byte("fake-png-data"),
 			Format:    "png",
@@ -56,7 +56,7 @@ func TestGenerateSceneImage_Success(t *testing.T) {
 	prompt := ImagePromptResult{
 		SceneNum:        1,
 		OriginalPrompt:  "original prompt",
-		SanitizedPrompt: "sanitized prompt, digital illustration",
+		SanitizedPrompt: "sanitized prompt, anime illustration",
 	}
 
 	scene, err := svc.GenerateSceneImage(ctx, prompt, projectID, projectPath, imagegen.GenerateOptions{})
