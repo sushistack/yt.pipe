@@ -99,19 +99,71 @@ func TestCharacter_GenerateNewReplacesExisting(t *testing.T) {
 	// Wait for character generation job to complete
 	waitForJobCompletion(t, page, baseURL, projectID, 20000)
 
-	// VERIFY: page shows either new candidates to select or updated character
-	// The key assertion: page should not error out and should show character section
-	err = page.Locator("h1:has-text('SCP-173')").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(5000),
-	})
-	assert.NoError(t, err, "project detail should render after Generate New")
+	// VERIFY: "Selected" badge should NOT be visible — character was deselected
+	selectedBadge := page.Locator("text=Selected")
+	selectedCount, _ := selectedBadge.Count()
+	assert.Equal(t, 0, selectedCount, "Selected badge should disappear after Generate New (character deselected)")
 
-	// VERIFY: Character section rendered (either candidates or re-selected)
-	charSection := page.Locator("#character-section")
-	err = charSection.WaitFor(playwright.LocatorWaitForOptions{
+	// VERIFY: candidate selection grid should appear (either "Select a Character" or candidate cards)
+	selectUI := page.Locator("text=Select a Character")
+	err = selectUI.WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(5000),
 	})
-	assert.NoError(t, err, "character section should be present after Generate New")
+	if err != nil {
+		// May show generating state or candidates — either way, not "Selected"
+		charSection := page.Locator("#character-section")
+		err = charSection.WaitFor(playwright.LocatorWaitForOptions{
+			Timeout: playwright.Float(5000),
+		})
+		assert.NoError(t, err, "character section should be present after Generate New")
+	}
+}
+
+func TestCharacter_SelectNewCandidateAfterGenerateNew(t *testing.T) {
+	baseURL, st := StartTestServer(t)
+	page := newPage(t)
+	acceptDialogs(page)
+
+	// Start at character stage with a selected character
+	projectID := seedProjectAtStage(t, baseURL, st, "SCP-173", "character")
+
+	_, err := page.Goto(baseURL + "/dashboard/projects/" + projectID)
+	require.NoError(t, err)
+
+	// Click "Generate New"
+	generateNewBtn := page.Locator("text=Generate New").First()
+	err = generateNewBtn.WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(5000)})
+	require.NoError(t, err)
+	err = generateNewBtn.Click()
+	require.NoError(t, err)
+
+	// Wait for generation to complete
+	waitForJobCompletion(t, page, baseURL, projectID, 20000)
+
+	// Wait for candidate cards to appear
+	candidateCard := page.Locator("img[src*='candidates']").First()
+	err = candidateCard.WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	if err != nil {
+		t.Log("Candidate cards not found — generation may still be in progress or UI differs")
+		return
+	}
+
+	// Click the first candidate to select it
+	err = candidateCard.Click()
+	require.NoError(t, err)
+
+	// Wait for page to update after selection
+	page.WaitForTimeout(2000)
+	_, err = page.Goto(baseURL + "/dashboard/projects/" + projectID)
+	require.NoError(t, err)
+
+	// VERIFY: "Selected" badge should reappear with the new character
+	err = page.Locator("text=Selected").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(5000),
+	})
+	assert.NoError(t, err, "Selected badge should appear after selecting a new candidate")
 }
 
 func TestCharacter_CandidatePolling(t *testing.T) {

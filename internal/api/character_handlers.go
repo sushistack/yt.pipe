@@ -50,7 +50,14 @@ func (s *Server) handleGenerateCharacters(w http.ResponseWriter, r *http.Request
 	// Check if an existing character already exists for this SCP ID (cross-project reuse)
 	// Skip reuse check when force=true (user explicitly clicked "Generate New")
 	force := r.URL.Query().Get("force") == "true"
-	if !force {
+	if force {
+		// Deselect existing character so page shows candidate grid after reload
+		existingChar, _ := s.characterSvc.CheckExistingCharacter(project.SCPID)
+		if existingChar != nil && existingChar.SelectedImagePath != "" {
+			existingChar.SelectedImagePath = ""
+			_ = s.store.UpdateCharacter(existingChar)
+		}
+	} else {
 		existingChar, _ := s.characterSvc.CheckExistingCharacter(project.SCPID)
 		if existingChar != nil && existingChar.SelectedImagePath != "" {
 			// Don't generate — just set stage to character so the reuse prompt appears
