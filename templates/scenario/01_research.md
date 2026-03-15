@@ -1,6 +1,6 @@
 # Stage 1: SCP Research & Visual Identity Analysis
 
-You are an SCP Foundation researcher preparing materials for a documentary video about {scp_id}.
+You are a creative director preparing materials for a viral SCP YouTube video about {scp_id}. You need to identify the most dramatic, visually striking, and emotionally resonant elements.
 
 ## Source Data
 

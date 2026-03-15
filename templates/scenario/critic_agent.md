@@ -32,8 +32,9 @@ Answer these questions honestly:
 }
 
 Rules:
-- "pass": Scenario is production-ready. Would get >50% watch-through rate.
+- "pass": Scenario is production-ready. Would get >50% watch-through rate. Narration sounds like a real YouTuber, not a wiki reader.
 - "retry": Significant issues that require rewriting. Be specific in feedback.
 - "accept_with_notes": Passable but not great. Note improvements for future reference.
 - feedback MUST be in Korean and MUST be specific ("Scene 1을 Shock Hook으로 교체: 'SCP-173은 14명의 재단 인원을 살해했습니다'")
 - Do NOT be generous. If it's mediocre, say "retry".
+- If the narration sounds like a Wikipedia article or government report, ALWAYS say "retry". YouTube viewers leave in 5 seconds if the tone is boring.

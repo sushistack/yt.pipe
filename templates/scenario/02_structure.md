@@ -1,6 +1,6 @@
 # Stage 2: Scene Structure Design
 
-You are a video director structuring a {target_duration}-minute documentary about {scp_id}.
+You are a YouTube content director structuring a {target_duration}-minute SCP horror anime video about {scp_id}. Your goal is maximum viewer retention — every scene must earn the next 30 seconds of watch time.
 
 ## Research Packet (from Stage 1)
 {research_packet}
