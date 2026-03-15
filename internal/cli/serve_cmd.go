@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -71,6 +72,17 @@ func runServeCmd(cmd *cobra.Command, _ []string) error {
 	// Shared ProjectService instance for all services
 	projectSvc := service.NewProjectService(db)
 
+	// Resolve templates path with fallback for local development
+	tplPath := c.TemplatesPath
+	if tplPath != "" {
+		if _, err := os.Stat(filepath.Join(tplPath, "scenario")); os.IsNotExist(err) {
+			if _, err2 := os.Stat(filepath.Join("templates", "scenario")); err2 == nil {
+				tplPath = "templates"
+				slog.Info("templates_path fallback to relative ./templates", "configured", c.TemplatesPath)
+			}
+		}
+	}
+
 	// Build server options with initialized services
 	opts := []api.ServerOption{
 		api.WithRegistry(pluginRegistry),
@@ -79,8 +91,8 @@ func runServeCmd(cmd *cobra.Command, _ []string) error {
 
 	if plugins.LLM != nil {
 		scenarioSvc := service.NewScenarioService(db, plugins.LLM, projectSvc)
-		if c.TemplatesPath != "" {
-			scenarioSvc.SetTemplatesDir(c.TemplatesPath)
+		if tplPath != "" {
+			scenarioSvc.SetTemplatesDir(tplPath)
 		}
 		scenarioSvc.SetGlossary(g)
 		opts = append(opts, api.WithScenarioService(scenarioSvc))
@@ -136,7 +148,7 @@ func runServeCmd(cmd *cobra.Command, _ []string) error {
 		Canvas:               canvas,
 		TemplatePath:         c.Output.TemplatePath,
 		MetaPath:             c.Output.MetaPath,
-		TemplatesPath:        c.TemplatesPath,
+		TemplatesPath:        tplPath,
 		DefaultSceneDuration: c.Output.DefaultSceneDuration,
 		CharacterSvc:         characterSvc,
 	})

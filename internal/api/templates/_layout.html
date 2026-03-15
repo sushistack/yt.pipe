@@ -178,6 +178,17 @@
             }).catch(function() { showToast('Failed to select', 'error'); });
         }
 
+        function deselectCharacter(projectID) {
+            var key = document.querySelector('meta[name="api-key"]');
+            fetch('/api/v1/projects/' + projectID + '/characters/deselect', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + (key ? key.content : '') }
+            }).then(function(r) {
+                if (r.ok) { location.reload(); }
+                else { r.json().then(function(d) { showToast(d.error && d.error.message || 'Failed', 'error'); }); }
+            }).catch(function() { showToast('Failed', 'error'); });
+        }
+
         var _scpItems = [];
         var _scpHasMore = false;
         var _scpLoading = false;

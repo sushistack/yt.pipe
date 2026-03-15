@@ -51,8 +51,8 @@
 <!-- Character Selection -->
 {{template "character_section" .}}
 
-{{/* === Job Status Banner === */}}
-{{if .Job.IsRunning}}
+{{/* === Job Status Banner (hidden for character_generate — character section handles it) === */}}
+{{if and .Job.IsRunning (ne .Job.Stage "character_generate")}}
 <div class="alert shadow-sm mb-4">
     <span class="loading loading-spinner loading-sm"></span>
     <div>

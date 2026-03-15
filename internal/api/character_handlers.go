@@ -174,6 +174,38 @@ func (s *Server) handleSelectCharacter(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, r, http.StatusOK, char)
 }
 
+// handleDeselectCharacter clears the selected character so user can pick again.
+// POST /api/v1/projects/{id}/characters/deselect
+func (s *Server) handleDeselectCharacter(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "project not found")
+		return
+	}
+
+	if s.characterSvc == nil {
+		WriteError(w, r, http.StatusInternalServerError, "SERVICE_UNAVAILABLE",
+			"character service not configured")
+		return
+	}
+
+	char, err := s.characterSvc.CheckExistingCharacter(project.SCPID)
+	if err != nil || char == nil {
+		WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "no character to deselect")
+		return
+	}
+
+	char.SelectedImagePath = ""
+	if err := s.store.UpdateCharacter(char); err != nil {
+		WriteError(w, r, http.StatusInternalServerError, "UPDATE_FAILED", err.Error())
+		return
+	}
+
+	WriteJSON(w, r, http.StatusOK, map[string]string{"status": "deselected"})
+}
+
 // handleGetCharacter returns the current character for a project's SCP ID.
 // GET /api/v1/projects/{id}/characters
 func (s *Server) handleGetCharacter(w http.ResponseWriter, r *http.Request) {

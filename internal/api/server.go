@@ -235,6 +235,7 @@ func (s *Server) setupRouter() {
 		r.Post("/projects/{id}/characters/generate", s.handleGenerateCharacters)
 		r.Get("/projects/{id}/characters/candidates", s.handleListCandidates)
 		r.Post("/projects/{id}/characters/select", s.handleSelectCharacter)
+		r.Post("/projects/{id}/characters/deselect", s.handleDeselectCharacter)
 		r.Get("/projects/{id}/characters", s.handleGetCharacter)
 
 		// Asset management

@@ -21,6 +21,10 @@
                 <div class="flex-1">
                     <p class="text-sm opacity-70 line-clamp-3">{{.Character.VisualDescriptor}}</p>
                     <div class="flex gap-2 mt-3">
+                        <button class="btn btn-primary btn-sm"
+                                onclick="deselectCharacter('{{.ProjectID}}')">
+                            Change Selection
+                        </button>
                         <button class="btn btn-outline btn-sm"
                                 onclick="if(confirm('Generate new character candidates? This will replace the current character.')) generateCharacters('{{.ProjectID}}')">
                             Generate New
