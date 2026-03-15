@@ -52,9 +52,10 @@ Identify 6-10 dramatic moments from the document suitable for video scenes:
 - Ambient sounds or environmental factors
 - Overall mood and horror subgenre
 
-### 5. Narrative Hooks
-- Opening hook for viewer retention
-- Mid-video twist or revelation
-- Closing mystery or unresolved element
+### 5. Narrative Hooks (CRITICAL for YouTube retention)
+- **Opening hook** (first 5 seconds): Write 3 candidate hooks using different hook types (Question, Shock, Mystery, Contrast). Each must be a single punchy Korean sentence that grabs attention WITHOUT mentioning SCP classification.
+- **Mid-video twist**: The moment where the viewer's understanding of this SCP fundamentally changes
+- **Closing mystery**: An unresolved element that leaves viewers with lingering unease
+- **"What if" moment**: A hypothetical scenario that places the viewer inside the SCP encounter
 
 Output the research packet as structured text with clear section headers.
