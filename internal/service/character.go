@@ -150,6 +150,8 @@ func (cs *CharacterService) GenerateCandidates(ctx context.Context, projectID, s
 	}
 
 	candidateDir := filepath.Join(workspacePath, scpID, "characters")
+	// Remove old candidate files before generating new ones to prevent stale image selection
+	_ = os.RemoveAll(candidateDir)
 	if err := os.MkdirAll(candidateDir, 0o755); err != nil {
 		return nil, fmt.Errorf("service: generate candidates: create dir: %w", err)
 	}
