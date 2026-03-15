@@ -123,16 +123,15 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
-	p, err := s.store.GetProject(id)
-	if err != nil {
+	if _, err := s.store.GetProject(id); err != nil {
 		writeServiceError(w, r, err)
 		return
 	}
 
-	// Only allow deletion of completed or pending projects
-	if p.Status != domain.StageComplete && p.Status != domain.StagePending {
+	// Block deletion only if a job is actively running for this project
+	if job := s.jobs.get(id); job != nil && job.getStatus() == JobStatusRunning {
 		WriteError(w, r, http.StatusConflict, "CONFLICT",
-			"cannot delete project in '"+p.Status+"' state; only 'complete' or 'pending' projects can be deleted")
+			"cannot delete project while a job is running; cancel the job first")
 		return
 	}
 
