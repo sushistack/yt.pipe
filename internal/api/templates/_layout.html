@@ -158,6 +158,26 @@
             }).catch(function() { showToast('Failed to start', 'error'); });
         }
 
+        function generateCharacters(projectID) {
+            apiPost('/api/v1/projects/' + projectID + '/characters/generate').then(function(r) {
+                if (r.ok) { showToast('Character generation started', 'success'); location.reload(); }
+                else if (r.status === 409) { r.json().then(function(d) { showToast(d.error && d.error.message || 'Conflict', 'error'); }); }
+                else { r.json().then(function(d) { showToast(d.error && d.error.message || 'Failed', 'error'); }); }
+            }).catch(function() { showToast('Failed to start', 'error'); });
+        }
+
+        function selectCharacter(projectID, candidateNum) {
+            var key = document.querySelector('meta[name="api-key"]');
+            fetch('/api/v1/projects/' + projectID + '/characters/select', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + (key ? key.content : ''), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ candidate_num: candidateNum })
+            }).then(function(r) {
+                if (r.ok) { showToast('Character selected', 'success'); location.reload(); }
+                else { r.json().then(function(d) { showToast(d.error && d.error.message || 'Failed', 'error'); }); }
+            }).catch(function() { showToast('Failed to select', 'error'); });
+        }
+
         var _scpItems = [];
         var _scpHasMore = false;
         var _scpLoading = false;

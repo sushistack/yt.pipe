@@ -89,9 +89,7 @@
             {{else if eq .CurrentStage "scenario"}}
             {{/* === Scenario stage — character generation first, then assets === */}}
             <button class="btn btn-primary btn-sm"
-                    hx-post="/api/v1/projects/{{.Project.ID}}/characters/generate"
-                    hx-target="#project-content"
-                    hx-swap="innerHTML"
+                    onclick="generateCharacters('{{.Project.ID}}')"
                     {{if .Job.IsRunning}}disabled{{end}}>
                 Generate Characters
             </button>
