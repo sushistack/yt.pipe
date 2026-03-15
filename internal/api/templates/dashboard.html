@@ -123,11 +123,11 @@
 </a>
 {{end}}
 {{if .HasMore}}
-<div class="flex justify-center py-2 border-t border-base-200">
+<div id="scp-more-{{.SCPID}}" class="flex justify-center py-2 border-t border-base-200">
     <button class="btn btn-ghost btn-xs"
             hx-get="/dashboard/scp/{{.SCPID}}/projects?page={{.NextPage}}&stage={{.CurrentStage}}"
-            hx-target="#scp-{{.SCPID}}"
-            hx-swap="innerHTML">
+            hx-target="#scp-more-{{.SCPID}}"
+            hx-swap="outerHTML">
         Show more
         <span class="loading loading-spinner loading-xs htmx-indicator"></span>
     </button>
