@@ -120,6 +120,7 @@ type scpGroupViewData struct {
 	Projects     []*domain.Project
 	HasMore      bool
 	CurrentStage string
+	NextPage     int
 }
 
 // dashboardListData is the template data for the dashboard list page.
@@ -169,6 +170,7 @@ func (s *Server) handleDashboardList(w http.ResponseWriter, r *http.Request) {
 			Projects:     projects,
 			HasMore:      projTotal > projectsPerGroup,
 			CurrentStage: stage,
+			NextPage:     2,
 		})
 	}
 
