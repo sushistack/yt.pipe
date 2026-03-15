@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 
 	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/glossary"
 	"github.com/sushistack/yt.pipe/internal/plugin/llm"
 	"github.com/sushistack/yt.pipe/internal/store"
 	"github.com/sushistack/yt.pipe/internal/workspace"
@@ -14,14 +16,26 @@ import (
 
 // ScenarioService handles scenario generation and management.
 type ScenarioService struct {
-	store      *store.Store
-	llm        llm.LLM
-	projectSvc *ProjectService
+	store        *store.Store
+	llm          llm.LLM
+	projectSvc   *ProjectService
+	templatesDir string
+	glossary     *glossary.Glossary
 }
 
 // NewScenarioService creates a new ScenarioService.
 func NewScenarioService(s *store.Store, l llm.LLM, ps *ProjectService) *ScenarioService {
 	return &ScenarioService{store: s, llm: l, projectSvc: ps}
+}
+
+// SetTemplatesDir enables 4-stage pipeline scenario generation.
+func (ss *ScenarioService) SetTemplatesDir(dir string) {
+	ss.templatesDir = dir
+}
+
+// SetGlossary sets the glossary for the 4-stage pipeline.
+func (ss *ScenarioService) SetGlossary(g *glossary.Glossary) {
+	ss.glossary = g
 }
 
 // GenerateScenario generates a scenario from SCP data and saves it to the project workspace.
@@ -33,40 +47,9 @@ func (ss *ScenarioService) GenerateScenario(ctx context.Context, scpData *worksp
 		return nil, nil, fmt.Errorf("scenario: create project: %w", err)
 	}
 
-	// Convert facts to FactTag slice for LLM
-	var factTags []domain.FactTag
-	for k, v := range scpData.Facts.Facts {
-		factTags = append(factTags, domain.FactTag{Key: k, Content: v})
-	}
-
-	// Build metadata from meta.json
-	metadata := map[string]string{
-		"title":        scpData.Meta.Title,
-		"object_class": scpData.Meta.ObjectClass,
-		"series":       scpData.Meta.Series,
-	}
-
-	// Generate scenario via LLM plugin
-	scenario, err := ss.llm.GenerateScenario(ctx, scpData.SCPID, scpData.MainText, factTags, metadata)
+	scenario, err := ss.generateScenarioInternal(ctx, scpData, workspacePath)
 	if err != nil {
-		return nil, project, fmt.Errorf("scenario: llm generation: %w", err)
-	}
-
-	// Save scenario JSON
-	scenarioJSON, err := json.MarshalIndent(scenario, "", "  ")
-	if err != nil {
-		return nil, project, fmt.Errorf("scenario: marshal output: %w", err)
-	}
-	scenarioPath := filepath.Join(workspacePath, "scenario.json")
-	if err := workspace.WriteFileAtomic(scenarioPath, scenarioJSON); err != nil {
-		return nil, project, fmt.Errorf("scenario: save json: %w", err)
-	}
-
-	// Save scenario markdown for human review
-	md := renderScenarioMarkdown(scenario)
-	mdPath := filepath.Join(workspacePath, "scenario.md")
-	if err := workspace.WriteFileAtomic(mdPath, []byte(md)); err != nil {
-		return nil, project, fmt.Errorf("scenario: save markdown: %w", err)
+		return nil, project, err
 	}
 
 	// Update scene count
@@ -124,7 +107,7 @@ func (ss *ScenarioService) RegenerateSection(ctx context.Context, projectID stri
 	}
 
 	// Update markdown
-	md := renderScenarioMarkdown(scenario)
+	md := RenderScenarioMarkdown(scenario)
 	mdPath := filepath.Join(project.WorkspacePath, "scenario.md")
 	if err := workspace.WriteFileAtomic(mdPath, []byte(md)); err != nil {
 		return nil, fmt.Errorf("scenario: save updated markdown: %w", err)
@@ -136,23 +119,9 @@ func (ss *ScenarioService) RegenerateSection(ctx context.Context, projectID stri
 // GenerateScenarioForProject generates a scenario for an existing project.
 // Unlike GenerateScenario, this does not create a new project — it uses the provided one.
 func (ss *ScenarioService) GenerateScenarioForProject(ctx context.Context, project *domain.Project, scpData *workspace.SCPData) (*domain.ScenarioOutput, error) {
-	// Convert facts to FactTag slice for LLM
-	var factTags []domain.FactTag
-	for k, v := range scpData.Facts.Facts {
-		factTags = append(factTags, domain.FactTag{Key: k, Content: v})
-	}
-
-	// Build metadata from meta.json
-	metadata := map[string]string{
-		"title":        scpData.Meta.Title,
-		"object_class": scpData.Meta.ObjectClass,
-		"series":       scpData.Meta.Series,
-	}
-
-	// Generate scenario via LLM plugin
-	scenario, err := ss.llm.GenerateScenario(ctx, scpData.SCPID, scpData.MainText, factTags, metadata)
+	scenario, err := ss.generateScenarioInternal(ctx, scpData, project.WorkspacePath)
 	if err != nil {
-		return nil, fmt.Errorf("scenario: llm generation: %w", err)
+		return nil, err
 	}
 
 	// Save scenario JSON
@@ -166,7 +135,7 @@ func (ss *ScenarioService) GenerateScenarioForProject(ctx context.Context, proje
 	}
 
 	// Save scenario markdown for human review
-	md := renderScenarioMarkdown(scenario)
+	md := RenderScenarioMarkdown(scenario)
 	mdPath := filepath.Join(project.WorkspacePath, "scenario.md")
 	if err := workspace.WriteFileAtomic(mdPath, []byte(md)); err != nil {
 		return nil, fmt.Errorf("scenario: save markdown: %w", err)
@@ -205,7 +174,65 @@ func LoadScenarioFromFile(path string) (*domain.ScenarioOutput, error) {
 	return &s, nil
 }
 
-func renderScenarioMarkdown(s *domain.ScenarioOutput) string {
+// generateScenarioInternal tries 4-stage pipeline first, falls back to legacy one-shot.
+func (ss *ScenarioService) generateScenarioInternal(ctx context.Context, scpData *workspace.SCPData, workspacePath string) (*domain.ScenarioOutput, error) {
+	// Try 4-stage pipeline if templates are configured
+	if ss.templatesDir != "" {
+		pipe, pipeErr := NewScenarioPipeline(ss.llm, ss.glossary, ScenarioPipelineConfig{
+			TemplatesDir: ss.templatesDir,
+		})
+		if pipeErr == nil {
+			slog.Info("using 4-stage scenario pipeline", "templates_dir", ss.templatesDir)
+			pipeResult, runErr := pipe.Run(ctx, scpData, workspacePath)
+			if runErr != nil {
+				return nil, fmt.Errorf("scenario: 4-stage pipeline: %w", runErr)
+			}
+			scenario := pipeResult.Scenario
+
+			// Save output files
+			scenarioJSON, _ := json.MarshalIndent(scenario, "", "  ")
+			_ = workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.json"), scenarioJSON)
+			md := RenderScenarioMarkdown(scenario)
+			_ = workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.md"), []byte(md))
+
+			return scenario, nil
+		}
+		slog.Warn("4-stage pipeline init failed, falling back to legacy", "err", pipeErr)
+	}
+
+	// Legacy: single-shot LLM generation
+	var factTags []domain.FactTag
+	for k, v := range scpData.Facts.Facts {
+		factTags = append(factTags, domain.FactTag{Key: k, Content: v})
+	}
+	metadata := map[string]string{
+		"title":        scpData.Meta.Title,
+		"object_class": scpData.Meta.ObjectClass,
+		"series":       scpData.Meta.Series,
+	}
+
+	scenario, err := ss.llm.GenerateScenario(ctx, scpData.SCPID, scpData.MainText, factTags, metadata)
+	if err != nil {
+		return nil, fmt.Errorf("scenario: llm generation: %w", err)
+	}
+
+	scenarioJSON, err := json.MarshalIndent(scenario, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("scenario: marshal output: %w", err)
+	}
+	if err := workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.json"), scenarioJSON); err != nil {
+		return nil, fmt.Errorf("scenario: save json: %w", err)
+	}
+	md := RenderScenarioMarkdown(scenario)
+	if err := workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.md"), []byte(md)); err != nil {
+		return nil, fmt.Errorf("scenario: save markdown: %w", err)
+	}
+
+	return scenario, nil
+}
+
+// RenderScenarioMarkdown renders a scenario to human-readable markdown.
+func RenderScenarioMarkdown(s *domain.ScenarioOutput) string {
 	md := fmt.Sprintf("# %s\n\n**SCP ID:** %s\n\n", s.Title, s.SCPID)
 
 	for _, scene := range s.Scenes {

@@ -95,6 +95,7 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 		Canvas:        canvas,
 		TemplatePath:  c.Output.TemplatePath,
 		MetaPath:      c.Output.MetaPath,
+		TemplatesPath: c.TemplatesPath,
 	})
 
 	// Set progress callback for stderr output

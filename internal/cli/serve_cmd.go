@@ -77,6 +77,10 @@ func runServeCmd(cmd *cobra.Command, _ []string) error {
 
 	if plugins.LLM != nil {
 		scenarioSvc := service.NewScenarioService(db, plugins.LLM, projectSvc)
+		if c.TemplatesPath != "" {
+			scenarioSvc.SetTemplatesDir(c.TemplatesPath)
+		}
+		scenarioSvc.SetGlossary(g)
 		opts = append(opts, api.WithScenarioService(scenarioSvc))
 	}
 	if plugins.ImageGen != nil {

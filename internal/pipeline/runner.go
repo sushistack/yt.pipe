@@ -692,13 +692,17 @@ func (r *Runner) runScenarioGenerate(ctx context.Context, scpData *workspace.SCP
 	start := time.Now()
 
 	projectSvc := service.NewProjectService(r.store)
-	scenarioSvc := service.NewScenarioService(r.store, r.llm, projectSvc)
 
 	projectPath, err := workspace.InitProject(r.workspacePath, scpData.SCPID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("scenario generate: init workspace: %w", err)
 	}
 
+	scenarioSvc := service.NewScenarioService(r.store, r.llm, projectSvc)
+	if r.templatesPath != "" {
+		scenarioSvc.SetTemplatesDir(r.templatesPath)
+	}
+	scenarioSvc.SetGlossary(r.glossary)
 	scenario, project, err := scenarioSvc.GenerateScenario(ctx, scpData, projectPath)
 	if err != nil {
 		return nil, project, fmt.Errorf("scenario generate: %w", err)
@@ -706,6 +710,7 @@ func (r *Runner) runScenarioGenerate(ctx context.Context, scpData *workspace.SCP
 
 	r.logger.Info("stage complete", "stage", service.StageScenarioGenerate,
 		"scp_id", scpData.SCPID, "scenes", len(scenario.Scenes),
+		"mode", "legacy",
 		"duration_ms", time.Since(start).Milliseconds())
 
 	return scenario, project, nil
