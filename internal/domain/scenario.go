@@ -15,6 +15,7 @@ type SceneScript struct {
 	VisualDescription string
 	FactTags          []FactTag
 	Mood              string
+	EntityVisible     bool
 }
 
 // FactTag represents a tagged fact reference

@@ -488,14 +488,15 @@ func parseScenarioFromWriting(content string, scpID string) (*domain.ScenarioOut
 		SCPID    string `json:"scp_id"`
 		Title    string `json:"title"`
 		Scenes   []struct {
-			SceneNum    int    `json:"scene_num"`
-			Narration   string `json:"narration"`
-			VisualDesc  string `json:"visual_description"`
-			FactTags    []struct {
+			SceneNum      int    `json:"scene_num"`
+			Narration     string `json:"narration"`
+			VisualDesc    string `json:"visual_description"`
+			FactTags      []struct {
 				Key     string `json:"key"`
 				Content string `json:"content"`
 			} `json:"fact_tags"`
-			Mood string `json:"mood"`
+			Mood          string `json:"mood"`
+			EntityVisible bool   `json:"entity_visible"`
 		} `json:"scenes"`
 		Metadata map[string]string `json:"metadata"`
 	}
@@ -519,6 +520,7 @@ func parseScenarioFromWriting(content string, scpID string) (*domain.ScenarioOut
 			Narration:         s.Narration,
 			VisualDescription: s.VisualDesc,
 			Mood:              s.Mood,
+			EntityVisible:     s.EntityVisible,
 		}
 		for _, ft := range s.FactTags {
 			scene.FactTags = append(scene.FactTags, domain.FactTag{Key: ft.Key, Content: ft.Content})

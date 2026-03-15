@@ -149,7 +149,7 @@ func TestPipeline_GenerateImages_UsesEditForCharacterScenes(t *testing.T) {
 	// Scene narrations contain "SCP-173" → MatchCharacters finds the character →
 	// selectedCharacterImage is loaded → Edit() is called instead of Generate()
 	t.Logf("Image generation calls — Generate: %d, Edit: %d", fig.generateCount, fig.editCount)
-	assert.Greater(t, fig.editCount, 0, "Edit() should be called for character-present scenes (Qwen-Image-Edit path)")
+	assert.Greater(t, fig.editCount, 0, "Edit() should be called for entity_visible=true scenes (Qwen-Image-Edit path)")
 
 	// At minimum, images should be rendered on the page
 	err = page.Locator("text=IMG").First().WaitFor(playwright.LocatorWaitForOptions{

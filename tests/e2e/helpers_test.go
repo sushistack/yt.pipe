@@ -86,13 +86,13 @@ func (f *fakeLLM) Complete(_ context.Context, msgs []llm.Message, _ llm.Completi
 			"scp_id": "SCP-173",
 			"title": "The Sculpture That Watches",
 			"scenes": [
-				{"scene_num": 1, "narration": "눈을 감는 순간, 당신은 죽습니다. Site-19의 격리실에서 가장 위험한 개체가 기다리고 있습니다.", "visual_description": "A dimly lit concrete containment chamber with heavy steel doors", "mood": "tense", "fact_tags": [{"key": "object_class", "content": "Euclid"}]},
-				{"scene_num": 2, "narration": "SCP-173은 콘크리트로 만들어진 조각상입니다. 당신이 이 개체를 처음 본다면 평범한 예술품으로 착각할 수도 있습니다.", "visual_description": "A concrete humanoid statue with rebar protruding from its form, green spray paint visible", "mood": "suspense", "fact_tags": [{"key": "description", "content": "concrete sculpture"}]},
-				{"scene_num": 3, "narration": "하지만 시선을 떼는 순간, 이 개체는 믿을 수 없는 속도로 이동합니다.", "visual_description": "Security camera footage showing the statue in different positions between frames", "mood": "horror", "fact_tags": [{"key": "behavior", "content": "moves when unobserved"}]},
-				{"scene_num": 4, "narration": "재단은 이 개체를 격리하기 위해 최소 3명의 인원이 항상 시선을 유지하도록 규정했습니다.", "visual_description": "Three security guards maintaining eye contact with the statue", "mood": "tense", "fact_tags": [{"key": "containment", "content": "3-person visual contact"}]},
-				{"scene_num": 5, "narration": "당신이 눈을 깜빡이는 그 찰나의 순간에도 SCP-173은 움직일 수 있습니다.", "visual_description": "Close-up of blinking eye with statue visible in peripheral vision", "mood": "suspense", "fact_tags": [{"key": "mechanism", "content": "moves during blink"}]},
-				{"scene_num": 6, "narration": "격리실 바닥에는 정체불명의 물질이 쌓여갑니다. 재단 과학자들도 이것의 정체를 아직 밝혀내지 못했습니다.", "visual_description": "Mysterious reddish-brown substance accumulating on the chamber floor", "mood": "mystery", "fact_tags": [{"key": "anomaly", "content": "unknown substance"}]},
-				{"scene_num": 7, "narration": "만약 세 명 모두가 동시에 눈을 깜빡인다면, 어떤 일이 벌어질까요? 그 답을 아는 사람은 아무도 살아남지 못했습니다.", "visual_description": "Empty containment chamber with broken neck brace visible", "mood": "horror", "fact_tags": [{"key": "lethality", "content": "neck snapping"}]}
+				{"scene_num": 1, "narration": "눈을 감는 순간, 당신은 죽습니다. Site-19의 격리실에서 가장 위험한 개체가 기다리고 있습니다.", "visual_description": "A dimly lit concrete containment chamber with heavy steel doors", "mood": "tense", "fact_tags": [{"key": "object_class", "content": "Euclid"}], "entity_visible": false},
+				{"scene_num": 2, "narration": "SCP-173은 콘크리트로 만들어진 조각상입니다. 당신이 이 개체를 처음 본다면 평범한 예술품으로 착각할 수도 있습니다.", "visual_description": "A concrete humanoid statue with rebar protruding from its form, green spray paint visible", "mood": "suspense", "fact_tags": [{"key": "description", "content": "concrete sculpture"}], "entity_visible": true},
+				{"scene_num": 3, "narration": "하지만 시선을 떼는 순간, 이 개체는 믿을 수 없는 속도로 이동합니다.", "visual_description": "Security camera footage showing the statue in different positions between frames", "mood": "horror", "fact_tags": [{"key": "behavior", "content": "moves when unobserved"}], "entity_visible": true},
+				{"scene_num": 4, "narration": "재단은 이 개체를 격리하기 위해 최소 3명의 인원이 항상 시선을 유지하도록 규정했습니다.", "visual_description": "Three security guards maintaining eye contact with the statue", "mood": "tense", "fact_tags": [{"key": "containment", "content": "3-person visual contact"}], "entity_visible": true},
+				{"scene_num": 5, "narration": "당신이 눈을 깜빡이는 그 찰나의 순간에도 SCP-173은 움직일 수 있습니다.", "visual_description": "Close-up of blinking eye with statue visible in peripheral vision", "mood": "suspense", "fact_tags": [{"key": "mechanism", "content": "moves during blink"}], "entity_visible": true},
+				{"scene_num": 6, "narration": "격리실 바닥에는 정체불명의 물질이 쌓여갑니다. 재단 과학자들도 이것의 정체를 아직 밝혀내지 못했습니다.", "visual_description": "Mysterious reddish-brown substance accumulating on the chamber floor", "mood": "mystery", "fact_tags": [{"key": "anomaly", "content": "unknown substance"}], "entity_visible": false},
+				{"scene_num": 7, "narration": "만약 세 명 모두가 동시에 눈을 깜빡인다면, 어떤 일이 벌어질까요? 그 답을 아는 사람은 아무도 살아남지 못했습니다.", "visual_description": "Empty containment chamber with broken neck brace visible", "mood": "horror", "fact_tags": [{"key": "lethality", "content": "neck snapping"}], "entity_visible": false}
 			],
 			"metadata": {"duration_estimate": "10min"}
 		}`
@@ -388,9 +388,9 @@ func seedProjectAtStage(t *testing.T, baseURL string, st *store.Store, scpID str
 		SCPID: scpID,
 		Title: "Test Scenario: " + scpID,
 		Scenes: []domain.SceneScript{
-			{SceneNum: 1, Narration: scpID + " is contained in a dark chamber", VisualDescription: "A dark containment chamber with " + scpID, Mood: "tense"},
-			{SceneNum: 2, Narration: "Personnel approach " + scpID + " cautiously", VisualDescription: "Security personnel approaching " + scpID, Mood: "suspense"},
-			{SceneNum: 3, Narration: scpID + " stands motionless in full view", VisualDescription: "The entity " + scpID + " in full view", Mood: "horror"},
+			{SceneNum: 1, Narration: scpID + " is contained in a dark chamber", VisualDescription: "A dark containment chamber with " + scpID, Mood: "tense", EntityVisible: true},
+			{SceneNum: 2, Narration: "Personnel approach " + scpID + " cautiously", VisualDescription: "Security personnel approaching " + scpID, Mood: "suspense", EntityVisible: true},
+			{SceneNum: 3, Narration: scpID + " stands motionless in full view", VisualDescription: "The entity " + scpID + " in full view", Mood: "horror", EntityVisible: true},
 		},
 		Metadata: map[string]string{"duration_estimate": "10min"},
 	}

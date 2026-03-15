@@ -743,10 +743,12 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 	// Build scene visual description lookup
 	sceneVisuals := make(map[int]string)
 	sceneNarrations := make(map[int]string)
+	sceneEntityVisible := make(map[int]bool)
 	if scenario != nil {
 		for _, sc := range scenario.Scenes {
 			sceneVisuals[sc.SceneNum] = sc.VisualDescription
 			sceneNarrations[sc.SceneNum] = sc.Narration
+			sceneEntityVisible[sc.SceneNum] = sc.EntityVisible
 		}
 	}
 
@@ -775,6 +777,7 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 			SanitizedPrompt: promptText,
 			SCPID:           project.SCPID,
 			SceneText:       sceneNarrations[sceneNum],
+			EntityVisible:   sceneEntityVisible[sceneNum],
 		}
 
 		// Try to read a manual prompt from the scene directory (overrides scenario)

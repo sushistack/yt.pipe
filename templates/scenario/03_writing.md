@@ -87,8 +87,14 @@ For each scene, produce:
   "narration": "Korean narration text here (split into short sentences)",
   "visual_description": "English description for image generation, including frozen descriptor when entity visible",
   "fact_tags": [{"key": "fact_key", "content": "relevant fact text"}],
-  "mood": "tense"
+  "mood": "tense",
+  "entity_visible": true
 }
 ```
+
+**`entity_visible` rules:**
+- `true`: SCP 개체가 이 씬의 이미지에 등장해야 하는 경우 (직접 보이거나, 실루엣, 그림자 등)
+- `false`: 배경, 환경, 인물만 나오는 씬 (격리실 전경, 재단 로고, 문서 클로즈업 등)
+- 개체가 보이는 씬에서는 visual_description에 반드시 Visual Identity Profile을 포함하세요
 
 Output as a JSON object with fields: scp_id, title, scenes (array of scene objects), metadata.

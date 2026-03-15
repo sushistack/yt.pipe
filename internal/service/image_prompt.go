@@ -44,6 +44,7 @@ type ImagePromptResult struct {
 	TemplateVersion string `json:"template_version"`
 	SCPID           string `json:"scp_id,omitempty"`     // for character auto-reference
 	SceneText       string `json:"scene_text,omitempty"` // narration text for character matching
+	EntityVisible   bool   `json:"entity_visible"`       // SCP entity appears in this scene's image
 }
 
 // GenerateImagePrompts creates image prompts from scenario visual descriptions and applies safety sanitization.

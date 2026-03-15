@@ -59,18 +59,17 @@ func (s *ImageGenService) SetSelectedCharacterImage(imagePath string) error {
 // It uses retry with exponential backoff for the API call and updates the scene manifest.
 // If CharacterService is set and prompt contains SCPID/SceneText, character references are auto-injected.
 func (s *ImageGenService) GenerateSceneImage(ctx context.Context, prompt ImagePromptResult, projectID, projectPath string, opts imagegen.GenerateOptions) (*domain.Scene, error) {
-	// Character auto-reference: if a selected character exists for this SCP, always inject refs.
-	// We inject for ALL scenes because the incident-first narrative format may not mention
-	// the entity name in early scenes, but the character should still appear visually.
-	if s.characterSvc != nil && prompt.SCPID != "" {
+	// Character auto-reference: inject character refs only for scenes where entity is visible.
+	// entity_visible is determined by the scenario writing stage (LLM decides per scene).
+	if s.characterSvc != nil && prompt.SCPID != "" && prompt.EntityVisible {
 		char, _ := s.characterSvc.CheckExistingCharacter(prompt.SCPID)
 		if char != nil && char.SelectedImagePath != "" {
 			opts.CharacterRefs = []imagegen.CharacterRef{{
-				Name:            char.CanonicalName,
+				Name:             char.CanonicalName,
 				VisualDescriptor: char.VisualDescriptor,
-				ImagePromptBase: char.ImagePromptBase,
+				ImagePromptBase:  char.ImagePromptBase,
 			}}
-			s.logger.Info("character refs injected for all scenes",
+			s.logger.Info("character refs injected (entity_visible=true)",
 				"project_id", projectID, "scene_num", prompt.SceneNum, "scp_id", prompt.SCPID)
 		}
 	}
