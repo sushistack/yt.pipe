@@ -194,6 +194,7 @@ func (s *Server) setupRouter() {
 	r.Get("/dashboard/scp/{scpID}/projects", s.handleSCPProjects)
 	r.Get("/dashboard/projects/{id}", s.handleProjectDetail)
 	r.Get("/dashboard/projects/{id}/characters/image", s.handleCharacterImage)
+	r.Get("/dashboard/projects/{id}/characters/uploaded/image", s.handleUploadedCharacterImage)
 	r.Get("/dashboard/projects/{id}/characters/candidates/{num}/image", s.handleCandidateImage)
 	r.Get("/dashboard/projects/{id}/scenes/{num}/image", s.handleDashboardImage)
 	r.Get("/dashboard/projects/{id}/scenes/{num}/audio", s.handleDashboardAudio)
@@ -237,6 +238,7 @@ func (s *Server) setupRouter() {
 		r.Post("/projects/{id}/characters/select", s.handleSelectCharacter)
 		r.Post("/projects/{id}/characters/deselect", s.handleDeselectCharacter)
 		r.Post("/projects/{id}/characters/upload", s.handleUploadCharacterImage)
+		r.Post("/projects/{id}/characters/select-uploaded", s.handleSelectUploadedImage)
 		r.Delete("/projects/{id}/characters/uploaded", s.handleDeleteUploadedImage)
 		r.Get("/projects/{id}/characters", s.handleGetCharacter)
 

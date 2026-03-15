@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -331,4 +332,45 @@ func (s *Server) handleDeleteUploadedImage(w http.ResponseWriter, r *http.Reques
 	}
 
 	WriteJSON(w, r, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// handleSelectUploadedImage selects the existing uploaded.png as the character image.
+// POST /api/v1/projects/{id}/characters/select-uploaded
+func (s *Server) handleSelectUploadedImage(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "project not found")
+		return
+	}
+
+	if s.characterSvc == nil {
+		WriteError(w, r, http.StatusInternalServerError, "SERVICE_UNAVAILABLE", "character service not configured")
+		return
+	}
+
+	imgPath := service.UploadedImagePath(project.WorkspacePath, project.SCPID)
+	if _, err := os.Stat(imgPath); os.IsNotExist(err) {
+		WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "no uploaded image found")
+		return
+	}
+
+	// Read the existing file and use UploadCharacterImage to set it as selected
+	imageData, err := os.ReadFile(imgPath)
+	if err != nil {
+		WriteError(w, r, http.StatusInternalServerError, "READ_FAILED", err.Error())
+		return
+	}
+
+	char, err := s.characterSvc.UploadCharacterImage(project.SCPID, imageData, project.WorkspacePath)
+	if err != nil {
+		WriteError(w, r, http.StatusInternalServerError, "SELECT_FAILED", err.Error())
+		return
+	}
+
+	projectSvc := service.NewProjectService(s.store)
+	_, _ = projectSvc.SetProjectStage(r.Context(), project.ID, domain.StageCharacter)
+
+	WriteJSON(w, r, http.StatusOK, char)
 }

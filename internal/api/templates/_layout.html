@@ -191,6 +191,17 @@
             }).catch(function() { showToast('Failed', 'error'); });
         }
 
+        function selectUploadedCharacter(projectID) {
+            var key = document.querySelector('meta[name="api-key"]');
+            fetch('/api/v1/projects/' + projectID + '/characters/select-uploaded', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + (key ? key.content : '') }
+            }).then(function(r) {
+                if (r.ok) { showToast('Uploaded image selected', 'success'); location.reload(); }
+                else { r.json().then(function(d) { showToast(d.error && d.error.message || 'Failed', 'error'); }); }
+            }).catch(function() { showToast('Failed', 'error'); });
+        }
+
         function uploadCharacterImage(projectID, file) {
             if (!file) return;
             var formData = new FormData();

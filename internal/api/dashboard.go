@@ -272,6 +272,8 @@ type projectDetailData struct {
 	Character           *domain.Character
 	CharacterCandidates []*domain.CharacterCandidate
 	CharacterStatus     string
+	HasUploadedImage    bool
+	Now                 int64 // Unix timestamp for cache-busting image URLs
 	ScenarioPipeline    string // "4-stage" or "legacy-single-prompt" or ""
 	ScenarioFormatGuide string // "applied" or "none" or ""
 }
@@ -425,6 +427,8 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		Character:           character,
 		CharacterCandidates: charCandidates,
 		CharacterStatus:     charStatus,
+		HasUploadedImage:    hasUploadedImage(project),
+		Now:                 time.Now().Unix(),
 		ScenarioPipeline:    scenarioPipeline,
 		ScenarioFormatGuide: scenarioFormatGuide,
 	}
@@ -696,6 +700,29 @@ func (s *Server) handleCandidateImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, cleaned)
+}
+
+// handleUploadedCharacterImage serves the user-uploaded character image.
+func (s *Server) handleUploadedCharacterImage(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	imgPath := service.UploadedImagePath(project.WorkspacePath, project.SCPID)
+	if _, err := os.Stat(imgPath); os.IsNotExist(err) {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, imgPath)
+}
+
+// hasUploadedImage checks if a user-uploaded character image exists for the project.
+func hasUploadedImage(project *domain.Project) bool {
+	imgPath := filepath.Join(project.WorkspacePath, project.SCPID, "characters", "uploaded.png")
+	_, err := os.Stat(imgPath)
+	return err == nil
 }
 
 func (s *Server) handleDashboardImage(w http.ResponseWriter, r *http.Request) {
