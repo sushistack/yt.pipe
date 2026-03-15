@@ -20,7 +20,7 @@
                      class="w-32 h-32 rounded-lg object-cover" alt="Character" />
                 <div class="flex-1">
                     <p class="text-sm opacity-70 line-clamp-3">{{.Character.VisualDescriptor}}</p>
-                    <div class="flex gap-2 mt-3">
+                    <div class="flex gap-2 mt-3 flex-wrap">
                         <button class="btn btn-primary btn-sm"
                                 onclick="deselectCharacter('{{.ProjectID}}')">
                             Change Selection
@@ -29,6 +29,11 @@
                                 onclick="if(confirm('Generate new character candidates? This will replace the current character.')) generateCharacters('{{.ProjectID}}', true)">
                             Generate New
                         </button>
+                        <label class="btn btn-outline btn-sm">
+                            Upload Image
+                            <input type="file" accept="image/*" class="hidden"
+                                   onchange="uploadCharacterImage('{{.ProjectID}}', this.files[0])" />
+                        </label>
                     </div>
                 </div>
             </div>
@@ -132,12 +137,19 @@
             <div class="flex items-center gap-2 mb-3">
                 <h3 class="font-semibold">Character Selection</h3>
             </div>
-            <p class="text-sm opacity-70 mb-3">Generate character candidates for consistent visual appearance across scenes.</p>
-            <button class="btn btn-primary btn-sm"
-                    onclick="generateCharacters('{{.ProjectID}}')"
-                    {{if .Job.IsRunning}}disabled{{end}}>
-                Generate Characters
-            </button>
+            <p class="text-sm opacity-70 mb-3">Generate character candidates or upload your own image.</p>
+            <div class="flex gap-2">
+                <button class="btn btn-primary btn-sm"
+                        onclick="generateCharacters('{{.ProjectID}}')"
+                        {{if .Job.IsRunning}}disabled{{end}}>
+                    Generate Characters
+                </button>
+                <label class="btn btn-outline btn-sm">
+                    Upload Image
+                    <input type="file" accept="image/*" class="hidden"
+                           onchange="uploadCharacterImage('{{.ProjectID}}', this.files[0])" />
+                </label>
+            </div>
             {{end}}
 
         {{/* Scenario stage — show character badge if exists */}}

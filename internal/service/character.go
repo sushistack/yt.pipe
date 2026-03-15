@@ -150,8 +150,8 @@ func (cs *CharacterService) GenerateCandidates(ctx context.Context, projectID, s
 	}
 
 	candidateDir := filepath.Join(workspacePath, scpID, "characters")
-	// Remove old candidate files before generating new ones to prevent stale image selection
-	_ = os.RemoveAll(candidateDir)
+	// Remove old candidate files but preserve user-uploaded images
+	clearCandidateFiles(candidateDir)
 	if err := os.MkdirAll(candidateDir, 0o755); err != nil {
 		return nil, fmt.Errorf("service: generate candidates: create dir: %w", err)
 	}
@@ -433,6 +433,80 @@ func (cs *CharacterService) MatchCharacters(scpID, sceneText string) ([]imagegen
 	}
 
 	return refs, nil
+}
+
+// UploadedImagePath returns the path for a user-uploaded character image.
+func UploadedImagePath(workspacePath, scpID string) string {
+	return filepath.Join(workspacePath, scpID, "characters", "uploaded.png")
+}
+
+// UploadCharacterImage saves a user-uploaded image as the selected character image.
+// The uploaded file is stored separately from generated candidates and preserved across regeneration.
+func (cs *CharacterService) UploadCharacterImage(scpID string, imageData []byte, workspacePath string) (*domain.Character, error) {
+	charDir := filepath.Join(workspacePath, scpID, "characters")
+	if err := os.MkdirAll(charDir, 0o755); err != nil {
+		return nil, fmt.Errorf("service: upload character: create dir: %w", err)
+	}
+
+	imgPath := UploadedImagePath(workspacePath, scpID)
+	if err := os.WriteFile(imgPath, imageData, 0o644); err != nil {
+		return nil, fmt.Errorf("service: upload character: write image: %w", err)
+	}
+
+	// Create or update character with uploaded image
+	existing, _ := cs.CheckExistingCharacter(scpID)
+	if existing != nil {
+		existing.SelectedImagePath = imgPath
+		if err := cs.store.UpdateCharacter(existing); err != nil {
+			return nil, fmt.Errorf("service: upload character: update: %w", err)
+		}
+		return existing, nil
+	}
+
+	c := &domain.Character{
+		ID:                uuid.New().String(),
+		SCPID:             scpID,
+		CanonicalName:     scpID,
+		Aliases:           []string{},
+		VisualDescriptor:  "User-uploaded character image",
+		SelectedImagePath: imgPath,
+	}
+	if err := cs.store.CreateCharacter(c); err != nil {
+		return nil, fmt.Errorf("service: upload character: create: %w", err)
+	}
+	return c, nil
+}
+
+// DeleteUploadedImage removes the user-uploaded character image.
+func (cs *CharacterService) DeleteUploadedImage(scpID, workspacePath string) error {
+	imgPath := UploadedImagePath(workspacePath, scpID)
+	if err := os.Remove(imgPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("service: delete uploaded image: %w", err)
+	}
+
+	// If the selected image was the uploaded one, clear selection
+	existing, _ := cs.CheckExistingCharacter(scpID)
+	if existing != nil && existing.SelectedImagePath == imgPath {
+		existing.SelectedImagePath = ""
+		_ = cs.store.UpdateCharacter(existing)
+	}
+	return nil
+}
+
+// clearCandidateFiles removes generated candidate files but preserves user-uploaded images.
+func clearCandidateFiles(candidateDir string) {
+	entries, err := os.ReadDir(candidateDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		// Preserve uploaded.png
+		if name == "uploaded.png" {
+			continue
+		}
+		_ = os.Remove(filepath.Join(candidateDir, name))
+	}
 }
 
 // matchesText checks if a character's canonical name or any alias appears in the lowered text.

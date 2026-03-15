@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -257,4 +258,77 @@ func (s *Server) handleGetCharacter(w http.ResponseWriter, r *http.Request) {
 	}
 
 	WriteJSON(w, r, http.StatusOK, char)
+}
+
+// handleUploadCharacterImage accepts a multipart image upload as the character.
+// POST /api/v1/projects/{id}/characters/upload
+func (s *Server) handleUploadCharacterImage(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "project not found")
+		return
+	}
+
+	if s.characterSvc == nil {
+		WriteError(w, r, http.StatusInternalServerError, "SERVICE_UNAVAILABLE", "character service not configured")
+		return
+	}
+
+	// Limit upload to 10MB
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "file too large or invalid multipart form (max 10MB)")
+		return
+	}
+
+	file, _, err := r.FormFile("image")
+	if err != nil {
+		WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "missing 'image' field in form")
+		return
+	}
+	defer file.Close()
+
+	imageData, err := io.ReadAll(file)
+	if err != nil {
+		WriteError(w, r, http.StatusInternalServerError, "READ_FAILED", "failed to read uploaded file")
+		return
+	}
+
+	char, err := s.characterSvc.UploadCharacterImage(project.SCPID, imageData, project.WorkspacePath)
+	if err != nil {
+		WriteError(w, r, http.StatusInternalServerError, "UPLOAD_FAILED", err.Error())
+		return
+	}
+
+	// Set project stage to character
+	projectSvc := service.NewProjectService(s.store)
+	_, _ = projectSvc.SetProjectStage(r.Context(), project.ID, domain.StageCharacter)
+
+	WriteJSON(w, r, http.StatusOK, char)
+}
+
+// handleDeleteUploadedImage removes the user-uploaded character image.
+// DELETE /api/v1/projects/{id}/characters/uploaded
+func (s *Server) handleDeleteUploadedImage(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "project not found")
+		return
+	}
+
+	if s.characterSvc == nil {
+		WriteError(w, r, http.StatusInternalServerError, "SERVICE_UNAVAILABLE", "character service not configured")
+		return
+	}
+
+	if err := s.characterSvc.DeleteUploadedImage(project.SCPID, project.WorkspacePath); err != nil {
+		WriteError(w, r, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
+		return
+	}
+
+	WriteJSON(w, r, http.StatusOK, map[string]string{"status": "deleted"})
 }

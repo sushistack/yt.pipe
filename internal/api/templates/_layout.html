@@ -191,6 +191,33 @@
             }).catch(function() { showToast('Failed', 'error'); });
         }
 
+        function uploadCharacterImage(projectID, file) {
+            if (!file) return;
+            var formData = new FormData();
+            formData.append('image', file);
+            var key = document.querySelector('meta[name="api-key"]');
+            fetch('/api/v1/projects/' + projectID + '/characters/upload', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + (key ? key.content : '') },
+                body: formData
+            }).then(function(r) {
+                if (r.ok) { showToast('Character image uploaded', 'success'); location.reload(); }
+                else { r.json().then(function(d) { showToast(d.error && d.error.message || 'Upload failed', 'error'); }); }
+            }).catch(function() { showToast('Upload failed', 'error'); });
+        }
+
+        function deleteUploadedImage(projectID) {
+            if (!confirm('Delete uploaded character image?')) return;
+            var key = document.querySelector('meta[name="api-key"]');
+            fetch('/api/v1/projects/' + projectID + '/characters/uploaded', {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + (key ? key.content : '') }
+            }).then(function(r) {
+                if (r.ok) { showToast('Uploaded image deleted', 'success'); location.reload(); }
+                else { r.json().then(function(d) { showToast(d.error && d.error.message || 'Delete failed', 'error'); }); }
+            }).catch(function() { showToast('Delete failed', 'error'); });
+        }
+
         var _scpItems = [];
         var _scpHasMore = false;
         var _scpLoading = false;

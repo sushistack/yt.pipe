@@ -3,6 +3,10 @@
 package e2e
 
 import (
+	"bytes"
+	"mime/multipart"
+	"net/http"
+	"path/filepath"
 	"testing"
 
 	"github.com/playwright-community/playwright-go"
@@ -164,6 +168,86 @@ func TestCharacter_SelectNewCandidateAfterGenerateNew(t *testing.T) {
 		Timeout: playwright.Float(5000),
 	})
 	assert.NoError(t, err, "Selected badge should appear after selecting a new candidate")
+}
+
+func TestCharacter_UploadImage(t *testing.T) {
+	baseURL, st := StartTestServer(t)
+	page := newPage(t)
+
+	projectID := seedProjectAtStage(t, baseURL, st, "SCP-173", "scenario")
+
+	_, err := page.Goto(baseURL + "/dashboard/projects/" + projectID)
+	require.NoError(t, err)
+
+	// Upload via API directly (file input is hard to trigger in Playwright)
+	resp, err := http.Post(baseURL+"/api/v1/projects/"+projectID+"/characters/upload", "", nil)
+	require.NoError(t, err)
+	resp.Body.Close()
+	// Expect 400 since no multipart form — this validates the endpoint exists
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "upload endpoint should exist and reject empty request")
+
+	// Upload a real image via multipart
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("image", "test.png")
+	require.NoError(t, err)
+	_, err = part.Write(fakePNG)
+	require.NoError(t, err)
+	writer.Close()
+
+	resp, err = http.Post(baseURL+"/api/v1/projects/"+projectID+"/characters/upload", writer.FormDataContentType(), &buf)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "upload should succeed with valid image")
+
+	// Reload page — should show "Selected" with uploaded image
+	_, err = page.Goto(baseURL + "/dashboard/projects/" + projectID)
+	require.NoError(t, err)
+
+	err = page.Locator("text=Selected").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(5000),
+	})
+	assert.NoError(t, err, "Selected badge should appear after upload")
+}
+
+func TestCharacter_UploadPreservedAfterGenerateNew(t *testing.T) {
+	baseURL, st := StartTestServer(t)
+	page := newPage(t)
+	acceptDialogs(page)
+
+	projectID := seedProjectAtStage(t, baseURL, st, "SCP-173", "scenario")
+
+	// Upload image via API
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("image", "test.png")
+	require.NoError(t, err)
+	_, err = part.Write(fakePNG)
+	require.NoError(t, err)
+	writer.Close()
+
+	resp, err := http.Post(baseURL+"/api/v1/projects/"+projectID+"/characters/upload", writer.FormDataContentType(), &buf)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Navigate and click Generate New
+	_, err = page.Goto(baseURL + "/dashboard/projects/" + projectID)
+	require.NoError(t, err)
+
+	generateNewBtn := page.Locator("text=Generate New").First()
+	err = generateNewBtn.WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(5000)})
+	require.NoError(t, err)
+	err = generateNewBtn.Click()
+	require.NoError(t, err)
+
+	waitForJobCompletion(t, page, baseURL, projectID, 20000)
+
+	// Verify uploaded file still exists on disk
+	proj, err := st.GetProject(projectID)
+	require.NoError(t, err)
+	uploadedPath := filepath.Join(proj.WorkspacePath, "SCP-173", "characters", "uploaded.png")
+	assert.FileExists(t, uploadedPath, "uploaded.png should survive Generate New")
 }
 
 func TestCharacter_CandidatePolling(t *testing.T) {
