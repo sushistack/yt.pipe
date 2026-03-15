@@ -711,6 +711,20 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 		projectPath = filepath.Join(s.workspacePath, project.ID)
 	}
 
+	// Wire character service and selected image for Edit() support
+	if s.characterSvc != nil {
+		s.imageGenSvc.SetCharacterService(s.characterSvc)
+		char, _ := s.characterSvc.CheckExistingCharacter(project.SCPID)
+		if char != nil && char.SelectedImagePath != "" {
+			if err := s.imageGenSvc.SetSelectedCharacterImage(char.SelectedImagePath); err != nil {
+				slog.Warn("failed to load character image for edit", "project_id", project.ID, "err", err)
+			} else {
+				slog.Info("character image loaded for image-edit",
+					"project_id", project.ID, "scp_id", project.SCPID, "path", char.SelectedImagePath)
+			}
+		}
+	}
+
 	// Initialize approval records for each scene
 	for _, sceneNum := range scenes {
 		if err := s.store.InitApproval(project.ID, sceneNum, domain.AssetTypeImage); err != nil {

@@ -163,10 +163,14 @@ var fakePNG = []byte{
 	0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 }
 
-// fakeImageGen implements imagegen.ImageGen.
-type fakeImageGen struct{}
+// fakeImageGen implements imagegen.ImageGen with call tracking.
+type fakeImageGen struct {
+	generateCount int
+	editCount     int
+}
 
 func (f *fakeImageGen) Generate(_ context.Context, _ string, _ imagegen.GenerateOptions) (*imagegen.ImageResult, error) {
+	f.generateCount++
 	return &imagegen.ImageResult{
 		ImageData: fakePNG,
 		Format:    "png",
@@ -176,6 +180,7 @@ func (f *fakeImageGen) Generate(_ context.Context, _ string, _ imagegen.Generate
 }
 
 func (f *fakeImageGen) Edit(_ context.Context, _ []byte, _ string, _ imagegen.EditOptions) (*imagegen.ImageResult, error) {
+	f.editCount++
 	return &imagegen.ImageResult{
 		ImageData: fakePNG,
 		Format:    "png",
@@ -246,8 +251,14 @@ func (f *fakeAssembler) Validate(_ context.Context, _ string) error {
 
 // --- Test helpers ---
 
-// StartTestServer creates an in-process server with fake plugins and returns the base URL and store.
+// StartTestServer creates an in-process server with fake plugins and returns the base URL, store, and fakeImageGen.
 func StartTestServer(t *testing.T) (string, *store.Store) {
+	url, st, _ := startTestServerWithPlugins(t)
+	return url, st
+}
+
+// startTestServerWithPlugins creates an in-process server and returns fake plugins for inspection.
+func startTestServerWithPlugins(t *testing.T) (string, *store.Store, *fakeImageGen) {
 	t.Helper()
 
 	// Use file-based temp DB to avoid SQLite :memory: multi-connection isolation issue.
@@ -300,7 +311,7 @@ func StartTestServer(t *testing.T) (string, *store.Store) {
 	})
 
 	baseURL := fmt.Sprintf("http://%s", listener.Addr().String())
-	return baseURL, st
+	return baseURL, st, fig
 }
 
 // newPage creates a new browser page with an isolated context.
@@ -377,9 +388,9 @@ func seedProjectAtStage(t *testing.T, baseURL string, st *store.Store, scpID str
 		SCPID: scpID,
 		Title: "Test Scenario: " + scpID,
 		Scenes: []domain.SceneScript{
-			{SceneNum: 1, Narration: "Test narration for scene 1", VisualDescription: "A dark containment chamber", Mood: "tense"},
-			{SceneNum: 2, Narration: "Test narration for scene 2", VisualDescription: "Security personnel approaching", Mood: "suspense"},
-			{SceneNum: 3, Narration: "Test narration for scene 3", VisualDescription: "The entity in full view", Mood: "horror"},
+			{SceneNum: 1, Narration: scpID + " is contained in a dark chamber", VisualDescription: "A dark containment chamber with " + scpID, Mood: "tense"},
+			{SceneNum: 2, Narration: "Personnel approach " + scpID + " cautiously", VisualDescription: "Security personnel approaching " + scpID, Mood: "suspense"},
+			{SceneNum: 3, Narration: scpID + " stands motionless in full view", VisualDescription: "The entity " + scpID + " in full view", Mood: "horror"},
 		},
 		Metadata: map[string]string{"duration_estimate": "10min"},
 	}

@@ -121,6 +121,43 @@ func TestPipeline_GenerateImages(t *testing.T) {
 	assert.Greater(t, imgCount, 0, "scene images should be rendered after generation")
 }
 
+func TestPipeline_GenerateImages_UsesEditForCharacterScenes(t *testing.T) {
+	baseURL, st, fig := startTestServerWithPlugins(t)
+	page := newPage(t)
+
+	projectID := seedProjectAtStage(t, baseURL, st, "SCP-173", "character")
+
+	// Reset counters before image generation
+	fig.generateCount = 0
+	fig.editCount = 0
+
+	_, err := page.Goto(baseURL + "/dashboard/projects/" + projectID)
+	require.NoError(t, err)
+
+	// Click "Generate Images"
+	err = page.Locator("text=Generate Images").First().Click()
+	require.NoError(t, err)
+
+	// Wait for image generation job to complete
+	waitForJobCompletion(t, page, baseURL, projectID, 20000)
+
+	// VERIFY: images were generated (either path)
+	totalCalls := fig.generateCount + fig.editCount
+	assert.Greater(t, totalCalls, 0, "image generation should have been called at least once")
+
+	// VERIFY: Edit() was called for scenes where the character (SCP-173) appears
+	// Scene narrations contain "SCP-173" → MatchCharacters finds the character →
+	// selectedCharacterImage is loaded → Edit() is called instead of Generate()
+	t.Logf("Image generation calls — Generate: %d, Edit: %d", fig.generateCount, fig.editCount)
+	assert.Greater(t, fig.editCount, 0, "Edit() should be called for character-present scenes (Qwen-Image-Edit path)")
+
+	// At minimum, images should be rendered on the page
+	err = page.Locator("text=IMG").First().WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(5000),
+	})
+	assert.NoError(t, err, "IMG badge should appear after image generation")
+}
+
 func TestPipeline_GenerateTTS(t *testing.T) {
 	baseURL, st := StartTestServer(t)
 	page := newPage(t)
