@@ -333,14 +333,23 @@ func runCharacterGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Generating %d character candidates for %s...\n", count, scpID)
-	fmt.Fprintf(cmd.OutOrStdout(), "Note: Full LLM-powered generation requires pipeline integration.\n")
-	fmt.Fprintf(cmd.OutOrStdout(), "For now, create candidates manually:\n")
-	for i := 1; i <= count; i++ {
-		imgPath := fmt.Sprintf("%s/candidate_%d.png", candidateDir, i)
-		txtPath := fmt.Sprintf("%s/candidate_%d.txt", candidateDir, i)
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s (image) + %s (description)\n", imgPath, txtPath)
+
+	results, err := svc.GenerateCandidates(cmd.Context(), scpID, count, workspacePath)
+	if err != nil {
+		// Fallback: if LLM/ImageGen not configured, print manual instructions
+		fmt.Fprintf(cmd.OutOrStdout(), "Auto-generation unavailable: %v\n", err)
+		fmt.Fprintf(cmd.OutOrStdout(), "Create candidates manually:\n")
+		for i := 1; i <= count; i++ {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s/candidate_%d.png (image) + candidate_%d.txt (description)\n", candidateDir, i, i)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "\nAfter creating files, run: yt-pipe character select --scp %s --num <N>\n", scpID)
+		return nil
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "\nAfter creating images, run: yt-pipe character select --scp %s --num <N>\n", scpID)
+
+	for _, r := range results {
+		fmt.Fprintf(cmd.OutOrStdout(), "  Candidate %d: %s\n", r.Index, r.ImagePath)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "\nReview images, then run: yt-pipe character select --scp %s --num <N>\n", scpID)
 
 	return nil
 }
@@ -360,21 +369,6 @@ func runCharacterSelect(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("character select: configuration not loaded")
 	}
 	workspacePath := cfg.Config.WorkspacePath
-	candidateDir := fmt.Sprintf("%s/%s/characters", workspacePath, scpID)
-
-	// Read candidate description
-	txtPath := fmt.Sprintf("%s/candidate_%d.txt", candidateDir, num)
-	imgPath := fmt.Sprintf("%s/candidate_%d.png", candidateDir, num)
-
-	// Verify files exist
-	if _, err := os.Stat(imgPath); os.IsNotExist(err) {
-		return fmt.Errorf("character select: candidate image not found: %s", imgPath)
-	}
-
-	description := ""
-	if data, err := os.ReadFile(txtPath); err == nil {
-		description = strings.TrimSpace(string(data))
-	}
 
 	svc, cleanup, err := openCharacterService(cmd)
 	if err != nil {
@@ -382,37 +376,13 @@ func runCharacterSelect(cmd *cobra.Command, args []string) error {
 	}
 	defer cleanup()
 
-	// Check if character already exists for this SCP
-	existing, _ := svc.CheckExistingCharacter(scpID)
-	if existing != nil {
-		// Update existing
-		if description != "" {
-			existing.VisualDescriptor = description
-		}
-		existing.SelectedImagePath = imgPath
-		_, err := svc.UpdateCharacter(existing.ID, "", nil, existing.VisualDescriptor, "", "")
-		if err != nil {
-			return fmt.Errorf("character select: update: %w", err)
-		}
-		// Update selected image path via store
-		if storeErr := svc.UpdateSelectedImagePath(existing.ID, imgPath); storeErr != nil {
-			return fmt.Errorf("character select: update image path: %w", storeErr)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Character updated: %s\n", existing.CanonicalName)
-	} else {
-		// Create new character
-		canonicalName := scpID
-		c, err := svc.CreateCharacter(scpID, canonicalName, nil, description, "", "")
-		if err != nil {
-			return fmt.Errorf("character select: create: %w", err)
-		}
-		if storeErr := svc.UpdateSelectedImagePath(c.ID, imgPath); storeErr != nil {
-			return fmt.Errorf("character select: update image path: %w", storeErr)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Character created: %s [%s]\n", c.CanonicalName, c.ID)
+	c, err := svc.SelectCandidate(scpID, num, workspacePath)
+	if err != nil {
+		return fmt.Errorf("character select: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "  Image path: %s\n", imgPath)
+	fmt.Fprintf(cmd.OutOrStdout(), "Character selected: %s [%s]\n", c.CanonicalName, c.ID)
+	fmt.Fprintf(cmd.OutOrStdout(), "  Image path: %s\n", c.SelectedImagePath)
 	fmt.Fprintf(cmd.OutOrStdout(), "  Ready for pipeline run.\n")
 
 	return nil

@@ -1,23 +1,48 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/sushistack/yt.pipe/internal/domain"
 	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
+	"github.com/sushistack/yt.pipe/internal/plugin/llm"
 	"github.com/sushistack/yt.pipe/internal/store"
 )
 
+// CandidateResult holds one generated character candidate.
+type CandidateResult struct {
+	Index       int    `json:"index"`
+	Description string `json:"description"`
+	ImagePath   string `json:"image_path"`
+	TextPath    string `json:"text_path"`
+}
+
 // CharacterService manages character ID card lifecycle and scene text matching.
 type CharacterService struct {
-	store *store.Store
+	store    *store.Store
+	llm      llm.LLM
+	imageGen imagegen.ImageGen
 }
 
 // NewCharacterService creates a new CharacterService.
 func NewCharacterService(s *store.Store) *CharacterService {
 	return &CharacterService{store: s}
+}
+
+// SetLLM sets the LLM provider for character description generation.
+func (cs *CharacterService) SetLLM(l llm.LLM) {
+	cs.llm = l
+}
+
+// SetImageGen sets the image generation provider for character candidate images.
+func (cs *CharacterService) SetImageGen(ig imagegen.ImageGen) {
+	cs.imageGen = ig
 }
 
 // CreateCharacter validates inputs, generates UUID, and creates a character.
@@ -112,6 +137,151 @@ func (cs *CharacterService) CheckExistingCharacter(scpID string) (*domain.Charac
 		return nil, nil
 	}
 	return chars[0], nil
+}
+
+// GenerateCandidates uses LLM to generate character appearance descriptions and images.
+func (cs *CharacterService) GenerateCandidates(ctx context.Context, scpID string, count int, workspacePath string) ([]CandidateResult, error) {
+	if cs.llm == nil {
+		return nil, fmt.Errorf("service: generate candidates: LLM provider not set")
+	}
+	if cs.imageGen == nil {
+		return nil, fmt.Errorf("service: generate candidates: image generation provider not set")
+	}
+
+	candidateDir := filepath.Join(workspacePath, scpID, "characters")
+	if err := os.MkdirAll(candidateDir, 0o755); err != nil {
+		return nil, fmt.Errorf("service: generate candidates: create dir: %w", err)
+	}
+
+	// Step 1: Ask LLM for character descriptions
+	prompt := fmt.Sprintf(
+		"Generate %d distinct visual appearance descriptions for the main character/entity of %s. "+
+			"For each candidate, provide a JSON object with fields: "+
+			"\"index\" (1-based), \"name\" (canonical name), \"visual_descriptor\" (detailed physical appearance for image generation), "+
+			"\"image_prompt\" (concise image generation prompt). "+
+			"Output as a JSON array. Be specific about physical features, colors, textures, and proportions.",
+		count, scpID,
+	)
+
+	result, err := cs.llm.Complete(ctx, []llm.Message{
+		{Role: "user", Content: prompt},
+	}, llm.CompletionOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("service: generate candidates: LLM: %w", err)
+	}
+
+	// Parse LLM response
+	type llmCandidate struct {
+		Index            int    `json:"index"`
+		Name             string `json:"name"`
+		VisualDescriptor string `json:"visual_descriptor"`
+		ImagePrompt      string `json:"image_prompt"`
+	}
+
+	cleaned := extractJSONArray(result.Content)
+	var candidates []llmCandidate
+	if err := json.Unmarshal([]byte(cleaned), &candidates); err != nil {
+		return nil, fmt.Errorf("service: generate candidates: parse LLM response: %w", err)
+	}
+
+	// Step 2: Generate images for each candidate
+	var results []CandidateResult
+	for i, c := range candidates {
+		idx := i + 1
+		imgPath := filepath.Join(candidateDir, fmt.Sprintf("candidate_%d.png", idx))
+		txtPath := filepath.Join(candidateDir, fmt.Sprintf("candidate_%d.txt", idx))
+
+		// Save description
+		descText := fmt.Sprintf("Name: %s\nVisual: %s\nPrompt: %s", c.Name, c.VisualDescriptor, c.ImagePrompt)
+		if err := os.WriteFile(txtPath, []byte(descText), 0o644); err != nil {
+			return nil, fmt.Errorf("service: generate candidates: save description %d: %w", idx, err)
+		}
+
+		// Generate image
+		imgResult, err := cs.imageGen.Generate(ctx, c.ImagePrompt, imagegen.GenerateOptions{
+			Width:  1024,
+			Height: 1024,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("service: generate candidates: image %d: %w", idx, err)
+		}
+
+		if err := os.WriteFile(imgPath, imgResult.ImageData, 0o644); err != nil {
+			return nil, fmt.Errorf("service: generate candidates: save image %d: %w", idx, err)
+		}
+
+		results = append(results, CandidateResult{
+			Index:       idx,
+			Description: descText,
+			ImagePath:   imgPath,
+			TextPath:    txtPath,
+		})
+	}
+
+	return results, nil
+}
+
+// SelectCandidate selects a generated candidate and creates/updates a character record.
+func (cs *CharacterService) SelectCandidate(scpID string, candidateNum int, workspacePath string) (*domain.Character, error) {
+	candidateDir := filepath.Join(workspacePath, scpID, "characters")
+	imgPath := filepath.Join(candidateDir, fmt.Sprintf("candidate_%d.png", candidateNum))
+	txtPath := filepath.Join(candidateDir, fmt.Sprintf("candidate_%d.txt", candidateNum))
+
+	if _, err := os.Stat(imgPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("service: select candidate: image not found: %s", imgPath)
+	}
+
+	description := ""
+	if data, err := os.ReadFile(txtPath); err == nil {
+		description = strings.TrimSpace(string(data))
+	}
+
+	// Check if character already exists for this SCP
+	existing, _ := cs.CheckExistingCharacter(scpID)
+	if existing != nil {
+		if description != "" {
+			existing.VisualDescriptor = description
+		}
+		existing.SelectedImagePath = imgPath
+		if err := cs.store.UpdateCharacter(existing); err != nil {
+			return nil, fmt.Errorf("service: select candidate: update: %w", err)
+		}
+		if err := cs.store.UpdateSelectedImagePath(existing.ID, imgPath); err != nil {
+			return nil, fmt.Errorf("service: select candidate: update image path: %w", err)
+		}
+		return existing, nil
+	}
+
+	// Create new
+	c := &domain.Character{
+		ID:                uuid.New().String(),
+		SCPID:             scpID,
+		CanonicalName:     scpID,
+		Aliases:           []string{},
+		VisualDescriptor:  description,
+		SelectedImagePath: imgPath,
+	}
+	if err := cs.store.CreateCharacter(c); err != nil {
+		return nil, fmt.Errorf("service: select candidate: create: %w", err)
+	}
+	return c, nil
+}
+
+// extractJSONArray strips markdown fences and extracts JSON array.
+func extractJSONArray(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```json") {
+		s = strings.TrimPrefix(s, "```json")
+		if idx := strings.LastIndex(s, "```"); idx >= 0 {
+			s = s[:idx]
+		}
+	} else if strings.HasPrefix(s, "```") {
+		s = strings.TrimPrefix(s, "```")
+		if idx := strings.LastIndex(s, "```"); idx >= 0 {
+			s = s[:idx]
+		}
+	}
+	return strings.TrimSpace(s)
 }
 
 // MatchCharacters finds characters whose canonical_name or aliases appear in scene text.

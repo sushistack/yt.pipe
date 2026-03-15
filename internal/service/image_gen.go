@@ -155,8 +155,8 @@ func (s *ImageGenService) GenerateSceneImage(ctx context.Context, prompt ImagePr
 	// Compute image hash for manifest
 	imgHash := hashBytes(result.ImageData)
 
-	// Update scene manifest in SQLite (AC1: image hash + generation timestamp)
-	s.updateManifestImageHash(projectID, prompt.SceneNum, imgHash)
+	// Update scene manifest in SQLite (AC1: image hash + generation timestamp + method)
+	s.updateManifestImageHash(projectID, prompt.SceneNum, imgHash, genMethod)
 
 	s.logger.Info("scene image generated",
 		"project_id", projectID,
@@ -239,16 +239,17 @@ func filterPrompts(prompts []ImagePromptResult, sceneNums []int) []ImagePromptRe
 	return filtered
 }
 
-// updateManifestImageHash updates the scene manifest with the image hash.
-func (s *ImageGenService) updateManifestImageHash(projectID string, sceneNum int, imgHash string) {
+// updateManifestImageHash updates the scene manifest with the image hash and generation method.
+func (s *ImageGenService) updateManifestImageHash(projectID string, sceneNum int, imgHash, genMethod string) {
 	manifest, err := s.store.GetManifest(projectID, sceneNum)
 	if err != nil {
 		// Manifest may not exist yet; create it
 		manifest = &domain.SceneManifest{
-			ProjectID: projectID,
-			SceneNum:  sceneNum,
-			ImageHash: imgHash,
-			Status:    "image_generated",
+			ProjectID:        projectID,
+			SceneNum:         sceneNum,
+			ImageHash:        imgHash,
+			GenerationMethod: genMethod,
+			Status:           "image_generated",
 		}
 		if createErr := s.store.CreateManifest(manifest); createErr != nil {
 			s.logger.Error("failed to create manifest", "project_id", projectID, "scene_num", sceneNum, "err", createErr)
@@ -256,6 +257,7 @@ func (s *ImageGenService) updateManifestImageHash(projectID string, sceneNum int
 		return
 	}
 	manifest.ImageHash = imgHash
+	manifest.GenerationMethod = genMethod
 	manifest.Status = "image_generated"
 	if updateErr := s.store.UpdateManifest(manifest); updateErr != nil {
 		s.logger.Error("failed to update manifest", "project_id", projectID, "scene_num", sceneNum, "err", updateErr)

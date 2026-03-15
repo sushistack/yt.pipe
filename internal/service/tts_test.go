@@ -17,6 +17,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// mockVoiceCloner is a test mock for tts.VoiceCloner.
+type mockVoiceCloner struct {
+	mock.Mock
+}
+
+func (m *mockVoiceCloner) CreateVoice(ctx context.Context, audioPath string, preferredName string) (string, error) {
+	args := m.Called(ctx, audioPath, preferredName)
+	return args.String(0), args.Error(1)
+}
+
 func newTestTTSService(t *testing.T, mockTTS *mocks.MockTTS, g *glossary.Glossary) (*TTSService, *store.Store) {
 	t.Helper()
 	s, err := store.New(":memory:")
@@ -187,4 +197,107 @@ func TestSynthesizeScene_BackupExistingAudio(t *testing.T) {
 	assert.FileExists(t, existingAudio+".bak")
 	backupData, _ := os.ReadFile(existingAudio + ".bak")
 	assert.Equal(t, []byte("old-audio"), backupData)
+}
+
+func TestEnsureVoiceID_NoCloner(t *testing.T) {
+	mockTTS := mocks.NewMockTTS(t)
+	svc, _ := newTestTTSService(t, mockTTS, glossary.New())
+
+	// No voice cloner set — returns voice as-is
+	voice, err := svc.EnsureVoiceID(context.Background(), "proj-1", "Cherry")
+	require.NoError(t, err)
+	assert.Equal(t, "Cherry", voice)
+}
+
+func TestEnsureVoiceID_NoSamplePath(t *testing.T) {
+	mockTTS := mocks.NewMockTTS(t)
+	svc, _ := newTestTTSService(t, mockTTS, glossary.New())
+
+	vc := &mockVoiceCloner{}
+	svc.SetVoiceCloner(vc)
+	// SamplePath is empty — returns voice as-is
+	svc.SetCloneConfig(TTSCloneServiceConfig{SamplePath: ""})
+
+	voice, err := svc.EnsureVoiceID(context.Background(), "proj-1", "Cherry")
+	require.NoError(t, err)
+	assert.Equal(t, "Cherry", voice)
+}
+
+func TestEnsureVoiceID_AutoEnrollAndCache(t *testing.T) {
+	mockTTS := mocks.NewMockTTS(t)
+	svc, st := newTestTTSService(t, mockTTS, glossary.New())
+
+	vc := &mockVoiceCloner{}
+	vc.On("CreateVoice", mock.Anything, "/tmp/sample.mp3", "narrator").
+		Return("qwen-tts-vc-test-123", nil)
+	svc.SetVoiceCloner(vc)
+	svc.SetCloneConfig(TTSCloneServiceConfig{SamplePath: "/tmp/sample.mp3", PreferredName: "narrator"})
+
+	// First call — should enroll and cache
+	voice, err := svc.EnsureVoiceID(context.Background(), "proj-1", "")
+	require.NoError(t, err)
+	assert.Equal(t, "qwen-tts-vc-test-123", voice)
+
+	// Verify cached
+	cached, err := st.GetCachedVoice("proj-1")
+	require.NoError(t, err)
+	assert.Equal(t, "qwen-tts-vc-test-123", cached.VoiceID)
+
+	// Second call — should return cached (no new CreateVoice call)
+	voice2, err := svc.EnsureVoiceID(context.Background(), "proj-1", "")
+	require.NoError(t, err)
+	assert.Equal(t, "qwen-tts-vc-test-123", voice2)
+
+	vc.AssertNumberOfCalls(t, "CreateVoice", 1) // only called once
+}
+
+func TestEnsureVoiceID_ReturnsCachedVoice(t *testing.T) {
+	mockTTS := mocks.NewMockTTS(t)
+	svc, st := newTestTTSService(t, mockTTS, glossary.New())
+
+	vc := &mockVoiceCloner{}
+	svc.SetVoiceCloner(vc)
+	svc.SetCloneConfig(TTSCloneServiceConfig{SamplePath: "/tmp/sample.mp3", PreferredName: "narrator"})
+
+	// Pre-populate cache with recent voice
+	require.NoError(t, st.CacheVoice("proj-1", "cached-voice-id", "/tmp/sample.mp3"))
+
+	// Should return cached voice without calling CreateVoice
+	voice, err := svc.EnsureVoiceID(context.Background(), "proj-1", "")
+	require.NoError(t, err)
+	assert.Equal(t, "cached-voice-id", voice)
+	vc.AssertNotCalled(t, "CreateVoice")
+}
+
+func TestReEnrollVoice_Success(t *testing.T) {
+	mockTTS := mocks.NewMockTTS(t)
+	svc, st := newTestTTSService(t, mockTTS, glossary.New())
+
+	vc := &mockVoiceCloner{}
+	vc.On("CreateVoice", mock.Anything, "/tmp/sample.mp3", "narrator").
+		Return("qwen-tts-vc-new-456", nil)
+	svc.SetVoiceCloner(vc)
+	svc.SetCloneConfig(TTSCloneServiceConfig{SamplePath: "/tmp/sample.mp3", PreferredName: "narrator"})
+
+	// Pre-populate with old voice
+	require.NoError(t, st.CacheVoice("proj-1", "old-voice", "/tmp/sample.mp3"))
+
+	// Re-enroll
+	voice, err := svc.ReEnrollVoice(context.Background(), "proj-1")
+	require.NoError(t, err)
+	assert.Equal(t, "qwen-tts-vc-new-456", voice)
+
+	// Verify cache updated
+	cached, err := st.GetCachedVoice("proj-1")
+	require.NoError(t, err)
+	assert.Equal(t, "qwen-tts-vc-new-456", cached.VoiceID)
+}
+
+func TestReEnrollVoice_NoCloner(t *testing.T) {
+	mockTTS := mocks.NewMockTTS(t)
+	svc, _ := newTestTTSService(t, mockTTS, glossary.New())
+
+	_, err := svc.ReEnrollVoice(context.Background(), "proj-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "re-enrollment not possible")
 }
