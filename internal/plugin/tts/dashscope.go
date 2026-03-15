@@ -25,7 +25,8 @@ const (
 	defaultDashScopeFormat   = "wav"
 	defaultDashScopeVoice    = "Cherry"
 
-	voiceClonePrefix = "cosyvoice-clone-"
+	voiceClonePrefix    = "cosyvoice-clone-"
+	voiceClonePrefixVC  = "qwen-tts-vc-"
 
 	// Qwen3 TTS API path (multimodal-generation)
 	qwenTTSAPIPath = "/api/v1/services/aigc/multimodal-generation/generation"
@@ -200,7 +201,7 @@ func (p *DashScopeProvider) synthesize(ctx context.Context, text string, voice s
 	elapsed := time.Since(start)
 	if err != nil {
 		slog.Error("dashscope tts synthesis failed",
-			"model", p.model,
+			"model", model,
 			"voice", voice,
 			"text_len", len(text),
 			"duration_ms", elapsed.Milliseconds(),
@@ -210,7 +211,7 @@ func (p *DashScopeProvider) synthesize(ctx context.Context, text string, voice s
 	}
 
 	slog.Info("dashscope tts synthesized",
-		"model", p.model,
+		"model", model,
 		"voice", voice,
 		"text_len", len(text),
 		"audio_bytes", len(result.AudioData),
@@ -385,7 +386,7 @@ func wavDuration(data []byte) float64 {
 
 // isCloneVoice checks if the voice ID indicates a cloned voice.
 func isCloneVoice(voice string) bool {
-	return strings.HasPrefix(voice, voiceClonePrefix)
+	return strings.HasPrefix(voice, voiceClonePrefix) || strings.HasPrefix(voice, voiceClonePrefixVC)
 }
 
 // applyOverrides replaces terms in text with their pronunciation overrides.

@@ -263,6 +263,8 @@ func TestIsCloneVoice(t *testing.T) {
 		{"longxiaochun", false},
 		{"cosyvoice-clone-abc123", true},
 		{"cosyvoice-clone-", true},
+		{"qwen-tts-vc-sutak-voice-20260315", true},
+		{"qwen-tts-vc-", true},
 		{"", false},
 	}
 	for _, tt := range tests {
