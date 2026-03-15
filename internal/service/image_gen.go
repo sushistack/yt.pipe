@@ -59,18 +59,19 @@ func (s *ImageGenService) SetSelectedCharacterImage(imagePath string) error {
 // It uses retry with exponential backoff for the API call and updates the scene manifest.
 // If CharacterService is set and prompt contains SCPID/SceneText, character references are auto-injected.
 func (s *ImageGenService) GenerateSceneImage(ctx context.Context, prompt ImagePromptResult, projectID, projectPath string, opts imagegen.GenerateOptions) (*domain.Scene, error) {
-	// Character auto-reference: match characters in scene text and inject refs
-	if s.characterSvc != nil && prompt.SCPID != "" && prompt.SceneText != "" {
-		refs, matchErr := s.characterSvc.MatchCharacters(prompt.SCPID, prompt.SceneText)
-		if matchErr != nil {
-			s.logger.Warn("character matching failed, proceeding without refs",
-				"project_id", projectID, "scene_num", prompt.SceneNum, "err", matchErr)
-		} else {
-			opts.CharacterRefs = refs
-			if len(refs) > 0 {
-				s.logger.Info("character refs injected",
-					"project_id", projectID, "scene_num", prompt.SceneNum, "count", len(refs))
-			}
+	// Character auto-reference: if a selected character exists for this SCP, always inject refs.
+	// We inject for ALL scenes because the incident-first narrative format may not mention
+	// the entity name in early scenes, but the character should still appear visually.
+	if s.characterSvc != nil && prompt.SCPID != "" {
+		char, _ := s.characterSvc.CheckExistingCharacter(prompt.SCPID)
+		if char != nil && char.SelectedImagePath != "" {
+			opts.CharacterRefs = []imagegen.CharacterRef{{
+				Name:            char.CanonicalName,
+				VisualDescriptor: char.VisualDescriptor,
+				ImagePromptBase: char.ImagePromptBase,
+			}}
+			s.logger.Info("character refs injected for all scenes",
+				"project_id", projectID, "scene_num", prompt.SceneNum, "scp_id", prompt.SCPID)
 		}
 	}
 
