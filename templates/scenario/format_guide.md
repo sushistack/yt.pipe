@@ -92,20 +92,19 @@ Match scene count to target video duration:
 
 ---
 
-### F. Act Structure & Ratios
+### F. Act Structure & Ratios (INCIDENT-FIRST)
 
-Use a flexible 4-act structure. Ratios are guidelines, not rigid rules:
+Use an incident-first 4-act structure. Start with WHAT HAPPENED, not WHAT IT IS. The entity's identity is a mystery that unfolds gradually.
 
 | Act | Purpose | Ratio | Key Deliverable |
 |-----|---------|-------|-----------------|
-| **Act 1: Hook & Identity** | Grab attention, establish what this SCP is | ~15% | The hook + basic identification |
-| **Act 2: Properties & Context** | Explain why this is dangerous/fascinating | ~30% | Anomalous properties + containment |
-| **Act 3: Evidence & Incidents** | Show, don't tell — dramatize events | ~40% | Incident logs, test results, encounters |
-| **Act 4: Mystery & Closure** | Leave the viewer wanting more | ~15% | Unresolved questions + closing hook |
+| **Act 1: 사건으로 시작** | 가장 충격적인 사건/피해로 시작. 개체 이름/등급 언급 안 함 | ~15% | Hook + "무슨 일이 일어났는가" |
+| **Act 2: 미스터리 확장** | 맥락 추가. 격리 절차로 위험성 암시. 정체 아직 미공개 | ~30% | "왜 이런 일이?" + 간접적 공포 |
+| **Act 3: 정체 공개 + 깊은 공포** | 본격적으로 개체 설명 + 추가 사건/실험 로그 | ~40% | 핵심 능력 + 가장 무서운 디테일 |
+| **Act 4: 미해결 미스터리** | 재단도 모르는 것, 열린 결말, 여운 | ~15% | 미해결 질문 + closing hook |
 
-**Channel-analysis-informed insights:**
-- Narration-based channels (Sally's Room, TheVolgun) succeed with detailed Act 2-3 expansion
-- Animation channels compress Act 2, expand Act 3 for visual drama
-- Lore-analysis channels (The Exploring Series) extend Act 4 with cross-SCP connections
-- For this pipeline (narration + static images): balance Sally's Room depth with TheVolgun's immersive roleplay style
-- Aim for roleplay narration tone with comprehensive research depth
+**핵심:**
+- ❌ 위키 순서: 분류 → 설명 → 격리 → 사건
+- ✅ 유튜브 순서: 사건 → 미스터리 → 정체 공개 → 미해결
+- 시청자는 "이게 뭔지"가 아니라 "무슨 일이 일어났는지"에 먼저 반응함
+- 개체의 정체를 미스터리로 활용하면 Act 3까지의 retention이 극적으로 올라감
