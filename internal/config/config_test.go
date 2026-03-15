@@ -55,6 +55,34 @@ func TestLoad_NoConfigFilesExist(t *testing.T) {
 	require.NotNil(t, result)
 	require.NotNil(t, result.Config)
 	assert.Equal(t, "info", result.Config.LogLevel)
+
+	// Verify TTS clone config defaults
+	assert.Equal(t, "qwen3-tts-vc-2026-01-22", result.Config.TTS.Clone.Model)
+	assert.Equal(t, "narrator", result.Config.TTS.Clone.PreferredName)
+	assert.Empty(t, result.Config.TTS.Clone.SamplePath)
+}
+
+func TestLoad_TTSCloneConfig(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	_ = os.Chdir(dir)
+	defer func() { _ = os.Chdir(origDir) }()
+
+	cfgContent := `
+tts:
+  clone:
+    model: "qwen3-tts-vc-2026-01-22"
+    sample_path: "/data/voice/sample.mp3"
+    preferred_name: "my-narrator"
+`
+	cfgPath := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(cfgContent), 0o644))
+
+	result, err := Load(cfgPath)
+	require.NoError(t, err)
+	assert.Equal(t, "qwen3-tts-vc-2026-01-22", result.Config.TTS.Clone.Model)
+	assert.Equal(t, "/data/voice/sample.mp3", result.Config.TTS.Clone.SamplePath)
+	assert.Equal(t, "my-narrator", result.Config.TTS.Clone.PreferredName)
 }
 
 func TestLoad_GlobalConfig(t *testing.T) {

@@ -13,6 +13,12 @@ You are an SCP Foundation fact-checker reviewing a video narration script for {s
 
 {glossary_section}
 
+## Storytelling Format Guide (Review Reference)
+
+Use the following format guide as the evaluation criteria for storytelling quality checks.
+
+{format_guide}
+
 ## Review Checklist
 
 ### 1. SCP Classification Accuracy
@@ -40,6 +46,15 @@ You are an SCP Foundation fact-checker reviewing a video narration script for {s
 - Calculate coverage percentage
 - Flag critical facts that are missing
 
+### 6. Storytelling Quality
+Evaluate the narration's storytelling effectiveness:
+- **Hook strength**: Does Scene 1 open with a clear hook type (question, shock, mystery, or contrast)? Rate 0-100.
+- **Information curve**: Are key facts distributed across 3+ scenes using progressive disclosure (not front-loaded)? Rate 0-100.
+- **Emotional variation**: Do adjacent scenes have different moods? Count consecutive same-mood pairs (0 is ideal). Rate 0-100.
+- **Immersion devices**: Count occurrences of 2nd person address, sensory description, situation hypotheticals (minimum 3 per scenario). Rate 0-100.
+
+Calculate `storytelling_score` as the average of these four sub-scores.
+
 ## Task
 
 Output a JSON review report:
@@ -63,8 +78,18 @@ Output a JSON review report:
       "original": "original text snippet",
       "corrected": "corrected text"
     }
+  ],
+  "storytelling_score": 75,
+  "storytelling_issues": [
+    {
+      "scene_num": 1,
+      "type": "weak_hook|flat_info_curve|monotone_mood|low_immersion",
+      "severity": "warning",
+      "description": "What is wrong with storytelling",
+      "correction": "Suggested improvement"
+    }
   ]
 }
 ```
 
-Only report actual issues found. If the script is accurate, return an empty issues array.
+Only report actual issues found. If the script is accurate, return an empty issues array. Storytelling issues are advisory — they do NOT affect `overall_pass`.

@@ -10,6 +10,12 @@ You are a Korean documentary narrator writing the script for an SCP Foundation v
 
 {glossary_section}
 
+## Storytelling Format Guide
+
+Apply the following immersion and narration techniques when writing Korean narration scripts.
+
+{format_guide}
+
 ## Writing Guidelines
 
 ### Language & Style

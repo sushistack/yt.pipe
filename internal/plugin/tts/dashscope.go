@@ -3,12 +3,15 @@ package tts
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,29 +31,32 @@ const (
 	qwenTTSAPIPath = "/api/v1/services/aigc/multimodal-generation/generation"
 )
 
-// Compile-time interface check.
+// Compile-time interface checks.
 var _ TTS = (*DashScopeProvider)(nil)
+var _ VoiceCloner = (*DashScopeProvider)(nil)
 
 // DashScopeProvider implements the TTS interface for DashScope Qwen3 TTS API.
 type DashScopeProvider struct {
-	endpoint string
-	apiKey   string
-	model    string
-	format   string
-	voice    string
-	language string
+	endpoint   string
+	apiKey     string
+	model      string
+	cloneModel string
+	format     string
+	voice      string
+	language   string
 	httpClient *http.Client
 	pluginCfg  plugin.PluginConfig
 }
 
 // DashScopeConfig holds configuration for creating a DashScope provider.
 type DashScopeConfig struct {
-	Endpoint string
-	APIKey   string
-	Model    string
-	Format   string
-	Voice    string
-	Language string
+	Endpoint   string
+	APIKey     string
+	Model      string
+	CloneModel string
+	Format     string
+	Voice      string
+	Language   string
 }
 
 // NewDashScopeProvider creates a new DashScope Qwen3 TTS provider.
@@ -82,13 +88,19 @@ func NewDashScopeProvider(cfg DashScopeConfig) (*DashScopeProvider, error) {
 
 	pluginCfg := plugin.DefaultPluginConfig("dashscope")
 
+	cloneModel := cfg.CloneModel
+	if cloneModel == "" {
+		cloneModel = "qwen3-tts-vc-2026-01-22"
+	}
+
 	return &DashScopeProvider{
-		endpoint: strings.TrimRight(endpoint, "/"),
-		apiKey:   cfg.APIKey,
-		model:    model,
-		format:   format,
-		voice:    voice,
-		language: cfg.Language,
+		endpoint:   strings.TrimRight(endpoint, "/"),
+		apiKey:     cfg.APIKey,
+		model:      model,
+		cloneModel: cloneModel,
+		format:     format,
+		voice:      voice,
+		language:   cfg.Language,
 		httpClient: &http.Client{
 			Timeout: pluginCfg.Timeout,
 		},
@@ -161,8 +173,14 @@ func (p *DashScopeProvider) synthesize(ctx context.Context, text string, voice s
 	// Apply pronunciation overrides to text
 	processedText := applyOverrides(text, overrides)
 
+	// Use clone model when voice is a cloned voice ID
+	model := p.model
+	if isCloneVoice(voice) {
+		model = p.cloneModel
+	}
+
 	reqBody := qwenRequest{
-		Model: p.model,
+		Model: model,
 		Input: qwenInput{
 			Text:     processedText,
 			Voice:    voice,
@@ -382,15 +400,155 @@ func applyOverrides(text string, overrides map[string]string) string {
 	return result
 }
 
+const (
+	// Voice enrollment API path
+	qwenVoiceEnrollmentPath = "/api/v1/services/audio/tts/customization"
+	qwenVoiceEnrollmentModel = "qwen-voice-enrollment"
+)
+
+// voiceEnrollmentRequest is the request body for voice enrollment.
+type voiceEnrollmentRequest struct {
+	Model string                 `json:"model"`
+	Input voiceEnrollmentInput   `json:"input"`
+}
+
+type voiceEnrollmentInput struct {
+	Action        string                 `json:"action"`
+	TargetModel   string                 `json:"target_model"`
+	PreferredName string                 `json:"preferred_name"`
+	Audio         voiceEnrollmentAudio   `json:"audio"`
+}
+
+type voiceEnrollmentAudio struct {
+	Data string `json:"data"`
+}
+
+type voiceEnrollmentResponse struct {
+	RequestID string `json:"request_id"`
+	Output    struct {
+		Voice string `json:"voice"`
+	} `json:"output"`
+}
+
+const maxVoiceSampleSize = 50 * 1024 * 1024 // 50 MB
+
+// CreateVoice enrolls an audio sample and returns a voice ID for synthesis.
+func (p *DashScopeProvider) CreateVoice(ctx context.Context, audioPath string, preferredName string) (string, error) {
+	info, err := os.Stat(audioPath)
+	if err != nil {
+		return "", fmt.Errorf("create voice: stat audio file: %w", err)
+	}
+	if info.Size() > maxVoiceSampleSize {
+		return "", fmt.Errorf("create voice: audio file too large (%d bytes, max %d)", info.Size(), maxVoiceSampleSize)
+	}
+
+	audioData, err := os.ReadFile(audioPath)
+	if err != nil {
+		return "", fmt.Errorf("create voice: read audio file: %w", err)
+	}
+
+	// Determine MIME type from file extension
+	mime := "audio/mpeg"
+	switch strings.ToLower(filepath.Ext(audioPath)) {
+	case ".wav":
+		mime = "audio/wav"
+	case ".mp3":
+		mime = "audio/mpeg"
+	case ".m4a":
+		mime = "audio/mp4"
+	case ".flac":
+		mime = "audio/flac"
+	}
+
+	b64 := base64.StdEncoding.EncodeToString(audioData)
+	dataURI := fmt.Sprintf("data:%s;base64,%s", mime, b64)
+
+	reqBody := voiceEnrollmentRequest{
+		Model: qwenVoiceEnrollmentModel,
+		Input: voiceEnrollmentInput{
+			Action:        "create",
+			TargetModel:   p.cloneModel,
+			PreferredName: preferredName,
+			Audio:         voiceEnrollmentAudio{Data: dataURI},
+		},
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("create voice: marshal request: %w", err)
+	}
+
+	url := p.endpoint + qwenVoiceEnrollmentPath
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create voice: create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return "", &APIError{
+			Provider:   "dashscope",
+			StatusCode: 0,
+			Message:    "voice enrollment network error",
+			Err:        err,
+		}
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("create voice: read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp qwenErrorResponse
+		_ = json.Unmarshal(respBody, &errResp)
+		msg := errResp.Message
+		if msg == "" {
+			msg = string(respBody)
+		}
+		return "", &APIError{
+			Provider:   "dashscope",
+			StatusCode: resp.StatusCode,
+			Message:    fmt.Sprintf("voice enrollment failed: %s", msg),
+		}
+	}
+
+	var enrollResp voiceEnrollmentResponse
+	if err := json.Unmarshal(respBody, &enrollResp); err != nil {
+		return "", fmt.Errorf("create voice: parse response: %w", err)
+	}
+
+	voiceID := enrollResp.Output.Voice
+	if voiceID == "" {
+		return "", &APIError{
+			Provider:   "dashscope",
+			StatusCode: 200,
+			Message:    "voice enrollment returned empty voice ID",
+		}
+	}
+
+	slog.Info("voice cloning enrollment complete",
+		"voice_id", voiceID,
+		"preferred_name", preferredName,
+		"audio_path", audioPath,
+	)
+
+	return voiceID, nil
+}
+
 // DashScopeFactory creates a DashScope provider via the plugin registry.
 func DashScopeFactory(cfg map[string]interface{}) (interface{}, error) {
 	return NewDashScopeProvider(DashScopeConfig{
-		Endpoint: stringFromCfg(cfg, "endpoint", defaultDashScopeEndpoint),
-		APIKey:   stringFromCfg(cfg, "api_key", ""),
-		Model:    stringFromCfg(cfg, "model", defaultDashScopeModel),
-		Format:   stringFromCfg(cfg, "format", defaultDashScopeFormat),
-		Voice:    stringFromCfg(cfg, "voice", defaultDashScopeVoice),
-		Language: stringFromCfg(cfg, "language", ""),
+		Endpoint:   stringFromCfg(cfg, "endpoint", defaultDashScopeEndpoint),
+		APIKey:     stringFromCfg(cfg, "api_key", ""),
+		Model:      stringFromCfg(cfg, "model", defaultDashScopeModel),
+		CloneModel: stringFromCfg(cfg, "clone_model", "qwen3-tts-vc-2026-01-22"),
+		Format:     stringFromCfg(cfg, "format", defaultDashScopeFormat),
+		Voice:      stringFromCfg(cfg, "voice", defaultDashScopeVoice),
+		Language:   stringFromCfg(cfg, "language", ""),
 	})
 }
 

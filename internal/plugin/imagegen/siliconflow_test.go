@@ -324,3 +324,87 @@ func TestDecodeImageData_DataURI(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, original, data)
 }
+
+func TestComposeCharacterRefPrompt(t *testing.T) {
+	tests := []struct {
+		name   string
+		prompt string
+		refs   []CharacterRef
+		want   string
+	}{
+		{
+			name:   "no refs",
+			prompt: "A dark room",
+			refs:   nil,
+			want:   "A dark room",
+		},
+		{
+			name:   "single ref with descriptor and base",
+			prompt: "A dark room",
+			refs: []CharacterRef{
+				{Name: "SCP-173", VisualDescriptor: "Tall concrete statue", ImagePromptBase: "crude painted features"},
+			},
+			want: "Character: Tall concrete statue. crude painted features. A dark room",
+		},
+		{
+			name:   "single ref with descriptor only",
+			prompt: "A dark room",
+			refs: []CharacterRef{
+				{Name: "SCP-173", VisualDescriptor: "Tall concrete statue"},
+			},
+			want: "Character: Tall concrete statue. A dark room",
+		},
+		{
+			name:   "multiple refs",
+			prompt: "Facility hallway",
+			refs: []CharacterRef{
+				{Name: "SCP-173", VisualDescriptor: "Concrete statue", ImagePromptBase: "crude face"},
+				{Name: "D-9341", VisualDescriptor: "Orange jumpsuit figure"},
+			},
+			want: "Character: Concrete statue. crude face; Character: Orange jumpsuit figure. Facility hallway",
+		},
+		{
+			name:   "empty descriptors",
+			prompt: "A room",
+			refs: []CharacterRef{
+				{Name: "SCP-173"},
+			},
+			want: "A room",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := composeCharacterRefPrompt(tt.prompt, tt.refs)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGenerate_WithCharacterRefs(t *testing.T) {
+	var receivedPrompt string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req sfImageRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		receivedPrompt = req.Prompt
+
+		b64 := base64.StdEncoding.EncodeToString([]byte("img"))
+		resp := sfImageResponse{Images: []sfImage{{URL: b64}}}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	p, _ := NewSiliconFlowProvider(SiliconFlowConfig{
+		Endpoint: srv.URL + "/v1",
+		APIKey:   "test-key",
+	})
+
+	_, err := p.Generate(context.Background(), "A containment cell", GenerateOptions{
+		CharacterRefs: []CharacterRef{
+			{Name: "SCP-173", VisualDescriptor: "Tall concrete statue with crude features"},
+		},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, receivedPrompt, "Tall concrete statue with crude features")
+	assert.Contains(t, receivedPrompt, "A containment cell")
+}

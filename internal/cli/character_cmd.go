@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -70,7 +71,29 @@ func init() {
 		RunE:  runCharacterDelete,
 	}
 
-	characterCmd.AddCommand(createCmd, listCmd, showCmd, updateCmd, deleteCmd)
+	// Generate candidates
+	generateCmd := &cobra.Command{
+		Use:   "generate",
+		Short: "Generate character appearance candidates using LLM + image generation",
+		RunE:  runCharacterGenerate,
+	}
+	generateCmd.Flags().String("scp", "", "SCP entity ID (required)")
+	generateCmd.Flags().Int("count", 4, "Number of candidate images to generate")
+	generateCmd.Flags().Bool("regenerate", false, "Discard existing candidates and regenerate")
+	_ = generateCmd.MarkFlagRequired("scp")
+
+	// Select candidate
+	selectCmd := &cobra.Command{
+		Use:   "select",
+		Short: "Select a generated character candidate",
+		RunE:  runCharacterSelect,
+	}
+	selectCmd.Flags().String("scp", "", "SCP entity ID (required)")
+	selectCmd.Flags().Int("num", 0, "Candidate number to select (required)")
+	_ = selectCmd.MarkFlagRequired("scp")
+	_ = selectCmd.MarkFlagRequired("num")
+
+	characterCmd.AddCommand(createCmd, listCmd, showCmd, updateCmd, deleteCmd, generateCmd, selectCmd)
 	rootCmd.AddCommand(characterCmd)
 }
 
@@ -254,6 +277,154 @@ func runCharacterDelete(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Deleted character %s\n", charID)
 	return nil
+}
+
+func runCharacterGenerate(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
+	scpIDRaw, _ := cmd.Flags().GetString("scp")
+	count, _ := cmd.Flags().GetInt("count")
+	regenerate, _ := cmd.Flags().GetBool("regenerate")
+
+	scpID, err := sanitizeSCPID(scpIDRaw)
+	if err != nil {
+		return fmt.Errorf("character generate: %w", err)
+	}
+
+	svc, cleanup, err := openCharacterService(cmd)
+	if err != nil {
+		return fmt.Errorf("character generate: %w", err)
+	}
+	defer cleanup()
+
+	// Check for existing character (reuse flow)
+	if !regenerate {
+		existing, err := svc.CheckExistingCharacter(scpID)
+		if err == nil && existing != nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "Existing character found: %s\n", existing.CanonicalName)
+			fmt.Fprintf(cmd.OutOrStdout(), "  Visual: %s\n", existing.VisualDescriptor)
+			if existing.SelectedImagePath != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "  Image: %s\n", existing.SelectedImagePath)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "\n[Y] Reuse existing  [N] Generate new candidates\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "To generate new: yt-pipe character generate --scp %s --regenerate\n", scpID)
+			return nil
+		}
+	}
+
+	// Get workspace path for saving candidates
+	cfg := GetConfig()
+	if cfg == nil {
+		return fmt.Errorf("character generate: configuration not loaded")
+	}
+	workspacePath := cfg.Config.WorkspacePath
+	candidateDir := fmt.Sprintf("%s/%s/characters", workspacePath, scpID)
+	if err := os.MkdirAll(candidateDir, 0o755); err != nil {
+		return fmt.Errorf("character generate: create candidate dir: %w", err)
+	}
+
+	// If regenerate, clean existing candidates
+	if regenerate {
+		entries, _ := os.ReadDir(candidateDir)
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), "candidate_") {
+				os.Remove(fmt.Sprintf("%s/%s", candidateDir, e.Name()))
+			}
+		}
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Generating %d character candidates for %s...\n", count, scpID)
+	fmt.Fprintf(cmd.OutOrStdout(), "Note: Full LLM-powered generation requires pipeline integration.\n")
+	fmt.Fprintf(cmd.OutOrStdout(), "For now, create candidates manually:\n")
+	for i := 1; i <= count; i++ {
+		imgPath := fmt.Sprintf("%s/candidate_%d.png", candidateDir, i)
+		txtPath := fmt.Sprintf("%s/candidate_%d.txt", candidateDir, i)
+		fmt.Fprintf(cmd.OutOrStdout(), "  %s (image) + %s (description)\n", imgPath, txtPath)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "\nAfter creating images, run: yt-pipe character select --scp %s --num <N>\n", scpID)
+
+	return nil
+}
+
+func runCharacterSelect(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
+	scpIDRaw, _ := cmd.Flags().GetString("scp")
+	num, _ := cmd.Flags().GetInt("num")
+
+	scpID, err := sanitizeSCPID(scpIDRaw)
+	if err != nil {
+		return fmt.Errorf("character select: %w", err)
+	}
+
+	cfg := GetConfig()
+	if cfg == nil {
+		return fmt.Errorf("character select: configuration not loaded")
+	}
+	workspacePath := cfg.Config.WorkspacePath
+	candidateDir := fmt.Sprintf("%s/%s/characters", workspacePath, scpID)
+
+	// Read candidate description
+	txtPath := fmt.Sprintf("%s/candidate_%d.txt", candidateDir, num)
+	imgPath := fmt.Sprintf("%s/candidate_%d.png", candidateDir, num)
+
+	// Verify files exist
+	if _, err := os.Stat(imgPath); os.IsNotExist(err) {
+		return fmt.Errorf("character select: candidate image not found: %s", imgPath)
+	}
+
+	description := ""
+	if data, err := os.ReadFile(txtPath); err == nil {
+		description = strings.TrimSpace(string(data))
+	}
+
+	svc, cleanup, err := openCharacterService(cmd)
+	if err != nil {
+		return fmt.Errorf("character select: %w", err)
+	}
+	defer cleanup()
+
+	// Check if character already exists for this SCP
+	existing, _ := svc.CheckExistingCharacter(scpID)
+	if existing != nil {
+		// Update existing
+		if description != "" {
+			existing.VisualDescriptor = description
+		}
+		existing.SelectedImagePath = imgPath
+		_, err := svc.UpdateCharacter(existing.ID, "", nil, existing.VisualDescriptor, "", "")
+		if err != nil {
+			return fmt.Errorf("character select: update: %w", err)
+		}
+		// Update selected image path via store
+		if storeErr := svc.UpdateSelectedImagePath(existing.ID, imgPath); storeErr != nil {
+			return fmt.Errorf("character select: update image path: %w", storeErr)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Character updated: %s\n", existing.CanonicalName)
+	} else {
+		// Create new character
+		canonicalName := scpID
+		c, err := svc.CreateCharacter(scpID, canonicalName, nil, description, "", "")
+		if err != nil {
+			return fmt.Errorf("character select: create: %w", err)
+		}
+		if storeErr := svc.UpdateSelectedImagePath(c.ID, imgPath); storeErr != nil {
+			return fmt.Errorf("character select: update image path: %w", storeErr)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Character created: %s [%s]\n", c.CanonicalName, c.ID)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "  Image path: %s\n", imgPath)
+	fmt.Fprintf(cmd.OutOrStdout(), "  Ready for pipeline run.\n")
+
+	return nil
+}
+
+// sanitizeSCPID ensures the SCP ID is safe for use in file paths.
+func sanitizeSCPID(scpID string) (string, error) {
+	cleaned := filepath.Base(scpID)
+	if cleaned != scpID || strings.Contains(scpID, "..") || strings.ContainsAny(scpID, `/\`) {
+		return "", fmt.Errorf("invalid SCP ID %q: must not contain path separators or '..'", scpID)
+	}
+	return cleaned, nil
 }
 
 // readTextOrFile reads text from file if prefixed with @, otherwise returns as-is.

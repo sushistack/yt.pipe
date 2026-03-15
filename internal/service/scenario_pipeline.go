@@ -36,10 +36,11 @@ type ScenarioPipelineConfig struct {
 // ScenarioPipeline orchestrates the 4-stage scenario generation process:
 // Research → Structure → Writing → Review.
 type ScenarioPipeline struct {
-	llm       llm.LLM
-	glossary  *glossary.Glossary
-	config    ScenarioPipelineConfig
-	templates map[ScenarioPipelineStage]string
+	llm         llm.LLM
+	glossary    *glossary.Glossary
+	config      ScenarioPipelineConfig
+	templates   map[ScenarioPipelineStage]string
+	formatGuide string
 }
 
 // StageResult holds the output of a single pipeline stage.
@@ -62,10 +63,12 @@ type PipelineResult struct {
 
 // ReviewReport is the structured output from Stage 4.
 type ReviewReport struct {
-	OverallPass bool            `json:"overall_pass"`
-	CoveragePct float64         `json:"coverage_pct"`
-	Issues      []ReviewIssue   `json:"issues"`
-	Corrections []ReviewCorrection `json:"corrections"`
+	OverallPass        bool               `json:"overall_pass"`
+	CoveragePct        float64            `json:"coverage_pct"`
+	Issues             []ReviewIssue      `json:"issues"`
+	Corrections        []ReviewCorrection `json:"corrections"`
+	StorytellingScore  int                `json:"storytelling_score"`
+	StorytellingIssues []ReviewIssue      `json:"storytelling_issues"`
 }
 
 // ReviewIssue is a single issue found during review.
@@ -110,6 +113,12 @@ func NewScenarioPipeline(l llm.LLM, g *glossary.Glossary, cfg ScenarioPipelineCo
 			return nil, fmt.Errorf("scenario pipeline: load template %s: %w", stage, err)
 		}
 		sp.templates[stage] = string(data)
+	}
+
+	// Load format guide (graceful degradation — empty string if not found)
+	fgPath := filepath.Join(cfg.TemplatesDir, "scenario", "format_guide.md")
+	if fgData, err := os.ReadFile(fgPath); err == nil {
+		sp.formatGuide = string(fgData)
 	}
 
 	return sp, nil
@@ -172,6 +181,13 @@ func (sp *ScenarioPipeline) Run(ctx context.Context, scpData *workspace.SCPData,
 		slog.Warn("scenario pipeline: could not parse review report, skipping corrections", "err", err)
 	} else {
 		result.ReviewReport = reviewReport
+		if reviewReport.StorytellingScore > 0 && reviewReport.StorytellingScore < 70 {
+			slog.Warn("scenario pipeline: low storytelling quality score",
+				"scp_id", scpData.SCPID,
+				"storytelling_score", reviewReport.StorytellingScore,
+				"storytelling_issues", len(reviewReport.StorytellingIssues),
+			)
+		}
 	}
 
 	// Parse scenario from writing stage output
@@ -239,6 +255,7 @@ func (sp *ScenarioPipeline) runResearch(ctx context.Context, scpData *workspace.
 	prompt = strings.ReplaceAll(prompt, "{scp_fact_sheet}", factSheet)
 	prompt = strings.ReplaceAll(prompt, "{main_text}", scpData.MainText)
 	prompt = strings.ReplaceAll(prompt, "{glossary_section}", glossarySection)
+	prompt = strings.ReplaceAll(prompt, "{format_guide}", sp.formatGuide)
 
 	return sp.callLLM(ctx, StageResearch, prompt)
 }
@@ -250,6 +267,7 @@ func (sp *ScenarioPipeline) runStructure(ctx context.Context, scpData *workspace
 	prompt = strings.ReplaceAll(prompt, "{scp_visual_reference}", visualRef)
 	prompt = strings.ReplaceAll(prompt, "{target_duration}", fmt.Sprintf("%d", sp.config.TargetDurationMin))
 	prompt = strings.ReplaceAll(prompt, "{glossary_section}", glossarySection)
+	prompt = strings.ReplaceAll(prompt, "{format_guide}", sp.formatGuide)
 
 	return sp.callLLM(ctx, StageStructure, prompt)
 }
@@ -260,6 +278,7 @@ func (sp *ScenarioPipeline) runWriting(ctx context.Context, scpData *workspace.S
 	prompt = strings.ReplaceAll(prompt, "{scene_structure}", sceneStructure)
 	prompt = strings.ReplaceAll(prompt, "{scp_visual_reference}", visualRef)
 	prompt = strings.ReplaceAll(prompt, "{glossary_section}", glossarySection)
+	prompt = strings.ReplaceAll(prompt, "{format_guide}", sp.formatGuide)
 
 	return sp.callLLM(ctx, StageWriting, prompt)
 }
@@ -271,6 +290,7 @@ func (sp *ScenarioPipeline) runReview(ctx context.Context, scpData *workspace.SC
 	prompt = strings.ReplaceAll(prompt, "{scp_visual_reference}", visualRef)
 	prompt = strings.ReplaceAll(prompt, "{scp_fact_sheet}", factSheet)
 	prompt = strings.ReplaceAll(prompt, "{glossary_section}", glossarySection)
+	prompt = strings.ReplaceAll(prompt, "{format_guide}", sp.formatGuide)
 
 	return sp.callLLM(ctx, StageReview, prompt)
 }

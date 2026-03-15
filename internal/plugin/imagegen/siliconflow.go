@@ -161,9 +161,12 @@ func (p *SiliconFlowProvider) Generate(ctx context.Context, prompt string, opts 
 		}
 	}
 
+	// Compose CharacterRef descriptors into prompt
+	composedPrompt := composeCharacterRefPrompt(prompt, opts.CharacterRefs)
+
 	reqBody := sfImageRequest{
 		Model:     model,
-		Prompt:    prompt,
+		Prompt:    composedPrompt,
 		ImageSize: imageSize,
 		BatchSize: 1,
 	}
@@ -332,6 +335,45 @@ func downloadImage(ctx context.Context, url string, client *http.Client) ([]byte
 	}
 
 	return io.ReadAll(resp.Body)
+}
+
+// Edit creates an image by editing a source image with a prompt.
+// Currently returns ErrNotSupported — awaiting PoC verification of SiliconFlow image-edit API.
+func (p *SiliconFlowProvider) Edit(ctx context.Context, sourceImage []byte, prompt string, opts EditOptions) (*ImageResult, error) {
+	return nil, ErrNotSupported
+}
+
+// composeCharacterRefPrompt prepends character visual descriptors to the prompt.
+func composeCharacterRefPrompt(prompt string, refs []CharacterRef) string {
+	if len(refs) == 0 {
+		return prompt
+	}
+
+	var parts []string
+	for _, ref := range refs {
+		desc := strings.TrimSpace(ref.VisualDescriptor)
+		base := strings.TrimSpace(ref.ImagePromptBase)
+		if desc == "" && base == "" {
+			continue
+		}
+		part := "Character: "
+		if desc != "" {
+			part += desc
+		}
+		if base != "" {
+			if desc != "" {
+				part += ". "
+			}
+			part += base
+		}
+		parts = append(parts, part)
+	}
+
+	if len(parts) == 0 {
+		return prompt
+	}
+
+	return strings.Join(parts, "; ") + ". " + prompt
 }
 
 // SiliconFlowFactory creates a SiliconFlow provider via the plugin registry.

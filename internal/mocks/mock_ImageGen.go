@@ -82,6 +82,36 @@ func (_c *MockImageGen_Generate_Call) RunAndReturn(run func(context.Context, str
 	return _c
 }
 
+// Edit provides a mock function with given fields: ctx, sourceImage, prompt, opts
+func (_m *MockImageGen) Edit(ctx context.Context, sourceImage []byte, prompt string, opts imagegen.EditOptions) (*imagegen.ImageResult, error) {
+	ret := _m.Called(ctx, sourceImage, prompt, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Edit")
+	}
+
+	var r0 *imagegen.ImageResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, string, imagegen.EditOptions) (*imagegen.ImageResult, error)); ok {
+		return rf(ctx, sourceImage, prompt, opts)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, string, imagegen.EditOptions) *imagegen.ImageResult); ok {
+		r0 = rf(ctx, sourceImage, prompt, opts)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*imagegen.ImageResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []byte, string, imagegen.EditOptions) error); ok {
+		r1 = rf(ctx, sourceImage, prompt, opts)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // NewMockImageGen creates a new instance of MockImageGen. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockImageGen(t interface {

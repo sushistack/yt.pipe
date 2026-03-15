@@ -12,6 +12,12 @@ You are an SCP Foundation researcher preparing materials for a documentary video
 
 {glossary_section}
 
+## Storytelling Format Guide
+
+Use the following format guide to identify narrative hooks and dramatic structure during research.
+
+{format_guide}
+
 ## Task
 
 Analyze the provided SCP data and produce a structured research packet containing:

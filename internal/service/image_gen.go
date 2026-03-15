@@ -21,10 +21,11 @@ import (
 
 // ImageGenService handles image generation for scenes.
 type ImageGenService struct {
-	imageGen     imagegen.ImageGen
-	store        *store.Store
-	logger       *slog.Logger
-	characterSvc *CharacterService // optional: enables character auto-reference
+	imageGen              imagegen.ImageGen
+	store                 *store.Store
+	logger                *slog.Logger
+	characterSvc          *CharacterService // optional: enables character auto-reference
+	selectedCharacterImage []byte           // loaded reference image for image-edit
 }
 
 // NewImageGenService creates a new ImageGenService.
@@ -35,6 +36,23 @@ func NewImageGenService(ig imagegen.ImageGen, s *store.Store, logger *slog.Logge
 // SetCharacterService enables character auto-reference during image generation.
 func (s *ImageGenService) SetCharacterService(cs *CharacterService) {
 	s.characterSvc = cs
+}
+
+// SetSelectedCharacterImage loads a character reference image for image-edit generation.
+func (s *ImageGenService) SetSelectedCharacterImage(imagePath string) error {
+	if imagePath == "" {
+		return nil
+	}
+	data, err := os.ReadFile(imagePath)
+	if err != nil {
+		return fmt.Errorf("load character image: %w", err)
+	}
+	s.selectedCharacterImage = data
+	s.logger.Info("character reference image loaded",
+		"path", imagePath,
+		"size_bytes", len(data),
+	)
+	return nil
 }
 
 // GenerateSceneImage generates an image for a single scene and saves it to the scene directory.
@@ -57,22 +75,58 @@ func (s *ImageGenService) GenerateSceneImage(ctx context.Context, prompt ImagePr
 	}
 
 	var result *imagegen.ImageResult
+	genMethod := "text_to_image"
 	start := time.Now()
 
-	err := retry.Do(ctx, 3, 1*time.Second, func() error {
-		var genErr error
-		result, genErr = s.imageGen.Generate(ctx, prompt.SanitizedPrompt, opts)
-		return genErr
-	})
-	if err != nil {
-		s.logger.Error("image generation failed",
-			"project_id", projectID,
-			"scene_num", prompt.SceneNum,
-			"err", err,
-		)
-		// Mark failed scene in manifest
-		s.markSceneFailed(projectID, prompt.SceneNum, err)
-		return nil, fmt.Errorf("image gen: scene %d: %w", prompt.SceneNum, err)
+	// Scene-type classification: character-present scenes with reference image → try Edit() first
+	useEdit := len(opts.CharacterRefs) > 0 && len(s.selectedCharacterImage) > 0
+	if useEdit {
+		// Try Edit once to check support (not inside retry — ErrNotSupported is deterministic)
+		editResult, editErr := s.imageGen.Edit(ctx, s.selectedCharacterImage, prompt.SanitizedPrompt, imagegen.EditOptions{
+			Width:  opts.Width,
+			Height: opts.Height,
+			Model:  opts.Model,
+			Seed:   opts.Seed,
+		})
+		if errors.Is(editErr, imagegen.ErrNotSupported) {
+			// Provider doesn't support Edit — fall back to Generate path
+			useEdit = false
+			genMethod = "fallback_t2i"
+		} else if editErr != nil {
+			// Real error on first attempt — let retry handle it
+			genMethod = "image_edit"
+		} else {
+			result = editResult
+			genMethod = "image_edit"
+		}
+	}
+
+	// If Edit succeeded, skip retry. Otherwise retry the appropriate method.
+	if result == nil {
+		err := retry.Do(ctx, 3, 1*time.Second, func() error {
+			var genErr error
+			if useEdit {
+				result, genErr = s.imageGen.Edit(ctx, s.selectedCharacterImage, prompt.SanitizedPrompt, imagegen.EditOptions{
+					Width:  opts.Width,
+					Height: opts.Height,
+					Model:  opts.Model,
+					Seed:   opts.Seed,
+				})
+			} else {
+				result, genErr = s.imageGen.Generate(ctx, prompt.SanitizedPrompt, opts)
+			}
+			return genErr
+		})
+		if err != nil {
+			s.logger.Error("image generation failed",
+				"project_id", projectID,
+				"scene_num", prompt.SceneNum,
+				"method", genMethod,
+				"err", err,
+			)
+			s.markSceneFailed(projectID, prompt.SceneNum, err)
+			return nil, fmt.Errorf("image gen: scene %d: %w", prompt.SceneNum, err)
+		}
 	}
 
 	elapsed := time.Since(start).Milliseconds()
@@ -108,6 +162,7 @@ func (s *ImageGenService) GenerateSceneImage(ctx context.Context, prompt ImagePr
 		"project_id", projectID,
 		"scene_num", prompt.SceneNum,
 		"format", ext,
+		"method", genMethod,
 		"duration_ms", elapsed,
 		"image_hash", imgHash[:16],
 	)

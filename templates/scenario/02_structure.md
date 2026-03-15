@@ -10,6 +10,12 @@ You are a video director structuring a {target_duration}-minute documentary abou
 
 {glossary_section}
 
+## Storytelling Format Guide
+
+Apply the following storytelling principles when designing scene structure, emotional curve, and pacing.
+
+{format_guide}
+
 ## Structure Requirements
 
 Design the scene structure following the 4-act format:

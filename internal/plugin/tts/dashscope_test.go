@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -350,6 +352,123 @@ func TestWavDuration(t *testing.T) {
 				t.Errorf("wavDuration() = %f, want %f", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestSynthesize_CloneVoiceModelSwitch(t *testing.T) {
+	wavData := makeWAV(24000)
+	var receivedModel string
+
+	server := newTestServer(t, wavData, func(w http.ResponseWriter, r *http.Request, audioURL string) {
+		var req qwenRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		receivedModel = req.Model
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"request_id":"test","output":{"audio":{"url":"%s","expires_at":1773490349}}}`, audioURL)
+	})
+	defer server.Close()
+
+	p, _ := NewDashScopeProvider(DashScopeConfig{
+		Endpoint:   server.URL,
+		APIKey:     "test-key",
+		CloneModel: "qwen3-tts-vc-2026-01-22",
+	})
+
+	// Clone voice should use clone model
+	_, err := p.Synthesize(context.Background(), "test", "cosyvoice-clone-abc123", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedModel != "qwen3-tts-vc-2026-01-22" {
+		t.Errorf("expected clone model, got %s", receivedModel)
+	}
+
+	// Regular voice should use default model
+	_, err = p.Synthesize(context.Background(), "test", "Cherry", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedModel != defaultDashScopeModel {
+		t.Errorf("expected default model %s, got %s", defaultDashScopeModel, receivedModel)
+	}
+}
+
+func TestCreateVoice_Success(t *testing.T) {
+	// Create a temp audio file
+	tmpDir := t.TempDir()
+	audioPath := tmpDir + "/voice.mp3"
+	if err := os.WriteFile(audioPath, []byte("fake-audio-data"), 0o644); err != nil {
+		t.Fatalf("write temp audio: %v", err)
+	}
+
+	var receivedBody voiceEnrollmentRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != qwenVoiceEnrollmentPath {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&receivedBody)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"request_id":"enroll-1","output":{"voice":"cosyvoice-clone-test123"}}`)
+	}))
+	defer server.Close()
+
+	p, _ := NewDashScopeProvider(DashScopeConfig{
+		Endpoint: server.URL,
+		APIKey:   "test-key",
+	})
+
+	voiceID, err := p.CreateVoice(context.Background(), audioPath, "narrator")
+	if err != nil {
+		t.Fatalf("create voice: %v", err)
+	}
+	if voiceID != "cosyvoice-clone-test123" {
+		t.Errorf("expected voice ID cosyvoice-clone-test123, got %s", voiceID)
+	}
+	if receivedBody.Model != qwenVoiceEnrollmentModel {
+		t.Errorf("expected model %s, got %s", qwenVoiceEnrollmentModel, receivedBody.Model)
+	}
+	if receivedBody.Input.Action != "create" {
+		t.Errorf("expected action create, got %s", receivedBody.Input.Action)
+	}
+	if receivedBody.Input.PreferredName != "narrator" {
+		t.Errorf("expected preferred_name narrator, got %s", receivedBody.Input.PreferredName)
+	}
+	// Verify audio is base64 data URI
+	if !strings.HasPrefix(receivedBody.Input.Audio.Data, "data:audio/mpeg;base64,") {
+		t.Errorf("expected data URI with audio/mpeg, got prefix: %s", receivedBody.Input.Audio.Data[:40])
+	}
+}
+
+func TestCreateVoice_APIError(t *testing.T) {
+	tmpDir := t.TempDir()
+	audioPath := tmpDir + "/voice.mp3"
+	os.WriteFile(audioPath, []byte("fake"), 0o644)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"code":"InvalidInput","message":"bad audio"}`)
+	}))
+	defer server.Close()
+
+	p, _ := NewDashScopeProvider(DashScopeConfig{
+		Endpoint: server.URL,
+		APIKey:   "test-key",
+	})
+
+	_, err := p.CreateVoice(context.Background(), audioPath, "test")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	apiErr, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("expected *APIError, got %T", err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", apiErr.StatusCode)
 	}
 }
 

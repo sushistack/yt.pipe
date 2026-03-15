@@ -78,14 +78,22 @@ type ImageGenConfig struct {
 
 // TTSConfig holds text-to-speech plugin settings.
 type TTSConfig struct {
-	Provider string  `mapstructure:"provider"`
-	Endpoint string  `mapstructure:"endpoint"`
-	APIKey   string  `mapstructure:"api_key"`
-	Model    string  `mapstructure:"model"`
-	Voice    string  `mapstructure:"voice"`
-	Language string  `mapstructure:"language"`
-	Format   string  `mapstructure:"format"`
-	Speed    float64 `mapstructure:"speed"`
+	Provider string         `mapstructure:"provider"`
+	Endpoint string         `mapstructure:"endpoint"`
+	APIKey   string         `mapstructure:"api_key"`
+	Model    string         `mapstructure:"model"`
+	Voice    string         `mapstructure:"voice"`
+	Language string         `mapstructure:"language"`
+	Format   string         `mapstructure:"format"`
+	Speed    float64        `mapstructure:"speed"`
+	Clone    TTSCloneConfig `mapstructure:"clone"`
+}
+
+// TTSCloneConfig holds voice cloning specific settings.
+type TTSCloneConfig struct {
+	Model         string `mapstructure:"model"`
+	SamplePath    string `mapstructure:"sample_path"`
+	PreferredName string `mapstructure:"preferred_name"`
 }
 
 // OutputConfig holds output assembler plugin settings.

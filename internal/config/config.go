@@ -170,6 +170,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("tts.language", "Korean")
 	v.SetDefault("tts.format", "wav")
 	v.SetDefault("tts.speed", 1.0)
+	v.SetDefault("tts.clone.model", "qwen3-tts-vc-2026-01-22")
+	v.SetDefault("tts.clone.sample_path", "")
+	v.SetDefault("tts.clone.preferred_name", "narrator")
 
 	v.SetDefault("output.provider", "capcut")
 	v.SetDefault("output.default_scene_duration", 3.0)

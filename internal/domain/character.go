@@ -8,15 +8,16 @@ import (
 
 // Character represents a per-SCP character ID card with visual presets.
 type Character struct {
-	ID              string
-	SCPID           string
-	CanonicalName   string
-	Aliases         []string
-	VisualDescriptor string
-	StyleGuide      string
-	ImagePromptBase string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                string
+	SCPID             string
+	CanonicalName     string
+	Aliases           []string
+	VisualDescriptor  string
+	StyleGuide        string
+	ImagePromptBase   string
+	SelectedImagePath string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // ValidateAliases checks that all provided aliases are non-empty strings.

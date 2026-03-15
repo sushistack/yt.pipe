@@ -39,3 +39,10 @@ type TTS interface {
 	// opts may be nil for default TTS tone (backward compatible).
 	SynthesizeWithOverrides(ctx context.Context, text string, voice string, overrides map[string]string, opts *TTSOptions) (*SynthesisResult, error)
 }
+
+// VoiceCloner defines the interface for TTS providers that support voice cloning.
+// Not all TTS providers support cloning (ISP: Interface Segregation Principle).
+type VoiceCloner interface {
+	// CreateVoice enrolls an audio sample and returns a voice ID for synthesis.
+	CreateVoice(ctx context.Context, audioPath string, preferredName string) (string, error)
+}

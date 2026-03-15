@@ -19,10 +19,10 @@ func (s *Store) CreateCharacter(c *domain.Character) error {
 	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO characters (id, scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO characters (id, scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base, selected_image_path, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.SCPID, c.CanonicalName, string(aliasesJSON),
-		c.VisualDescriptor, c.StyleGuide, c.ImagePromptBase,
+		c.VisualDescriptor, c.StyleGuide, c.ImagePromptBase, c.SelectedImagePath,
 		now.Format(time.RFC3339), now.Format(time.RFC3339),
 	)
 	if err != nil {
@@ -38,10 +38,10 @@ func (s *Store) GetCharacter(id string) (*domain.Character, error) {
 	c := &domain.Character{}
 	var aliasesJSON, createdAt, updatedAt string
 	err := s.db.QueryRow(
-		`SELECT id, scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base, created_at, updated_at
+		`SELECT id, scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base, selected_image_path, created_at, updated_at
 		 FROM characters WHERE id = ?`, id,
 	).Scan(&c.ID, &c.SCPID, &c.CanonicalName, &aliasesJSON,
-		&c.VisualDescriptor, &c.StyleGuide, &c.ImagePromptBase,
+		&c.VisualDescriptor, &c.StyleGuide, &c.ImagePromptBase, &c.SelectedImagePath,
 		&createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
 		return nil, &domain.NotFoundError{Resource: "character", ID: id}
@@ -60,7 +60,7 @@ func (s *Store) GetCharacter(id string) (*domain.Character, error) {
 // ListCharactersBySCPID returns all characters for a given SCP entity.
 func (s *Store) ListCharactersBySCPID(scpID string) ([]*domain.Character, error) {
 	rows, err := s.db.Query(
-		`SELECT id, scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base, created_at, updated_at
+		`SELECT id, scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base, selected_image_path, created_at, updated_at
 		 FROM characters WHERE scp_id = ? ORDER BY canonical_name`, scpID,
 	)
 	if err != nil {
@@ -73,7 +73,7 @@ func (s *Store) ListCharactersBySCPID(scpID string) ([]*domain.Character, error)
 // ListAllCharacters returns all characters (for global preset reuse).
 func (s *Store) ListAllCharacters() ([]*domain.Character, error) {
 	rows, err := s.db.Query(
-		`SELECT id, scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base, created_at, updated_at
+		`SELECT id, scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base, selected_image_path, created_at, updated_at
 		 FROM characters ORDER BY scp_id, canonical_name`,
 	)
 	if err != nil {
@@ -92,10 +92,10 @@ func (s *Store) UpdateCharacter(c *domain.Character) error {
 	}
 
 	result, err := s.db.Exec(
-		`UPDATE characters SET scp_id=?, canonical_name=?, aliases=?, visual_descriptor=?, style_guide=?, image_prompt_base=?, updated_at=?
+		`UPDATE characters SET scp_id=?, canonical_name=?, aliases=?, visual_descriptor=?, style_guide=?, image_prompt_base=?, selected_image_path=?, updated_at=?
 		 WHERE id=?`,
 		c.SCPID, c.CanonicalName, string(aliasesJSON),
-		c.VisualDescriptor, c.StyleGuide, c.ImagePromptBase,
+		c.VisualDescriptor, c.StyleGuide, c.ImagePromptBase, c.SelectedImagePath,
 		now.Format(time.RFC3339), c.ID,
 	)
 	if err != nil {
@@ -127,7 +127,7 @@ func (s *Store) DeleteCharacter(id string) error {
 func (s *Store) SearchCharactersByName(name string) ([]*domain.Character, error) {
 	lowerName := strings.ToLower(name)
 	rows, err := s.db.Query(
-		`SELECT id, scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base, created_at, updated_at
+		`SELECT id, scp_id, canonical_name, aliases, visual_descriptor, style_guide, image_prompt_base, selected_image_path, created_at, updated_at
 		 FROM characters
 		 WHERE LOWER(canonical_name) = ? OR LOWER(aliases) LIKE ?
 		 ORDER BY canonical_name`,
@@ -146,7 +146,7 @@ func scanCharacters(rows *sql.Rows) ([]*domain.Character, error) {
 		c := &domain.Character{}
 		var aliasesJSON, createdAt, updatedAt string
 		if err := rows.Scan(&c.ID, &c.SCPID, &c.CanonicalName, &aliasesJSON,
-			&c.VisualDescriptor, &c.StyleGuide, &c.ImagePromptBase,
+			&c.VisualDescriptor, &c.StyleGuide, &c.ImagePromptBase, &c.SelectedImagePath,
 			&createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan character: %w", err)
 		}

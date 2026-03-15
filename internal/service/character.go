@@ -97,6 +97,23 @@ func (cs *CharacterService) DeleteCharacter(id string) error {
 	return cs.store.DeleteCharacter(id)
 }
 
+// UpdateSelectedImagePath sets the selected character image path.
+func (cs *CharacterService) UpdateSelectedImagePath(characterID, imagePath string) error {
+	return cs.store.UpdateSelectedImagePath(characterID, imagePath)
+}
+
+// CheckExistingCharacter returns the first character for a given SCP ID, or nil if none exists.
+func (cs *CharacterService) CheckExistingCharacter(scpID string) (*domain.Character, error) {
+	chars, err := cs.store.ListCharactersBySCPID(scpID)
+	if err != nil {
+		return nil, fmt.Errorf("service: check existing character: %w", err)
+	}
+	if len(chars) == 0 {
+		return nil, nil
+	}
+	return chars[0], nil
+}
+
 // MatchCharacters finds characters whose canonical_name or aliases appear in scene text.
 // Returns deduplicated CharacterRef slice for ImageGen plugin consumption.
 func (cs *CharacterService) MatchCharacters(scpID, sceneText string) ([]imagegen.CharacterRef, error) {

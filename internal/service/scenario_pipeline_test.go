@@ -25,9 +25,9 @@ func setupTemplatesDir(t *testing.T) string {
 
 	// Create minimal test templates
 	templates := map[string]string{
-		"01_research.md":  "Research {scp_id}\n{scp_fact_sheet}\n{main_text}\n{glossary_section}",
-		"02_structure.md": "Structure {scp_id}\n{research_packet}\n{scp_visual_reference}\n{target_duration}\n{glossary_section}",
-		"03_writing.md":   "Writing {scp_id}\n{scene_structure}\n{scp_visual_reference}\n{glossary_section}",
+		"01_research.md":  "Research {scp_id}\n{scp_fact_sheet}\n{main_text}\n{glossary_section}\n{format_guide}",
+		"02_structure.md": "Structure {scp_id}\n{research_packet}\n{scp_visual_reference}\n{target_duration}\n{glossary_section}\n{format_guide}",
+		"03_writing.md":   "Writing {scp_id}\n{scene_structure}\n{scp_visual_reference}\n{glossary_section}\n{format_guide}",
 		"04_review.md":    "Review {scp_id}\n{narration_script}\n{scp_visual_reference}\n{scp_fact_sheet}\n{glossary_section}",
 	}
 	for name, content := range templates {
@@ -308,6 +308,82 @@ func TestParseReviewReport(t *testing.T) {
 	assert.True(t, report.OverallPass)
 	assert.Equal(t, 85.0, report.CoveragePct)
 	assert.Len(t, report.Issues, 1)
+}
+
+func TestParseReviewReport_WithStorytellingScore(t *testing.T) {
+	content := `{
+		"overall_pass": true,
+		"coverage_pct": 90.0,
+		"issues": [],
+		"corrections": [],
+		"storytelling_score": 65,
+		"storytelling_issues": [
+			{"scene_num": 1, "type": "weak_hook", "severity": "warning", "description": "Opening lacks strong hook", "correction": "Add a question or shock hook"}
+		]
+	}`
+
+	report, err := parseReviewReport(content)
+	require.NoError(t, err)
+	assert.Equal(t, 65, report.StorytellingScore)
+	assert.Len(t, report.StorytellingIssues, 1)
+	assert.Equal(t, "weak_hook", report.StorytellingIssues[0].Type)
+}
+
+func TestScenarioPipeline_FormatGuideInjection(t *testing.T) {
+	dir := t.TempDir()
+	scenarioDir := filepath.Join(dir, "scenario")
+	require.NoError(t, os.MkdirAll(scenarioDir, 0o755))
+
+	// Templates with {format_guide} placeholder
+	templates := map[string]string{
+		"01_research.md":  "Research {scp_id}\n{format_guide}",
+		"02_structure.md": "Structure {scp_id}\n{format_guide}",
+		"03_writing.md":   "Writing {scp_id}\n{format_guide}",
+		"04_review.md":    "Review {scp_id}",
+	}
+	for name, content := range templates {
+		require.NoError(t, os.WriteFile(filepath.Join(scenarioDir, name), []byte(content), 0o644))
+	}
+
+	// Write a format guide
+	require.NoError(t, os.WriteFile(filepath.Join(scenarioDir, "format_guide.md"), []byte("## Hook Type Library\nTest guide content"), 0o644))
+
+	g := glossary.New()
+	mockLLM := mocks.NewMockLLM(t)
+
+	pipeline, err := NewScenarioPipeline(mockLLM, g, ScenarioPipelineConfig{
+		TemplatesDir:      dir,
+		TargetDurationMin: 10,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, pipeline.formatGuide, "Hook Type Library")
+}
+
+func TestScenarioPipeline_FormatGuideMissing(t *testing.T) {
+	dir := t.TempDir()
+	scenarioDir := filepath.Join(dir, "scenario")
+	require.NoError(t, os.MkdirAll(scenarioDir, 0o755))
+
+	templates := map[string]string{
+		"01_research.md":  "Research {scp_id}",
+		"02_structure.md": "Structure {scp_id}",
+		"03_writing.md":   "Writing {scp_id}",
+		"04_review.md":    "Review {scp_id}",
+	}
+	for name, content := range templates {
+		require.NoError(t, os.WriteFile(filepath.Join(scenarioDir, name), []byte(content), 0o644))
+	}
+
+	// No format_guide.md — should gracefully degrade
+	g := glossary.New()
+	mockLLM := mocks.NewMockLLM(t)
+
+	pipeline, err := NewScenarioPipeline(mockLLM, g, ScenarioPipelineConfig{
+		TemplatesDir:      dir,
+		TargetDurationMin: 10,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, pipeline.formatGuide)
 }
 
 func TestApplyCorrections(t *testing.T) {

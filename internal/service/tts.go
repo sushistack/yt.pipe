@@ -19,15 +19,100 @@ import (
 
 // TTSService handles TTS narration synthesis for scenes.
 type TTSService struct {
-	tts      tts.TTS
-	glossary *glossary.Glossary
-	store    *store.Store
-	logger   *slog.Logger
+	tts          tts.TTS
+	voiceCloner  tts.VoiceCloner
+	glossary     *glossary.Glossary
+	store        *store.Store
+	logger       *slog.Logger
+	cloneCfg     TTSCloneServiceConfig
+}
+
+// TTSCloneServiceConfig holds voice cloning config for the service layer.
+type TTSCloneServiceConfig struct {
+	SamplePath    string
+	PreferredName string
 }
 
 // NewTTSService creates a new TTSService.
 func NewTTSService(t tts.TTS, g *glossary.Glossary, s *store.Store, logger *slog.Logger) *TTSService {
 	return &TTSService{tts: t, glossary: g, store: s, logger: logger}
+}
+
+// SetVoiceCloner sets the optional VoiceCloner for voice enrollment support.
+func (s *TTSService) SetVoiceCloner(vc tts.VoiceCloner) {
+	s.voiceCloner = vc
+}
+
+// SetCloneConfig sets the voice cloning configuration.
+func (s *TTSService) SetCloneConfig(cfg TTSCloneServiceConfig) {
+	s.cloneCfg = cfg
+}
+
+// EnsureVoiceID returns the voice to use for synthesis, handling clone voice caching.
+// If voice is already set and not a clone request, returns it as-is.
+// If no cached voice and clone sample path is configured, enrolls and caches.
+func (s *TTSService) EnsureVoiceID(ctx context.Context, projectID, voice string) (string, error) {
+	// If not using clone, return the voice as-is
+	if s.voiceCloner == nil || s.cloneCfg.SamplePath == "" {
+		return voice, nil
+	}
+
+	// Check cache first
+	cached, err := s.store.GetCachedVoice(projectID)
+	if err == nil {
+		// Check staleness
+		age := time.Since(cached.CreatedAt)
+		if age > 7*24*time.Hour {
+			s.logger.Warn("voice ID may be stale",
+				"project_id", projectID,
+				"voice_id", cached.VoiceID,
+				"age_days", int(age.Hours()/24),
+				"suggestion", "Run 'yt-pipe tts test-voice' to verify quality",
+			)
+		}
+		return cached.VoiceID, nil
+	}
+
+	// No cached voice — enroll
+	s.logger.Info("enrolling voice for project",
+		"project_id", projectID,
+		"sample_path", s.cloneCfg.SamplePath,
+	)
+
+	voiceID, err := s.voiceCloner.CreateVoice(ctx, s.cloneCfg.SamplePath, s.cloneCfg.PreferredName)
+	if err != nil {
+		return "", fmt.Errorf("tts service: voice enrollment: %w", err)
+	}
+
+	// Cache the result
+	if cacheErr := s.store.CacheVoice(projectID, voiceID, s.cloneCfg.SamplePath); cacheErr != nil {
+		s.logger.Warn("failed to cache voice ID", "project_id", projectID, "err", cacheErr)
+	}
+
+	return voiceID, nil
+}
+
+// ReEnrollVoice re-enrolls a voice when synthesis fails with auth errors.
+func (s *TTSService) ReEnrollVoice(ctx context.Context, projectID string) (string, error) {
+	if s.voiceCloner == nil || s.cloneCfg.SamplePath == "" {
+		return "", fmt.Errorf("tts service: re-enrollment not possible without voice cloner and sample path")
+	}
+
+	s.logger.Info("re-enrolling voice after auth failure",
+		"project_id", projectID,
+		"sample_path", s.cloneCfg.SamplePath,
+	)
+
+	voiceID, err := s.voiceCloner.CreateVoice(ctx, s.cloneCfg.SamplePath, s.cloneCfg.PreferredName)
+	if err != nil {
+		return "", fmt.Errorf("tts service: re-enrollment: %w", err)
+	}
+
+	if cacheErr := s.store.CacheVoice(projectID, voiceID, s.cloneCfg.SamplePath); cacheErr != nil {
+		s.logger.Warn("failed to update cached voice ID", "project_id", projectID, "err", cacheErr)
+	}
+
+	return voiceID, nil
 }
 
 // SynthesizeScene synthesizes narration for a single scene and saves audio to the scene directory.
