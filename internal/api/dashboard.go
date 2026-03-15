@@ -51,6 +51,7 @@ func (s *Server) initDashboardTemplates() {
 		"templates/_partials/project_card.html",
 		"templates/_partials/scene_card.html",
 		"templates/_partials/toast.html",
+		"templates/_partials/character_section.html",
 	}
 	var partials []string
 	for _, pf := range partialFiles {
@@ -253,20 +254,23 @@ type jobStatusData struct {
 	ElapsedSec     int
 }
 
-// UIStageOrder is the 5-step UI representation (images+tts merged as "assets").
-var UIStageOrder = []string{"pending", "scenario", "assets", "assemble", "complete"}
+// UIStageOrder is the 6-step UI representation (images+tts merged as "assets").
+var UIStageOrder = []string{"pending", "scenario", "character", "assets", "assemble", "complete"}
 
 // projectDetailData is the template data for the project detail page.
 type projectDetailData struct {
-	APIKey         string
-	Project        *domain.Project
-	Scenes         []sceneViewData
-	StageOrder     []string
-	CurrentStage   string // mapped to UI stage: "assets" for images/tts
-	ProjectID      string
-	DependenciesMet map[string]bool
-	Job            jobStatusData
-	OutputFiles    []outputFileData
+	APIKey              string
+	Project             *domain.Project
+	Scenes              []sceneViewData
+	StageOrder          []string
+	CurrentStage        string // mapped to UI stage: "assets" for images/tts
+	ProjectID           string
+	DependenciesMet     map[string]bool
+	Job                 jobStatusData
+	OutputFiles         []outputFileData
+	Character           *domain.Character
+	CharacterCandidates []*domain.CharacterCandidate
+	CharacterStatus     string
 }
 
 type outputFileData struct {
@@ -324,6 +328,16 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Load character data
+	var character *domain.Character
+	var charCandidates []*domain.CharacterCandidate
+	var charStatus string
+	if s.characterSvc != nil {
+		character, _ = s.characterSvc.CheckExistingCharacter(project.SCPID)
+		charCandidates, _ = s.characterSvc.ListCandidates(project.ID)
+		charStatus, _ = s.characterSvc.GetCandidateGenerationStatus(project.ID)
+	}
+
 	deps := computeDependencies(project, s.workspacePath)
 
 	// Check for running job
@@ -343,7 +357,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// Check typed jobs (image_generate, tts_generate)
-		for _, jt := range []string{"image_generate", "tts_generate", "assembly"} {
+		for _, jt := range []string{"character_generate", "image_generate", "tts_generate", "assembly"} {
 			if tj := s.jobs.getByType(projectID, jt); tj != nil && tj.getStatus() == JobStatusRunning {
 				progress := tj.getProgress()
 				jobData = jobStatusData{
@@ -362,6 +376,9 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Character dependency (outside computeDependencies which is filesystem-based)
+	deps["character"] = character != nil && character.SelectedImagePath != ""
+
 	// Map backend stage to UI stage (images/tts → assets)
 	uiStage := project.Status
 	if uiStage == domain.StageImages || uiStage == domain.StageTTS {
@@ -379,15 +396,18 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := projectDetailData{
-		APIKey:          s.cfg.API.Auth.Key,
-		Project:         project,
-		Scenes:          scenes,
-		StageOrder:      UIStageOrder,
-		CurrentStage:    uiStage,
-		ProjectID:       project.ID,
-		DependenciesMet: deps,
-		Job:             jobData,
-		OutputFiles:     outputFiles,
+		APIKey:              s.cfg.API.Auth.Key,
+		Project:             project,
+		Scenes:              scenes,
+		StageOrder:          UIStageOrder,
+		CurrentStage:        uiStage,
+		ProjectID:           project.ID,
+		DependenciesMet:     deps,
+		Job:                 jobData,
+		OutputFiles:         outputFiles,
+		Character:           character,
+		CharacterCandidates: charCandidates,
+		CharacterStatus:     charStatus,
 	}
 
 	// HTMX partial: return just the content section (for stage changes)
@@ -408,10 +428,12 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 // pipelineStageLabel returns a human-readable label for a pipeline stage.
 func pipelineStageLabel(stage string) string {
 	labels := map[string]string{
-		"data_load":          "Loading data...",
-		"scenario_generate":  "Generating scenario...",
-		"scenario_approval":  "Waiting for approval...",
-		"image_generate":     "Generating images...",
+		"data_load":           "Loading data...",
+		"scenario_generate":   "Generating scenario...",
+		"scenario_approval":   "Waiting for approval...",
+		"character_select":    "Generating Characters...",
+		"character_generate":  "Generating character candidates...",
+		"image_generate":      "Generating images...",
 		"tts_synthesize":     "Generating TTS...",
 		"timing_resolve":     "Resolving timing...",
 		"subtitle_generate":  "Generating subtitles...",
@@ -603,6 +625,57 @@ func (s *Server) handleDashboardAsset(w http.ResponseWriter, r *http.Request, fi
 		return
 	}
 
+	http.ServeFile(w, r, cleaned)
+}
+
+// handleCharacterImage serves the selected character image for a project's SCP ID.
+func (s *Server) handleCharacterImage(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		http.Error(w, "Project not found", http.StatusNotFound)
+		return
+	}
+	if s.characterSvc == nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	char, err := s.characterSvc.CheckExistingCharacter(project.SCPID)
+	if err != nil || char == nil || char.SelectedImagePath == "" {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	cleaned := filepath.Clean(char.SelectedImagePath)
+	if _, statErr := os.Stat(cleaned); os.IsNotExist(statErr) {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, cleaned)
+}
+
+// handleCandidateImage serves a candidate character image with path safety validation.
+func (s *Server) handleCandidateImage(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	num, err := strconv.Atoi(chi.URLParam(r, "num"))
+	if err != nil || num < 1 || num > 10 {
+		WriteError(w, r, http.StatusBadRequest, "INVALID_CANDIDATE",
+			"candidate number must be 1-10")
+		return
+	}
+
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "project not found")
+		return
+	}
+
+	imgPath := filepath.Join(project.WorkspacePath, project.SCPID,
+		"characters", fmt.Sprintf("candidate_%d.png", num))
+	cleaned := filepath.Clean(imgPath)
+	if !strings.HasPrefix(cleaned, filepath.Clean(project.WorkspacePath)) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
 	http.ServeFile(w, r, cleaned)
 }
 

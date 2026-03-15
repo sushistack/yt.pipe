@@ -217,8 +217,8 @@ func TestDashboard_Detail_PipelineButtons(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	body := w.Body.String()
-	// scenario stage shows Generate Assets + dropdown with Regenerate Scenario
-	assert.Contains(t, body, "Generate Assets")
+	// scenario stage shows Generate Characters + Skip to Assets + dropdown with Regenerate Scenario
+	assert.Contains(t, body, "Generate Characters")
 	assert.Contains(t, body, "Regenerate Scenario")
 	assert.Contains(t, body, "Delete")
 	// Assemble button NOT shown in scenario stage (only in assets/assemble/complete)

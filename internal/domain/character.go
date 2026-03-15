@@ -20,6 +20,19 @@ type Character struct {
 	UpdatedAt         time.Time
 }
 
+// CharacterCandidate represents a candidate character image generated for selection.
+type CharacterCandidate struct {
+	ID           string
+	ProjectID    string
+	SCPID        string
+	CandidateNum int
+	ImagePath    string
+	Description  string
+	Status       string // "pending", "generating", "ready", "failed"
+	ErrorDetail  string
+	CreatedAt    time.Time
+}
+
 // ValidateAliases checks that all provided aliases are non-empty strings.
 func ValidateAliases(aliases []string) error {
 	for i, a := range aliases {

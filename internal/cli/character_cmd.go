@@ -346,7 +346,7 @@ func runCharacterGenerate(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Generating %d character candidates for %s...\n", count, scpID)
 
-	results, err := svc.GenerateCandidates(cmd.Context(), scpID, count, workspacePath)
+	results, err := svc.GenerateCandidates(cmd.Context(), "", scpID, count, workspacePath)
 	if err != nil {
 		// Fallback: if LLM/ImageGen not configured, print manual instructions
 		fmt.Fprintf(cmd.OutOrStdout(), "Auto-generation unavailable: %v\n", err)
@@ -359,7 +359,7 @@ func runCharacterGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, r := range results {
-		fmt.Fprintf(cmd.OutOrStdout(), "  Candidate %d: %s\n", r.Index, r.ImagePath)
+		fmt.Fprintf(cmd.OutOrStdout(), "  Candidate %d: %s\n", r.CandidateNum, r.ImagePath)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "\nReview images, then run: yt-pipe character select --scp %s --num <N>\n", scpID)
 

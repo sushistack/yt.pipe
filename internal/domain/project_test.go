@@ -37,9 +37,10 @@ func TestStageIndex(t *testing.T) {
 	}{
 		{"pending is 0", StagePending, 0},
 		{"scenario is 1", StageScenario, 1},
-		{"images is 2", StageImages, 2},
-		{"tts is 3", StageTTS, 3},
-		{"complete is 4", StageComplete, 4},
+		{"character is 2", StageCharacter, 2},
+		{"images is 3", StageImages, 3},
+		{"tts is 4", StageTTS, 4},
+		{"complete is 5", StageComplete, 5},
 		{"unknown returns -1", "unknown", -1},
 		{"empty returns -1", "", -1},
 	}

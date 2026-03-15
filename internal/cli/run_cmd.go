@@ -10,6 +10,7 @@ import (
 	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
 	"github.com/sushistack/yt.pipe/internal/plugin/output"
 	"github.com/sushistack/yt.pipe/internal/plugin/output/capcut"
+	"github.com/sushistack/yt.pipe/internal/service"
 	"github.com/sushistack/yt.pipe/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -87,6 +88,10 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 		canvas.FPS = float64(c.Output.FPS)
 	}
 
+	characterSvc := service.NewCharacterService(db)
+	characterSvc.SetLLM(llmPlugin)
+	characterSvc.SetImageGen(imgPlugin)
+
 	runner := pipeline.NewRunner(db, llmPlugin, imgPlugin, ttsPlugin, assembler, g, logger, pipeline.RunnerConfig{
 		SCPDataPath:   c.SCPDataPath,
 		WorkspacePath: c.WorkspacePath,
@@ -96,6 +101,7 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 		TemplatePath:  c.Output.TemplatePath,
 		MetaPath:      c.Output.MetaPath,
 		TemplatesPath: c.TemplatesPath,
+		CharacterSvc:  characterSvc,
 	})
 
 	// Set progress callback for stderr output

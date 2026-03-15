@@ -40,6 +40,7 @@ type Server struct {
 	imageGenSvc     *service.ImageGenService
 	ttsSvc          *service.TTSService
 	assemblerSvc    *service.AssemblerService
+	characterSvc    *service.CharacterService
 	jobs            *jobManager
 	registry        *plugin.Registry
 	pipelineRunner  *pipeline.Runner
@@ -84,6 +85,11 @@ func WithAssemblerService(svc *service.AssemblerService) ServerOption {
 // WithPipelineRunner sets the pipeline runner for full pipeline execution.
 func WithPipelineRunner(r *pipeline.Runner) ServerOption {
 	return func(s *Server) { s.pipelineRunner = r }
+}
+
+// WithCharacterService sets the character service.
+func WithCharacterService(svc *service.CharacterService) ServerOption {
+	return func(s *Server) { s.characterSvc = svc }
 }
 
 // WithPluginStatus sets the plugin availability status map.
@@ -187,6 +193,8 @@ func (s *Server) setupRouter() {
 	r.Get("/dashboard/", s.handleDashboardList)
 	r.Get("/dashboard/scp/{scpID}/projects", s.handleSCPProjects)
 	r.Get("/dashboard/projects/{id}", s.handleProjectDetail)
+	r.Get("/dashboard/projects/{id}/characters/image", s.handleCharacterImage)
+	r.Get("/dashboard/projects/{id}/characters/candidates/{num}/image", s.handleCandidateImage)
 	r.Get("/dashboard/projects/{id}/scenes/{num}/image", s.handleDashboardImage)
 	r.Get("/dashboard/projects/{id}/scenes/{num}/audio", s.handleDashboardAudio)
 	r.Get("/dashboard/projects/{id}/output/*", s.handleDashboardOutputFile)
@@ -222,6 +230,12 @@ func (s *Server) setupRouter() {
 
 		// Token rotation (Bearer auth only, NOT review-token accessible)
 		r.Post("/projects/{id}/review-token/rotate", s.handleRotateReviewToken)
+
+		// Character management
+		r.Post("/projects/{id}/characters/generate", s.handleGenerateCharacters)
+		r.Get("/projects/{id}/characters/candidates", s.handleListCandidates)
+		r.Post("/projects/{id}/characters/select", s.handleSelectCharacter)
+		r.Get("/projects/{id}/characters", s.handleGetCharacter)
 
 		// Asset management
 		r.Post("/projects/{id}/images/generate", s.handleGenerateImages)

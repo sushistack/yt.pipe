@@ -13,6 +13,7 @@
     <div class="flex items-center gap-2">
         {{if eq .CurrentStage "pending"}}<span class="badge">pending</span>
         {{else if eq .CurrentStage "scenario"}}<span class="badge badge-primary">scenario</span>
+        {{else if eq .CurrentStage "character"}}<span class="badge badge-secondary">character</span>
         {{else if eq .CurrentStage "assets"}}<span class="badge badge-info">assets</span>
         {{else if eq .CurrentStage "assemble"}}<span class="badge badge-warning">assemble</span>
         {{else if eq .CurrentStage "complete"}}<span class="badge badge-success">complete</span>
@@ -46,6 +47,9 @@
         {{end}}
     </div>
 </div>
+
+<!-- Character Selection -->
+{{template "character_section" .}}
 
 {{/* === Job Status Banner === */}}
 {{if .Job.IsRunning}}
@@ -83,12 +87,19 @@
             </button>
 
             {{else if eq .CurrentStage "scenario"}}
-            {{/* === Scenario stage — first-time asset generation === */}}
+            {{/* === Scenario stage — character generation first, then assets === */}}
             <button class="btn btn-primary btn-sm"
+                    hx-post="/api/v1/projects/{{.Project.ID}}/characters/generate"
+                    hx-target="#project-content"
+                    hx-swap="innerHTML"
+                    {{if .Job.IsRunning}}disabled{{end}}>
+                Generate Characters
+            </button>
+            <button class="btn btn-outline btn-sm"
                     onclick="generateAssets('{{.Project.ID}}')"
                     {{if .Job.IsRunning}}disabled{{end}}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
-                Generate Assets
+                Skip to Assets
             </button>
             <div class="dropdown dropdown-end">
                 <label tabindex="0" class="btn btn-ghost btn-sm" {{if .Job.IsRunning}}style="pointer-events:none;opacity:0.5;"{{end}}>

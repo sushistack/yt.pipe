@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/sushistack/yt.pipe/internal/domain"
 )
 
@@ -138,6 +140,76 @@ func (s *Store) SearchCharactersByName(name string) ([]*domain.Character, error)
 	}
 	defer rows.Close()
 	return scanCharacters(rows)
+}
+
+// CreateCandidateBatch inserts N candidate rows with status "pending" in a single transaction.
+func (s *Store) CreateCandidateBatch(projectID, scpID string, count int) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("create candidate batch: begin tx: %w", err)
+	}
+	for i := 1; i <= count; i++ {
+		id := uuid.New().String()
+		_, err := tx.Exec(
+			`INSERT INTO character_candidates (id, project_id, scp_id, candidate_num, status)
+			 VALUES (?, ?, ?, ?, 'pending')`,
+			id, projectID, scpID, i,
+		)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("create candidate batch: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+// ListCandidatesByProject returns all candidates for a project ordered by candidate_num.
+func (s *Store) ListCandidatesByProject(projectID string) ([]*domain.CharacterCandidate, error) {
+	rows, err := s.db.Query(
+		`SELECT id, project_id, scp_id, candidate_num, image_path, description, status, error_detail, created_at
+		 FROM character_candidates WHERE project_id = ? ORDER BY candidate_num`, projectID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list candidates by project: %w", err)
+	}
+	defer rows.Close()
+	return scanCandidates(rows)
+}
+
+// UpdateCandidateStatus updates the status, image path, description, and error detail for a candidate.
+func (s *Store) UpdateCandidateStatus(id, status, imagePath, description, errorDetail string) error {
+	_, err := s.db.Exec(
+		`UPDATE character_candidates SET status=?, image_path=?, description=?, error_detail=? WHERE id=?`,
+		status, imagePath, description, errorDetail, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update candidate status: %w", err)
+	}
+	return nil
+}
+
+// DeleteCandidatesByProject removes all candidates for a project.
+func (s *Store) DeleteCandidatesByProject(projectID string) error {
+	_, err := s.db.Exec(`DELETE FROM character_candidates WHERE project_id = ?`, projectID)
+	if err != nil {
+		return fmt.Errorf("delete candidates by project: %w", err)
+	}
+	return nil
+}
+
+func scanCandidates(rows *sql.Rows) ([]*domain.CharacterCandidate, error) {
+	var candidates []*domain.CharacterCandidate
+	for rows.Next() {
+		c := &domain.CharacterCandidate{}
+		var createdAt string
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.SCPID, &c.CandidateNum,
+			&c.ImagePath, &c.Description, &c.Status, &c.ErrorDetail, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan candidate: %w", err)
+		}
+		c.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		candidates = append(candidates, c)
+	}
+	return candidates, rows.Err()
 }
 
 func scanCharacters(rows *sql.Rows) ([]*domain.Character, error) {

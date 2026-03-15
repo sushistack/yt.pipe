@@ -42,6 +42,9 @@ type Runner struct {
 	templatesPath        string
 	defaultSceneDuration float64
 
+	characterSvc               *service.CharacterService
+	selectedCharacterImagePath string
+
 	// ProgressFunc is called on stage transitions for real-time feedback.
 	ProgressFunc func(service.PipelineProgress)
 }
@@ -57,6 +60,7 @@ type RunnerConfig struct {
 	MetaPath             string
 	TemplatesPath        string
 	DefaultSceneDuration float64
+	CharacterSvc         *service.CharacterService
 }
 
 // NewRunner creates a new pipeline Runner.
@@ -87,6 +91,7 @@ func NewRunner(
 		metaPath:      cfg.MetaPath,
 		templatesPath:        cfg.TemplatesPath,
 		defaultSceneDuration: cfg.DefaultSceneDuration,
+		characterSvc:         cfg.CharacterSvc,
 	}
 }
 
@@ -306,6 +311,20 @@ func (r *Runner) resumeFromApproval(ctx context.Context, project *domain.Project
 
 	r.logger.Info("pipeline resumed", "project_id", project.ID, "scp_id", project.SCPID, "skip_approval", skipApproval, "current_status", project.Status)
 
+	// Character gate: must have selected character before image generation
+	if r.characterSvc != nil {
+		char, err := r.characterSvc.CheckExistingCharacter(project.SCPID)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline: check character: %w", err)
+		}
+		if char == nil || char.SelectedImagePath == "" {
+			return nil, &domain.DependencyError{
+				Action: "image_generate", Missing: []string{"character"},
+			}
+		}
+		r.selectedCharacterImagePath = char.SelectedImagePath
+	}
+
 	// --- Skip-Approval Path: Use legacy parallel generation (backward compatible) ---
 	if skipApproval {
 		return r.runSkipApprovalPath(ctx, project, scenario, start, result, projectSvc, approvalSvc, sceneCount)
@@ -378,6 +397,7 @@ func (r *Runner) runApprovalPath(ctx context.Context, project *domain.Project, s
 			return result, r.pipelineError(service.StageImageGenerate, 0, err, project.SCPID)
 		}
 		imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
+		r.wireCharacterToImageSvc(imgSvc)
 		_, err = imgSvc.GenerateAllImages(ctx, prompts, project.ID, project.WorkspacePath, r.imageOpts, nil)
 		result.Stages = append(result.Stages, stageResult(string(service.StageImageGenerate), stageStart, err))
 		if err != nil {
@@ -661,6 +681,19 @@ func (r *Runner) RunStage(ctx context.Context, scpID string, stage service.Pipel
 		_, _, err = r.runScenarioGenerate(ctx, scpData)
 		return err
 	case service.StageImageGenerate:
+		// Character gate for single-stage execution
+		if r.characterSvc != nil {
+			char, err := r.characterSvc.CheckExistingCharacter(scpID)
+			if err != nil {
+				return fmt.Errorf("pipeline: check character: %w", err)
+			}
+			if char == nil || char.SelectedImagePath == "" {
+				return &domain.DependencyError{
+					Action: "image_generate", Missing: []string{"character"},
+				}
+			}
+			r.selectedCharacterImagePath = char.SelectedImagePath
+		}
 		return r.runImageGenerateStage(ctx, scpID)
 	case service.StageTTSSynthesize:
 		return r.runTTSSynthesizeStage(ctx, scpID)
@@ -746,6 +779,7 @@ func (r *Runner) runParallelGeneration(ctx context.Context, scenario *domain.Sce
 	go func() {
 		defer wg.Done()
 		imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
+		r.wireCharacterToImageSvc(imgSvc)
 		imageScenes, imageErr = imgSvc.GenerateAllImages(ctx, prompts, project.ID, project.WorkspacePath, r.imageOpts, nil)
 	}()
 
@@ -813,6 +847,7 @@ func (r *Runner) runImageGenerateStage(ctx context.Context, scpID string) error 
 	}
 
 	imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
+	r.wireCharacterToImageSvc(imgSvc)
 
 	total := len(prompts)
 	for i, p := range prompts {
@@ -846,6 +881,7 @@ func (r *Runner) RunImageRegenerate(ctx context.Context, scpID string, sceneNums
 	}
 
 	imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
+	r.wireCharacterToImageSvc(imgSvc)
 
 	// Backup existing images before regeneration
 	for _, num := range sceneNums {
@@ -1133,6 +1169,16 @@ func loadScenesFromDir(projectPath string) ([]*domain.Scene, error) {
 		scenes = append(scenes, scene)
 	}
 	return scenes, nil
+}
+
+// wireCharacterToImageSvc wires the character service and selected image into an ImageGenService.
+func (r *Runner) wireCharacterToImageSvc(imgSvc *service.ImageGenService) {
+	if r.characterSvc != nil {
+		imgSvc.SetCharacterService(r.characterSvc)
+		if r.selectedCharacterImagePath != "" {
+			_ = imgSvc.SetSelectedCharacterImage(r.selectedCharacterImagePath)
+		}
+	}
 }
 
 func parseSceneManifest(data []byte) (*domain.Scene, error) {

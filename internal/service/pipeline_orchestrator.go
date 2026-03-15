@@ -19,6 +19,7 @@ const (
 	StageDataLoad          PipelineStage = "data_load"
 	StageScenarioGenerate  PipelineStage = "scenario_generate"
 	StageScenarioApproval  PipelineStage = "scenario_approval"
+	StageCharacterSelect   PipelineStage = "character_select"
 	StageImageGenerate     PipelineStage = "image_generate"
 	StageTTSSynthesize     PipelineStage = "tts_synthesize"
 	StageTimingResolve     PipelineStage = "timing_resolve"

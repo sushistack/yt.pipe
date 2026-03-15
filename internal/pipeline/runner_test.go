@@ -2,13 +2,17 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sushistack/yt.pipe/internal/domain"
 	"github.com/sushistack/yt.pipe/internal/service"
-	"github.com/stretchr/testify/assert"
+	"github.com/sushistack/yt.pipe/internal/store"
 )
 
 func TestStageResult(t *testing.T) {
@@ -111,6 +115,56 @@ func TestRunStage_unknownStage(t *testing.T) {
 	err := r.RunStage(context.Background(), "SCP-173", "nonexistent_stage")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown stage")
+}
+
+func TestRunStage_ImageGenerate_CharacterGate_NoCharacter(t *testing.T) {
+	s, err := store.New(":memory:")
+	require.NoError(t, err)
+	defer s.Close()
+
+	// Create a project so findProject works
+	require.NoError(t, s.CreateProject(&domain.Project{
+		ID: "p1", SCPID: "SCP-173", Status: domain.StageCharacter, WorkspacePath: t.TempDir(),
+	}))
+
+	characterSvc := service.NewCharacterService(s)
+	r := &Runner{
+		store:        s,
+		logger:       slog.Default(),
+		characterSvc: characterSvc,
+	}
+
+	err = r.RunStage(context.Background(), "SCP-173", service.StageImageGenerate)
+	require.Error(t, err)
+	var depErr *domain.DependencyError
+	assert.ErrorAs(t, err, &depErr)
+	assert.Equal(t, "image_generate", depErr.Action)
+	assert.Contains(t, depErr.Missing, "character")
+}
+
+func TestRunStage_ImageGenerate_CharacterGate_NilService(t *testing.T) {
+	s, err := store.New(":memory:")
+	require.NoError(t, err)
+	defer s.Close()
+
+	require.NoError(t, s.CreateProject(&domain.Project{
+		ID: "p1", SCPID: "SCP-173", Status: domain.StageImages, WorkspacePath: t.TempDir(),
+	}))
+
+	// No characterSvc — gate should be skipped (nil-safe)
+	r := &Runner{
+		store:  s,
+		logger: slog.Default(),
+	}
+
+	// Will fail later (no imageGen plugin) but should NOT fail on character gate
+	err = r.RunStage(context.Background(), "SCP-173", service.StageImageGenerate)
+	// If it's a DependencyError for character, that's wrong
+	var depErr *domain.DependencyError
+	if errors.As(err, &depErr) {
+		assert.NotEqual(t, "image_generate", depErr.Action,
+			"nil characterSvc should skip gate, not produce DependencyError")
+	}
 }
 
 func timeNow() time.Time {

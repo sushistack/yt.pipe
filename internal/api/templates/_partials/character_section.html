@@ -1,0 +1,164 @@
+{{define "character_section"}}
+{{if or (eq .CurrentStage "character") (eq .CurrentStage "scenario") .Character}}
+<div class="card bg-base-100 shadow-sm mb-4" id="character-section">
+    <div class="card-body py-3">
+
+        {{/* Active character stage — expanded view */}}
+        {{if eq .CurrentStage "character"}}
+
+            {{/* Existing character from other project — reuse prompt */}}
+            {{if and .Character (eq .CharacterStatus "empty")}}
+            <div class="flex items-center gap-3 mb-3">
+                <h3 class="font-semibold">Existing Character Found</h3>
+            </div>
+            <div class="flex gap-4 items-start">
+                {{if .Character.SelectedImagePath}}
+                <img src="/dashboard/projects/{{.ProjectID}}/characters/image"
+                     class="w-24 h-24 rounded-lg object-cover" alt="Character" />
+                {{end}}
+                <div class="flex-1">
+                    <p class="text-sm">{{.Character.CanonicalName}}</p>
+                    <p class="text-xs opacity-60 mt-1 line-clamp-2">{{.Character.VisualDescriptor}}</p>
+                    <div class="flex gap-2 mt-3">
+                        <button class="btn btn-primary btn-sm"
+                                hx-post="/api/v1/projects/{{.ProjectID}}/characters/select"
+                                hx-vals='{"candidate_num": 1}'
+                                hx-target="#project-content"
+                                hx-swap="innerHTML">
+                            Reuse This Character
+                        </button>
+                        <button class="btn btn-outline btn-sm"
+                                hx-post="/api/v1/projects/{{.ProjectID}}/characters/generate"
+                                hx-target="#project-content"
+                                hx-swap="innerHTML">
+                            Generate New
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {{/* Candidates generating — skeleton cards with polling */}}
+            {{else if eq .CharacterStatus "generating"}}
+            <div class="flex items-center gap-2 mb-3">
+                <span class="loading loading-spinner loading-sm"></span>
+                <h3 class="font-semibold">Generating Character Candidates...</h3>
+            </div>
+            <div id="character-candidates"
+                 hx-get="/dashboard/projects/{{.ProjectID}}"
+                 hx-trigger="every 2s"
+                 hx-target="#project-content"
+                 hx-swap="innerHTML"
+                 class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {{range .CharacterCandidates}}
+                {{if eq .Status "ready"}}
+                <div class="card bg-base-200 cursor-pointer hover:ring-2 ring-primary transition-all"
+                     hx-post="/api/v1/projects/{{$.ProjectID}}/characters/select"
+                     hx-vals='{"candidate_num": {{.CandidateNum}}}'
+                     hx-target="#project-content"
+                     hx-swap="innerHTML">
+                    <figure class="px-2 pt-2">
+                        <img src="/dashboard/projects/{{$.ProjectID}}/characters/candidates/{{.CandidateNum}}/image"
+                             class="rounded-lg w-full aspect-square object-cover" alt="Candidate {{.CandidateNum}}" />
+                    </figure>
+                    <div class="card-body p-2">
+                        <p class="text-xs line-clamp-2">{{.Description}}</p>
+                    </div>
+                </div>
+                {{else}}
+                <div class="card bg-base-200">
+                    <div class="px-2 pt-2">
+                        <div class="animate-pulse bg-base-300 rounded-lg w-full aspect-square"></div>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="animate-pulse bg-base-300 h-3 rounded w-3/4"></div>
+                    </div>
+                </div>
+                {{end}}
+                {{end}}
+            </div>
+
+            {{/* Candidates ready — clickable card grid */}}
+            {{else if eq .CharacterStatus "ready"}}
+            <div class="flex items-center gap-2 mb-3">
+                <h3 class="font-semibold">Select a Character</h3>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {{range .CharacterCandidates}}
+                <div class="card bg-base-200 cursor-pointer hover:ring-2 ring-primary transition-all"
+                     hx-post="/api/v1/projects/{{$.ProjectID}}/characters/select"
+                     hx-vals='{"candidate_num": {{.CandidateNum}}}'
+                     hx-target="#project-content"
+                     hx-swap="innerHTML">
+                    <figure class="px-2 pt-2">
+                        <img src="/dashboard/projects/{{$.ProjectID}}/characters/candidates/{{.CandidateNum}}/image"
+                             class="rounded-lg w-full aspect-square object-cover" alt="Candidate {{.CandidateNum}}" />
+                    </figure>
+                    <div class="card-body p-2">
+                        <p class="text-xs line-clamp-2">{{.Description}}</p>
+                    </div>
+                </div>
+                {{end}}
+            </div>
+
+            {{/* Candidates failed — error + retry */}}
+            {{else if eq .CharacterStatus "failed"}}
+            <div class="flex items-center gap-2 mb-3">
+                <h3 class="font-semibold text-error">Character Generation Failed</h3>
+            </div>
+            <p class="text-sm opacity-70 mb-3">Some candidates failed to generate. You can retry.</p>
+            <button class="btn btn-primary btn-sm"
+                    hx-post="/api/v1/projects/{{.ProjectID}}/characters/generate"
+                    hx-target="#project-content"
+                    hx-swap="innerHTML">
+                Retry Generation
+            </button>
+
+            {{/* No candidates yet — generate button */}}
+            {{else}}
+            <div class="flex items-center gap-2 mb-3">
+                <h3 class="font-semibold">Character Selection</h3>
+            </div>
+            <p class="text-sm opacity-70 mb-3">Generate character candidates for consistent visual appearance across scenes.</p>
+            <button class="btn btn-primary btn-sm"
+                    hx-post="/api/v1/projects/{{.ProjectID}}/characters/generate"
+                    hx-target="#project-content"
+                    hx-swap="innerHTML"
+                    {{if .Job.IsRunning}}disabled{{end}}>
+                Generate Characters
+            </button>
+            {{end}}
+
+        {{/* Scenario stage — show generate button */}}
+        {{else if eq .CurrentStage "scenario"}}
+            {{if .Character}}
+            <div class="flex items-center gap-2">
+                <span class="badge badge-success badge-sm gap-1">
+                    <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                    Character
+                </span>
+                <span class="text-sm">{{.Character.CanonicalName}}</span>
+            </div>
+            {{end}}
+
+        {{/* Post-character stages — collapsed badge */}}
+        {{else if .Character}}
+        <div class="flex items-center gap-2">
+            <span class="badge badge-success badge-sm gap-1">
+                <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                Character
+            </span>
+            <span class="text-sm">{{.Character.CanonicalName}}</span>
+            <button class="btn btn-ghost btn-xs"
+                    hx-post="/api/v1/projects/{{.ProjectID}}/characters/generate"
+                    hx-target="#project-content"
+                    hx-swap="innerHTML"
+                    hx-confirm="Generate new character candidates? This will replace the current character.">
+                Generate New
+            </button>
+        </div>
+        {{end}}
+
+    </div>
+</div>
+{{end}}
+{{end}}

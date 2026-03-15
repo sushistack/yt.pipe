@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/sushistack/yt.pipe/internal/api"
 	"github.com/sushistack/yt.pipe/internal/glossary"
+	"github.com/sushistack/yt.pipe/internal/pipeline"
+	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
 	"github.com/sushistack/yt.pipe/internal/plugin/output"
 	"github.com/sushistack/yt.pipe/internal/service"
 	"github.com/sushistack/yt.pipe/internal/store"
@@ -92,6 +94,16 @@ func runServeCmd(cmd *cobra.Command, _ []string) error {
 		opts = append(opts, api.WithTTSService(ttsSvc))
 	}
 
+	// Create CharacterService and wire plugins
+	characterSvc := service.NewCharacterService(db)
+	if plugins.LLM != nil {
+		characterSvc.SetLLM(plugins.LLM)
+	}
+	if plugins.ImageGen != nil {
+		characterSvc.SetImageGen(plugins.ImageGen)
+	}
+	opts = append(opts, api.WithCharacterService(characterSvc))
+
 	// Output assembler is always available (built-in CapCut)
 	assemblerSvc := service.NewAssemblerService(plugins.Output, projectSvc)
 	// Apply canvas config
@@ -107,6 +119,28 @@ func runServeCmd(cmd *cobra.Command, _ []string) error {
 	}
 	assemblerSvc.WithConfig(c.Output.TemplatePath, c.Output.MetaPath, canvas)
 	opts = append(opts, api.WithAssemblerService(assemblerSvc))
+
+	// Create pipeline runner (fixes existing gap where executeFullPipeline always fails)
+	imgOpts := imagegen.GenerateOptions{}
+	if c.ImageGen.Width > 0 {
+		imgOpts.Width = c.ImageGen.Width
+	}
+	if c.ImageGen.Height > 0 {
+		imgOpts.Height = c.ImageGen.Height
+	}
+	runner := pipeline.NewRunner(db, plugins.LLM, plugins.ImageGen, plugins.TTS, plugins.Output, g, logger, pipeline.RunnerConfig{
+		SCPDataPath:          c.SCPDataPath,
+		WorkspacePath:        c.WorkspacePath,
+		Voice:                c.TTS.Voice,
+		ImageOpts:            imgOpts,
+		Canvas:               canvas,
+		TemplatePath:         c.Output.TemplatePath,
+		MetaPath:             c.Output.MetaPath,
+		TemplatesPath:        c.TemplatesPath,
+		DefaultSceneDuration: c.Output.DefaultSceneDuration,
+		CharacterSvc:         characterSvc,
+	})
+	opts = append(opts, api.WithPipelineRunner(runner))
 
 	// Create and start server
 	srv := api.NewServer(db, c, opts...)

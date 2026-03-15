@@ -140,7 +140,8 @@ func (cs *CharacterService) CheckExistingCharacter(scpID string) (*domain.Charac
 }
 
 // GenerateCandidates uses LLM to generate character appearance descriptions and images.
-func (cs *CharacterService) GenerateCandidates(ctx context.Context, scpID string, count int, workspacePath string) ([]CandidateResult, error) {
+// When projectID is non-empty, candidates are tracked in the database for dashboard polling.
+func (cs *CharacterService) GenerateCandidates(ctx context.Context, projectID, scpID string, count int, workspacePath string) ([]*domain.CharacterCandidate, error) {
 	if cs.llm == nil {
 		return nil, fmt.Errorf("service: generate candidates: LLM provider not set")
 	}
@@ -151,6 +152,16 @@ func (cs *CharacterService) GenerateCandidates(ctx context.Context, scpID string
 	candidateDir := filepath.Join(workspacePath, scpID, "characters")
 	if err := os.MkdirAll(candidateDir, 0o755); err != nil {
 		return nil, fmt.Errorf("service: generate candidates: create dir: %w", err)
+	}
+
+	// DB-backed flow: clear old candidates and create pending rows
+	if projectID != "" {
+		if err := cs.store.DeleteCandidatesByProject(projectID); err != nil {
+			return nil, fmt.Errorf("service: generate candidates: clear old: %w", err)
+		}
+		if err := cs.store.CreateCandidateBatch(projectID, scpID, count); err != nil {
+			return nil, fmt.Errorf("service: generate candidates: create batch: %w", err)
+		}
 	}
 
 	// Step 1: Ask LLM for character descriptions
@@ -167,6 +178,10 @@ func (cs *CharacterService) GenerateCandidates(ctx context.Context, scpID string
 		{Role: "user", Content: prompt},
 	}, llm.CompletionOptions{})
 	if err != nil {
+		// Mark all as failed in DB
+		if projectID != "" {
+			cs.markAllCandidatesFailed(projectID, err.Error())
+		}
 		return nil, fmt.Errorf("service: generate candidates: LLM: %w", err)
 	}
 
@@ -181,20 +196,37 @@ func (cs *CharacterService) GenerateCandidates(ctx context.Context, scpID string
 	cleaned := extractJSONArray(result.Content)
 	var candidates []llmCandidate
 	if err := json.Unmarshal([]byte(cleaned), &candidates); err != nil {
+		if projectID != "" {
+			cs.markAllCandidatesFailed(projectID, "parse LLM response: "+err.Error())
+		}
 		return nil, fmt.Errorf("service: generate candidates: parse LLM response: %w", err)
 	}
 
+	// Load DB candidates for status updates
+	var dbCandidates []*domain.CharacterCandidate
+	if projectID != "" {
+		dbCandidates, _ = cs.store.ListCandidatesByProject(projectID)
+	}
+
 	// Step 2: Generate images for each candidate
-	var results []CandidateResult
+	var results []*domain.CharacterCandidate
 	for i, c := range candidates {
 		idx := i + 1
 		imgPath := filepath.Join(candidateDir, fmt.Sprintf("candidate_%d.png", idx))
 		txtPath := filepath.Join(candidateDir, fmt.Sprintf("candidate_%d.txt", idx))
 
+		// Update status to generating
+		if idx <= len(dbCandidates) {
+			_ = cs.store.UpdateCandidateStatus(dbCandidates[idx-1].ID, "generating", "", "", "")
+		}
+
 		// Save description
 		descText := fmt.Sprintf("Name: %s\nVisual: %s\nPrompt: %s", c.Name, c.VisualDescriptor, c.ImagePrompt)
 		if err := os.WriteFile(txtPath, []byte(descText), 0o644); err != nil {
-			return nil, fmt.Errorf("service: generate candidates: save description %d: %w", idx, err)
+			if idx <= len(dbCandidates) {
+				_ = cs.store.UpdateCandidateStatus(dbCandidates[idx-1].ID, "failed", "", "", err.Error())
+			}
+			continue
 		}
 
 		// Generate image
@@ -203,22 +235,97 @@ func (cs *CharacterService) GenerateCandidates(ctx context.Context, scpID string
 			Height: 1024,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("service: generate candidates: image %d: %w", idx, err)
+			if idx <= len(dbCandidates) {
+				_ = cs.store.UpdateCandidateStatus(dbCandidates[idx-1].ID, "failed", "", descText, err.Error())
+			}
+			continue
 		}
 
 		if err := os.WriteFile(imgPath, imgResult.ImageData, 0o644); err != nil {
-			return nil, fmt.Errorf("service: generate candidates: save image %d: %w", idx, err)
+			if idx <= len(dbCandidates) {
+				_ = cs.store.UpdateCandidateStatus(dbCandidates[idx-1].ID, "failed", "", descText, err.Error())
+			}
+			continue
 		}
 
-		results = append(results, CandidateResult{
-			Index:       idx,
-			Description: descText,
-			ImagePath:   imgPath,
-			TextPath:    txtPath,
+		// Update DB with ready status
+		if idx <= len(dbCandidates) {
+			_ = cs.store.UpdateCandidateStatus(dbCandidates[idx-1].ID, "ready", imgPath, descText, "")
+		}
+
+		results = append(results, &domain.CharacterCandidate{
+			CandidateNum: idx,
+			ImagePath:    imgPath,
+			Description:  descText,
+			Status:       "ready",
 		})
 	}
 
+	// Mark any remaining pending/generating candidates as failed (LLM returned fewer than count)
+	if projectID != "" {
+		cs.markAllCandidatesFailed(projectID, "LLM returned fewer candidates than requested")
+	}
+
 	return results, nil
+}
+
+// markAllCandidatesFailed marks all pending/generating candidates as failed.
+func (cs *CharacterService) markAllCandidatesFailed(projectID, errorDetail string) {
+	candidates, err := cs.store.ListCandidatesByProject(projectID)
+	if err != nil {
+		return
+	}
+	for _, c := range candidates {
+		if c.Status == "pending" || c.Status == "generating" {
+			_ = cs.store.UpdateCandidateStatus(c.ID, "failed", "", "", errorDetail)
+		}
+	}
+}
+
+// ListCandidates returns all candidates for a project.
+func (cs *CharacterService) ListCandidates(projectID string) ([]*domain.CharacterCandidate, error) {
+	return cs.store.ListCandidatesByProject(projectID)
+}
+
+// GetCandidateGenerationStatus returns aggregate status for a project's candidates.
+// Returns: "empty" (no rows), "generating" (any pending/generating), "ready" (all ready), "failed" (any failed, none generating).
+func (cs *CharacterService) GetCandidateGenerationStatus(projectID string) (string, error) {
+	candidates, err := cs.store.ListCandidatesByProject(projectID)
+	if err != nil {
+		return "", fmt.Errorf("service: candidate status: %w", err)
+	}
+	if len(candidates) == 0 {
+		return "empty", nil
+	}
+
+	hasGenerating := false
+	hasFailed := false
+	allReady := true
+	for _, c := range candidates {
+		switch c.Status {
+		case "pending", "generating":
+			hasGenerating = true
+			allReady = false
+		case "failed":
+			hasFailed = true
+			allReady = false
+		case "ready":
+			// ok
+		default:
+			allReady = false
+		}
+	}
+
+	if hasGenerating {
+		return "generating", nil
+	}
+	if allReady {
+		return "ready", nil
+	}
+	if hasFailed {
+		return "failed", nil
+	}
+	return "generating", nil
 }
 
 // SelectCandidate selects a generated candidate and creates/updates a character record.
@@ -228,7 +335,7 @@ func (cs *CharacterService) SelectCandidate(scpID string, candidateNum int, work
 	txtPath := filepath.Join(candidateDir, fmt.Sprintf("candidate_%d.txt", candidateNum))
 
 	if _, err := os.Stat(imgPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("service: select candidate: image not found: %s", imgPath)
+		return nil, fmt.Errorf("service: select candidate: candidate %d image not found", candidateNum)
 	}
 
 	description := ""
@@ -245,9 +352,6 @@ func (cs *CharacterService) SelectCandidate(scpID string, candidateNum int, work
 		existing.SelectedImagePath = imgPath
 		if err := cs.store.UpdateCharacter(existing); err != nil {
 			return nil, fmt.Errorf("service: select candidate: update: %w", err)
-		}
-		if err := cs.store.UpdateSelectedImagePath(existing.ID, imgPath); err != nil {
-			return nil, fmt.Errorf("service: select candidate: update image path: %w", err)
 		}
 		return existing, nil
 	}

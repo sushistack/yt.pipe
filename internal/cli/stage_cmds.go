@@ -201,6 +201,10 @@ func buildRunner(cmd *cobra.Command) (*pipeline.Runner, func(), error) {
 		canvas.FPS = float64(c.Output.FPS)
 	}
 
+	characterSvc := service.NewCharacterService(db)
+	characterSvc.SetLLM(llmPlugin)
+	characterSvc.SetImageGen(imgPlugin)
+
 	runner := pipeline.NewRunner(db, llmPlugin, imgPlugin, ttsPlugin, assembler, g, slog.Default(), pipeline.RunnerConfig{
 		SCPDataPath:   c.SCPDataPath,
 		WorkspacePath: c.WorkspacePath,
@@ -214,6 +218,7 @@ func buildRunner(cmd *cobra.Command) (*pipeline.Runner, func(), error) {
 		MetaPath:             c.Output.MetaPath,
 		TemplatesPath:        c.TemplatesPath,
 		DefaultSceneDuration: c.Output.DefaultSceneDuration,
+		CharacterSvc:         characterSvc,
 	})
 
 	cleanup := func() { db.Close() }

@@ -17,25 +17,27 @@ type Project struct {
 // Stage constants — dependency-based model replaces old state machine.
 // Status is a progress marker ("highest stage reached"), not a gate.
 const (
-	StagePending  = "pending"
-	StageScenario = "scenario"
-	StageImages   = "images"
-	StageTTS      = "tts"
-	StageComplete = "complete"
+	StagePending   = "pending"
+	StageScenario  = "scenario"
+	StageCharacter = "character"
+	StageImages    = "images"
+	StageTTS       = "tts"
+	StageComplete  = "complete"
 )
 
 // ValidStages maps valid stage strings for validation.
 var ValidStages = map[string]bool{
-	StagePending:  true,
-	StageScenario: true,
-	StageImages:   true,
-	StageTTS:      true,
-	StageComplete: true,
+	StagePending:   true,
+	StageScenario:  true,
+	StageCharacter: true,
+	StageImages:    true,
+	StageTTS:       true,
+	StageComplete:  true,
 }
 
 // StageOrder defines the rendering order for progress bar display.
 // images and tts are parallel — StageIndex should NOT be used for dependency logic.
-var StageOrder = []string{StagePending, StageScenario, StageImages, StageTTS, StageComplete}
+var StageOrder = []string{StagePending, StageScenario, StageCharacter, StageImages, StageTTS, StageComplete}
 
 // IsValidStage checks if a stage string is valid.
 func IsValidStage(stage string) bool {

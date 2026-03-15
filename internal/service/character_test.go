@@ -178,3 +178,92 @@ func TestMatchCharacters_NoCharactersExist(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, refs)
 }
+
+// --- GetCandidateGenerationStatus Tests ---
+
+func setupCharacterServiceWithStore(t *testing.T) (*CharacterService, *store.Store) {
+	t.Helper()
+	s, err := store.New(":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { s.Close() })
+	return NewCharacterService(s), s
+}
+
+func TestGetCandidateGenerationStatus_Empty(t *testing.T) {
+	cs, _ := setupCharacterServiceWithStore(t)
+	status, err := cs.GetCandidateGenerationStatus("proj1")
+	require.NoError(t, err)
+	assert.Equal(t, "empty", status)
+}
+
+func TestGetCandidateGenerationStatus_AllPending(t *testing.T) {
+	cs, s := setupCharacterServiceWithStore(t)
+	require.NoError(t, s.CreateCandidateBatch("proj1", "SCP-173", 4))
+
+	status, err := cs.GetCandidateGenerationStatus("proj1")
+	require.NoError(t, err)
+	assert.Equal(t, "generating", status)
+}
+
+func TestGetCandidateGenerationStatus_AllReady(t *testing.T) {
+	cs, s := setupCharacterServiceWithStore(t)
+	require.NoError(t, s.CreateCandidateBatch("proj1", "SCP-173", 2))
+
+	candidates, _ := s.ListCandidatesByProject("proj1")
+	for _, c := range candidates {
+		require.NoError(t, s.UpdateCandidateStatus(c.ID, "ready", "/img.png", "desc", ""))
+	}
+
+	status, err := cs.GetCandidateGenerationStatus("proj1")
+	require.NoError(t, err)
+	assert.Equal(t, "ready", status)
+}
+
+func TestGetCandidateGenerationStatus_MixedGeneratingAndReady(t *testing.T) {
+	cs, s := setupCharacterServiceWithStore(t)
+	require.NoError(t, s.CreateCandidateBatch("proj1", "SCP-173", 3))
+
+	candidates, _ := s.ListCandidatesByProject("proj1")
+	require.NoError(t, s.UpdateCandidateStatus(candidates[0].ID, "ready", "/img.png", "desc", ""))
+	// candidates[1] and [2] remain "pending"
+
+	status, err := cs.GetCandidateGenerationStatus("proj1")
+	require.NoError(t, err)
+	assert.Equal(t, "generating", status)
+}
+
+func TestGetCandidateGenerationStatus_Failed(t *testing.T) {
+	cs, s := setupCharacterServiceWithStore(t)
+	require.NoError(t, s.CreateCandidateBatch("proj1", "SCP-173", 2))
+
+	candidates, _ := s.ListCandidatesByProject("proj1")
+	require.NoError(t, s.UpdateCandidateStatus(candidates[0].ID, "ready", "/img.png", "desc", ""))
+	require.NoError(t, s.UpdateCandidateStatus(candidates[1].ID, "failed", "", "", "LLM error"))
+
+	status, err := cs.GetCandidateGenerationStatus("proj1")
+	require.NoError(t, err)
+	assert.Equal(t, "failed", status)
+}
+
+func TestGetCandidateGenerationStatus_FailedOverridesReady(t *testing.T) {
+	cs, s := setupCharacterServiceWithStore(t)
+	require.NoError(t, s.CreateCandidateBatch("proj1", "SCP-173", 3))
+
+	candidates, _ := s.ListCandidatesByProject("proj1")
+	require.NoError(t, s.UpdateCandidateStatus(candidates[0].ID, "ready", "/img.png", "desc", ""))
+	require.NoError(t, s.UpdateCandidateStatus(candidates[1].ID, "ready", "/img2.png", "desc2", ""))
+	require.NoError(t, s.UpdateCandidateStatus(candidates[2].ID, "failed", "", "", "timeout"))
+
+	status, err := cs.GetCandidateGenerationStatus("proj1")
+	require.NoError(t, err)
+	assert.Equal(t, "failed", status)
+}
+
+func TestListCandidates_DelegatesToStore(t *testing.T) {
+	cs, s := setupCharacterServiceWithStore(t)
+	require.NoError(t, s.CreateCandidateBatch("proj1", "SCP-173", 3))
+
+	candidates, err := cs.ListCandidates("proj1")
+	require.NoError(t, err)
+	assert.Len(t, candidates, 3)
+}
