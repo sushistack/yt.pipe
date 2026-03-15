@@ -1,4 +1,4 @@
-.PHONY: build test test-integration generate lint docker docker-up docker-down docker-logs run clean
+.PHONY: build test test-e2e test-integration generate lint docker docker-up docker-down docker-logs run clean
 
 BINARY := bin/yt-pipe
 MODULE := github.com/sushistack/yt.pipe
@@ -10,6 +10,10 @@ build:
 
 test:
 	go test ./...
+
+test-e2e:
+	go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps chromium
+	go test -tags=e2e -timeout 300s ./tests/e2e/...
 
 test-integration:
 	go test -tags=integration -timeout 600s ./...

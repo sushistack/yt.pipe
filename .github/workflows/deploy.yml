@@ -21,8 +21,21 @@ jobs:
       - run: go test ./...
       - run: go vet ./...
 
-  build-and-push:
+  e2e:
+    runs-on: ubuntu-latest
     needs: test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+      - name: Install Chromium
+        run: go run github.com/playwright-community/playwright-go/cmd/playwright install --with-deps chromium
+      - name: Run E2E tests
+        run: go test -tags=e2e -timeout 300s -v ./tests/e2e/...
+
+  build-and-push:
+    needs: [test, e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -68,7 +81,7 @@ jobs:
             }'
 
   notify:
-    needs: [test, build-and-push, deploy]
+    needs: [test, e2e, build-and-push, deploy]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -79,6 +92,7 @@ jobs:
           title: "yt-pipe deploy"
           description: |
             **Test:** ${{ needs.test.result }}
+            **E2E:** ${{ needs.e2e.result }}
             **Build:** ${{ needs.build-and-push.result }}
             **Deploy:** ${{ needs.deploy.result }}
             **Commit:** `${{ github.sha }}` — ${{ github.event.head_commit.message }}
