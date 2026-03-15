@@ -213,6 +213,22 @@
 </div>
 {{end}}
 
+<!-- Scenario Pipeline Info -->
+{{if .ScenarioPipeline}}
+<div class="flex items-center gap-2 mb-3 text-xs">
+    {{if eq .ScenarioPipeline "4-stage"}}
+    <span class="badge badge-success badge-sm gap-1">4-Stage Pipeline</span>
+    {{else}}
+    <span class="badge badge-warning badge-sm gap-1">Legacy Single-Prompt</span>
+    {{end}}
+    {{if eq .ScenarioFormatGuide "applied"}}
+    <span class="badge badge-info badge-sm gap-1">Format Guide Applied</span>
+    {{else}}
+    <span class="badge badge-ghost badge-sm">No Format Guide</span>
+    {{end}}
+</div>
+{{end}}
+
 <!-- Scenes -->
 {{if .Scenes}}
 <div class="flex items-center justify-between mb-3">

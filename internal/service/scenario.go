@@ -189,6 +189,14 @@ func (ss *ScenarioService) generateScenarioInternal(ctx context.Context, scpData
 			}
 			scenario := pipeResult.Scenario
 
+			// Record pipeline mode in metadata
+			if scenario.Metadata == nil {
+				scenario.Metadata = make(map[string]string)
+			}
+			scenario.Metadata["pipeline_mode"] = "4-stage"
+			scenario.Metadata["templates_dir"] = ss.templatesDir
+			scenario.Metadata["format_guide"] = "applied"
+
 			// Save output files
 			scenarioJSON, _ := json.MarshalIndent(scenario, "", "  ")
 			_ = workspace.WriteFileAtomic(filepath.Join(workspacePath, "scenario.json"), scenarioJSON)
@@ -210,6 +218,9 @@ func (ss *ScenarioService) generateScenarioInternal(ctx context.Context, scpData
 		"object_class": scpData.Meta.ObjectClass,
 		"series":       scpData.Meta.Series,
 	}
+
+	metadata["pipeline_mode"] = "legacy-single-prompt"
+	metadata["format_guide"] = "none"
 
 	scenario, err := ss.llm.GenerateScenario(ctx, scpData.SCPID, scpData.MainText, factTags, metadata)
 	if err != nil {

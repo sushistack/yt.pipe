@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -271,6 +272,8 @@ type projectDetailData struct {
 	Character           *domain.Character
 	CharacterCandidates []*domain.CharacterCandidate
 	CharacterStatus     string
+	ScenarioPipeline    string // "4-stage" or "legacy-single-prompt" or ""
+	ScenarioFormatGuide string // "applied" or "none" or ""
 }
 
 type outputFileData struct {
@@ -336,6 +339,20 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		character, _ = s.characterSvc.CheckExistingCharacter(project.SCPID)
 		charCandidates, _ = s.characterSvc.ListCandidates(project.ID)
 		charStatus, _ = s.characterSvc.GetCandidateGenerationStatus(project.ID)
+	}
+
+	// Load scenario metadata to show pipeline mode
+	var scenarioPipeline, scenarioFormatGuide string
+	if project.WorkspacePath != "" {
+		if scenarioData, err := workspace.ReadFile(filepath.Join(project.WorkspacePath, "scenario.json")); err == nil {
+			var scenarioMeta struct {
+				Metadata map[string]string `json:"metadata"`
+			}
+			if json.Unmarshal(scenarioData, &scenarioMeta) == nil && scenarioMeta.Metadata != nil {
+				scenarioPipeline = scenarioMeta.Metadata["pipeline_mode"]
+				scenarioFormatGuide = scenarioMeta.Metadata["format_guide"]
+			}
+		}
 	}
 
 	deps := computeDependencies(project, s.workspacePath)
@@ -408,6 +425,8 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		Character:           character,
 		CharacterCandidates: charCandidates,
 		CharacterStatus:     charStatus,
+		ScenarioPipeline:    scenarioPipeline,
+		ScenarioFormatGuide: scenarioFormatGuide,
 	}
 
 	// HTMX partial: return just the content section (for stage changes)
