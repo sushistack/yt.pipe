@@ -4,7 +4,6 @@ package imagegen
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"testing"
@@ -16,7 +15,7 @@ import (
 
 // TestImageEditPoC verifies SiliconFlow image-edit API availability for character consistency.
 //
-// Run: SILICONFLOW_API_KEY=<key> go test -tags=integration -run TestImageEditPoC -v ./internal/plugin/imagegen/...
+// Run: YTP_IMAGEGEN_API_KEY=<key> go test -tags=integration -run TestImageEditPoC -v ./internal/plugin/imagegen/...
 func TestImageEditPoC(t *testing.T) {
 	apiKey := os.Getenv("YTP_IMAGEGEN_API_KEY")
 	if apiKey == "" {
@@ -48,25 +47,7 @@ func TestImageEditPoC(t *testing.T) {
 		Height: 576,
 	})
 
-	if editErr == ErrNotSupported {
-		t.Log("  Edit() returned ErrNotSupported — trying alternative approaches...")
-
-		// Alternative: Try Qwen-Image-Edit model via Generate with image input
-		t.Log("Step 2b: Testing Qwen-Image-Edit via Generate endpoint...")
-		b64Ref := base64.StdEncoding.EncodeToString(refResult.ImageData)
-		_ = b64Ref // Would be used in image input param if API supports it
-
-		// For now, report that Edit is not supported
-		t.Log("  RESULT: Image-Edit API is NOT available via SiliconFlow")
-		t.Log("  FALLBACK: CharacterRef prompt composition (text-to-image) will be used")
-		return
-	}
-
-	if editErr != nil {
-		t.Logf("  Edit() failed with error: %v", editErr)
-		t.Log("  RESULT: Image-Edit API returned an error — may need different endpoint/model")
-		return
-	}
+	require.NoError(t, editErr, "Edit() should succeed with implemented Qwen-Image-Edit")
 
 	require.NotNil(t, editResult)
 	t.Logf("  Edit result: %d bytes", len(editResult.ImageData))

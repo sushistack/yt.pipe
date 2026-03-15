@@ -22,6 +22,7 @@ const (
 	defaultSiliconFlowModel    = "black-forest-labs/FLUX.1-schnell"
 	defaultImageWidth          = 1024
 	defaultImageHeight         = 576
+	defaultEditModel           = "Qwen/Qwen-Image-Edit"
 )
 
 // supportedImageSizes maps model prefixes to their allowed image_size values.
@@ -108,12 +109,13 @@ func NewSiliconFlowProvider(cfg SiliconFlowConfig) (*SiliconFlowProvider, error)
 
 // SiliconFlow API request/response types
 type sfImageRequest struct {
-	Model         string `json:"model"`
-	Prompt        string `json:"prompt"`
-	ImageSize     string `json:"image_size,omitempty"`
-	BatchSize     int    `json:"batch_size,omitempty"`
-	Seed          *int64 `json:"seed,omitempty"`
-	NumSteps      int    `json:"num_inference_steps,omitempty"`
+	Model         string   `json:"model"`
+	Prompt        string   `json:"prompt"`
+	ImageSize     string   `json:"image_size,omitempty"`
+	Image         string   `json:"image,omitempty"`
+	BatchSize     int      `json:"batch_size,omitempty"`
+	Seed          *int64   `json:"seed,omitempty"`
+	NumSteps      int      `json:"num_inference_steps,omitempty"`
 	GuidanceScale *float64 `json:"guidance_scale,omitempty"`
 }
 
@@ -337,10 +339,107 @@ func downloadImage(ctx context.Context, url string, client *http.Client) ([]byte
 	return io.ReadAll(resp.Body)
 }
 
-// Edit creates an image by editing a source image with a prompt.
-// Currently returns ErrNotSupported — awaiting PoC verification of SiliconFlow image-edit API.
+// Edit creates an image by editing a source image with a prompt using Qwen-Image-Edit.
 func (p *SiliconFlowProvider) Edit(ctx context.Context, sourceImage []byte, prompt string, opts EditOptions) (*ImageResult, error) {
-	return nil, ErrNotSupported
+	if len(sourceImage) == 0 {
+		return nil, &APIError{
+			Provider:   "siliconflow",
+			StatusCode: 400,
+			Message:    "edit: source image is empty",
+		}
+	}
+	if prompt == "" {
+		return nil, &APIError{
+			Provider:   "siliconflow",
+			StatusCode: 400,
+			Message:    "edit: prompt is empty",
+		}
+	}
+
+	model := defaultEditModel
+	if opts.Model != "" {
+		model = opts.Model
+	}
+
+	width := opts.Width
+	if width == 0 {
+		width = defaultImageWidth
+	}
+	height := opts.Height
+	if height == 0 {
+		height = defaultImageHeight
+	}
+
+	imageSize := resolveImageSize(model, width, height)
+
+	if parts := strings.SplitN(imageSize, "x", 2); len(parts) == 2 {
+		if w, err := strconv.Atoi(parts[0]); err == nil {
+			width = w
+		}
+		if h, err := strconv.Atoi(parts[1]); err == nil {
+			height = h
+		}
+	}
+
+	// Detect actual MIME type and encode as data URI (space after comma per API spec)
+	mime := detectImageMIME(sourceImage)
+	b64Image := "data:" + mime + ";base64, " + base64.StdEncoding.EncodeToString(sourceImage)
+
+	reqBody := sfImageRequest{
+		Model:     model,
+		Prompt:    prompt,
+		ImageSize: imageSize,
+		Image:     b64Image,
+	}
+	if opts.Seed != 0 {
+		seed := opts.Seed
+		reqBody.Seed = &seed
+	}
+
+	var result *ImageResult
+	start := time.Now()
+
+	err := retry.Do(ctx, p.pluginCfg.MaxRetries, p.pluginCfg.BaseDelay, func() error {
+		var genErr error
+		result, genErr = p.doGenerate(ctx, reqBody, width, height)
+		return genErr
+	})
+
+	elapsed := time.Since(start)
+	if err != nil {
+		slog.Error("siliconflow image edit failed",
+			"model", model,
+			"duration_ms", elapsed.Milliseconds(),
+			"err", err,
+		)
+		return nil, err
+	}
+
+	slog.Info("siliconflow image edited",
+		"model", model,
+		"width", result.Width,
+		"height", result.Height,
+		"format", result.Format,
+		"size_bytes", len(result.ImageData),
+		"duration_ms", elapsed.Milliseconds(),
+	)
+
+	return result, nil
+}
+
+// detectImageMIME returns the MIME type of image data, defaulting to "image/png".
+// Only returns MIME types known to be accepted by SiliconFlow's image-edit API.
+func detectImageMIME(data []byte) string {
+	if len(data) == 0 {
+		return "image/png"
+	}
+	mime := http.DetectContentType(data)
+	switch mime {
+	case "image/png", "image/jpeg", "image/webp":
+		return mime
+	default:
+		return "image/png"
+	}
 }
 
 // composeCharacterRefPrompt prepends character visual descriptors to the prompt.
