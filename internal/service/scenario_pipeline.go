@@ -31,16 +31,18 @@ type ScenarioPipelineConfig struct {
 	TemplatesDir          string
 	TargetDurationMin     int
 	FactCoverageThreshold float64
+	MaxAttempts           int
 }
 
 // ScenarioPipeline orchestrates the 4-stage scenario generation process:
 // Research → Structure → Writing → Review.
 type ScenarioPipeline struct {
-	llm         llm.LLM
-	glossary    *glossary.Glossary
-	config      ScenarioPipelineConfig
-	templates   map[ScenarioPipelineStage]string
-	formatGuide string
+	llm            llm.LLM
+	glossary       *glossary.Glossary
+	config         ScenarioPipelineConfig
+	templates      map[ScenarioPipelineStage]string
+	formatGuide    string
+	criticTemplate string
 }
 
 // StageResult holds the output of a single pipeline stage.
@@ -59,6 +61,7 @@ type PipelineResult struct {
 	ReviewReport *ReviewReport          `json:"review_report,omitempty"`
 	TotalTokens  int                    `json:"total_tokens"`
 	TotalMs      int64                  `json:"total_ms"`
+	Attempts     int                    `json:"attempts"`
 }
 
 // ReviewReport is the structured output from Stage 4.
@@ -121,6 +124,12 @@ func NewScenarioPipeline(l llm.LLM, g *glossary.Glossary, cfg ScenarioPipelineCo
 		sp.formatGuide = string(fgData)
 	}
 
+	// Load critic agent template (graceful degradation — empty string if not found)
+	criticPath := filepath.Join(cfg.TemplatesDir, "scenario", "critic_agent.md")
+	if criticData, err := os.ReadFile(criticPath); err == nil {
+		sp.criticTemplate = string(criticData)
+	}
+
 	return sp, nil
 }
 
@@ -157,51 +166,131 @@ func (sp *ScenarioPipeline) Run(ctx context.Context, scpData *workspace.SCPData,
 	}
 	result.Stages = append(result.Stages, *structureContent)
 
-	// Stage 3: Writing
-	writingContent, err := sp.runStageWithCheckpoint(ctx, StageWriting, stagesDir, func() (*StageResult, error) {
-		return sp.runWriting(ctx, scpData, structureContent.Content, visualRef, glossarySection)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("scenario pipeline: writing stage: %w", err)
+	// Quality gate retry loop wrapping Stages 3 (Writing) + 4 (Review)
+	maxAttempts := sp.config.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3
 	}
-	result.Stages = append(result.Stages, *writingContent)
 
-	// Stage 4: Review
-	reviewContent, err := sp.runStageWithCheckpoint(ctx, StageReview, stagesDir, func() (*StageResult, error) {
-		return sp.runReview(ctx, scpData, writingContent.Content, visualRef, factSheet, glossarySection)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("scenario pipeline: review stage: %w", err)
+	minScene, maxScene := sceneCountRange(sp.config.TargetDurationMin)
+	qgConfig := QualityGateConfig{
+		MaxAttempts:           maxAttempts,
+		FactCoverageThreshold: sp.config.FactCoverageThreshold,
+		MinSceneCount:         minScene,
+		MaxSceneCount:         maxScene,
+		MinImmersionCount:     3,
 	}
-	result.Stages = append(result.Stages, *reviewContent)
 
-	// Parse review report and apply corrections
-	reviewReport, err := parseReviewReport(reviewContent.Content)
-	if err != nil {
-		slog.Warn("scenario pipeline: could not parse review report, skipping corrections", "err", err)
-	} else {
-		result.ReviewReport = reviewReport
-		if reviewReport.StorytellingScore > 0 && reviewReport.StorytellingScore < 70 {
-			slog.Warn("scenario pipeline: low storytelling quality score",
-				"scp_id", scpData.SCPID,
-				"storytelling_score", reviewReport.StorytellingScore,
-				"storytelling_issues", len(reviewReport.StorytellingIssues),
-			)
+	var bestAttempt *writingAttempt
+	qualityFeedback := ""
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Check for context cancellation before each attempt
+		if err := ctx.Err(); err != nil {
+			if bestAttempt != nil {
+				break // Use best attempt so far
+			}
+			return nil, fmt.Errorf("scenario pipeline: context cancelled: %w", err)
+		}
+
+		// Delete previous Stage 3+4+critic checkpoints for retry
+		if attempt > 1 {
+			for _, cpFile := range []string{"03_writing.json", "04_review.json", "critic_agent.json"} {
+				if rmErr := os.Remove(filepath.Join(stagesDir, cpFile)); rmErr != nil && !os.IsNotExist(rmErr) {
+					slog.Warn("quality gate: failed to remove checkpoint for retry", "file", cpFile, "err", rmErr)
+				}
+			}
+		}
+
+		// Stage 3: Writing (with quality_feedback injected)
+		writingContent, err := sp.runStageWithCheckpoint(ctx, StageWriting, stagesDir, func() (*StageResult, error) {
+			return sp.runWriting(ctx, scpData, structureContent.Content, visualRef, glossarySection, qualityFeedback)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("scenario pipeline: writing stage: %w", err)
+		}
+
+		// Stage 4: Review
+		reviewContent, err := sp.runStageWithCheckpoint(ctx, StageReview, stagesDir, func() (*StageResult, error) {
+			return sp.runReview(ctx, scpData, writingContent.Content, visualRef, factSheet, glossarySection)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("scenario pipeline: review stage: %w", err)
+		}
+
+		// Parse scenario + review
+		scenario, parseErr := parseScenarioFromWriting(writingContent.Content, scpData.SCPID)
+		if parseErr != nil {
+			return nil, fmt.Errorf("scenario pipeline: parse writing output: %w", parseErr)
+		}
+
+		reviewReport, reviewErr := parseReviewReport(reviewContent.Content)
+		if reviewErr != nil {
+			slog.Warn("scenario pipeline: could not parse review report", "err", reviewErr)
+		}
+		if reviewReport != nil {
+			scenario = applyCorrections(scenario, reviewReport.Corrections)
+		}
+
+		thisAttempt := &writingAttempt{
+			scenario:     scenario,
+			reviewReport: reviewReport,
+			writingStage: writingContent,
+			reviewStage:  reviewContent,
+			attempt:      attempt,
+		}
+
+		// Quality Gate Layer 1
+		violations := RunLayer1(scenario, reviewReport, qgConfig)
+		thisAttempt.violations = violations
+
+		if len(violations) > 0 {
+			// Layer 1 fail → skip Critic, retry immediately
+			qualityFeedback = BuildFeedbackString(violations, nil, attempt, maxAttempts)
+			bestAttempt = selectBest(bestAttempt, thisAttempt)
+			slog.Warn("quality gate: Layer 1 failed", "attempt", attempt, "violations", len(violations))
+			if attempt < maxAttempts {
+				continue
+			}
+			break
+		}
+
+		// Quality Gate Layer 2: Critic Agent
+		if sp.criticTemplate != "" {
+			verdict, criticErr := RunLayer2(ctx, sp.llm, scenario, sp.formatGuide, sp.criticTemplate)
+			if criticErr == nil && verdict != nil {
+				thisAttempt.criticVerdict = verdict
+				if verdict.Verdict == "pass" || verdict.Verdict == "accept_with_notes" {
+					bestAttempt = thisAttempt
+					break // Quality gate passed!
+				}
+				qualityFeedback = BuildFeedbackString(violations, verdict, attempt, maxAttempts)
+				bestAttempt = selectBest(bestAttempt, thisAttempt)
+				slog.Warn("quality gate: Critic rejected", "attempt", attempt, "verdict", verdict.Verdict)
+				if attempt < maxAttempts {
+					continue
+				}
+			} else {
+				// Critic error or nil verdict → treat as pass (graceful degradation)
+				bestAttempt = thisAttempt
+				break
+			}
+		} else {
+			// No critic template → Layer 1 pass is sufficient
+			bestAttempt = thisAttempt
+			break
 		}
 	}
 
-	// Parse scenario from writing stage output
-	scenario, err := parseScenarioFromWriting(writingContent.Content, scpData.SCPID)
-	if err != nil {
-		return nil, fmt.Errorf("scenario pipeline: parse final scenario: %w", err)
+	// Use best attempt for final result (nil guard — should never happen due to loop guarantee)
+	if bestAttempt == nil {
+		return nil, fmt.Errorf("scenario pipeline: no writing attempt completed")
 	}
-
-	// Apply review corrections if available
-	if reviewReport != nil {
-		scenario = applyCorrections(scenario, reviewReport.Corrections)
-	}
-
-	result.Scenario = scenario
+	result.Stages = append(result.Stages, *bestAttempt.writingStage)
+	result.Stages = append(result.Stages, *bestAttempt.reviewStage)
+	result.Scenario = bestAttempt.scenario
+	result.ReviewReport = bestAttempt.reviewReport
+	result.Attempts = bestAttempt.attempt
 
 	// Calculate totals
 	for _, s := range result.Stages {
@@ -211,7 +300,7 @@ func (sp *ScenarioPipeline) Run(ctx context.Context, scpData *workspace.SCPData,
 
 	slog.Info("scenario pipeline completed",
 		"scp_id", scpData.SCPID,
-		"scenes", len(scenario.Scenes),
+		"scenes", len(result.Scenario.Scenes),
 		"total_tokens", result.TotalTokens,
 		"total_ms", result.TotalMs,
 	)
@@ -272,13 +361,14 @@ func (sp *ScenarioPipeline) runStructure(ctx context.Context, scpData *workspace
 	return sp.callLLM(ctx, StageStructure, prompt)
 }
 
-func (sp *ScenarioPipeline) runWriting(ctx context.Context, scpData *workspace.SCPData, sceneStructure, visualRef, glossarySection string) (*StageResult, error) {
+func (sp *ScenarioPipeline) runWriting(ctx context.Context, scpData *workspace.SCPData, sceneStructure, visualRef, glossarySection, qualityFeedback string) (*StageResult, error) {
 	tmpl := sp.templates[StageWriting]
 	prompt := strings.ReplaceAll(tmpl, "{scp_id}", scpData.SCPID)
 	prompt = strings.ReplaceAll(prompt, "{scene_structure}", sceneStructure)
 	prompt = strings.ReplaceAll(prompt, "{scp_visual_reference}", visualRef)
 	prompt = strings.ReplaceAll(prompt, "{glossary_section}", glossarySection)
 	prompt = strings.ReplaceAll(prompt, "{format_guide}", sp.formatGuide)
+	prompt = strings.ReplaceAll(prompt, "{quality_feedback}", qualityFeedback)
 
 	return sp.callLLM(ctx, StageWriting, prompt)
 }

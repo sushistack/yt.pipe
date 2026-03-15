@@ -56,6 +56,8 @@ Apply the following immersion and narration techniques when writing Korean narra
 4. Visual descriptions must be in English for image generation
 5. When describing the entity, use the Visual Identity Profile verbatim
 
+{quality_feedback}
+
 ## Task
 
 For each scene, produce:

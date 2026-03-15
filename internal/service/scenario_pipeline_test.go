@@ -11,7 +11,6 @@ import (
 	"github.com/sushistack/yt.pipe/internal/glossary"
 	"github.com/sushistack/yt.pipe/internal/mocks"
 	"github.com/sushistack/yt.pipe/internal/plugin/llm"
-	"github.com/sushistack/yt.pipe/internal/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -23,16 +22,26 @@ func setupTemplatesDir(t *testing.T) string {
 	scenarioDir := filepath.Join(dir, "scenario")
 	require.NoError(t, os.MkdirAll(scenarioDir, 0o755))
 
-	// Create minimal test templates
+	// Create minimal test templates (include {quality_feedback} in writing template)
 	templates := map[string]string{
 		"01_research.md":  "Research {scp_id}\n{scp_fact_sheet}\n{main_text}\n{glossary_section}\n{format_guide}",
 		"02_structure.md": "Structure {scp_id}\n{research_packet}\n{scp_visual_reference}\n{target_duration}\n{glossary_section}\n{format_guide}",
-		"03_writing.md":   "Writing {scp_id}\n{scene_structure}\n{scp_visual_reference}\n{glossary_section}\n{format_guide}",
+		"03_writing.md":   "Writing {scp_id}\n{scene_structure}\n{scp_visual_reference}\n{glossary_section}\n{format_guide}\n{quality_feedback}",
 		"04_review.md":    "Review {scp_id}\n{narration_script}\n{scp_visual_reference}\n{scp_fact_sheet}\n{glossary_section}",
 	}
 	for name, content := range templates {
 		require.NoError(t, os.WriteFile(filepath.Join(scenarioDir, name), []byte(content), 0o644))
 	}
+	return dir
+}
+
+// setupTemplatesDirWithCritic creates templates dir including a critic_agent.md template.
+func setupTemplatesDirWithCritic(t *testing.T) string {
+	t.Helper()
+	dir := setupTemplatesDir(t)
+	scenarioDir := filepath.Join(dir, "scenario")
+	criticTemplate := "Content Director evaluation\n{format_guide}\n{scenario_json}\nOutput JSON verdict."
+	require.NoError(t, os.WriteFile(filepath.Join(scenarioDir, "critic_agent.md"), []byte(criticTemplate), 0o644))
 	return dir
 }
 
@@ -62,6 +71,39 @@ func sampleWritingOutput() string {
 	return string(data)
 }
 
+// sampleQualityWritingOutput produces a scenario that passes Layer 1 quality gate checks.
+func sampleQualityWritingOutput() string {
+	moods := []string{"tense", "horror", "suspense", "awe", "tense", "horror", "mystery"}
+	scenes := make([]map[string]interface{}, 7)
+	for i := 0; i < 7; i++ {
+		narration := "격리실 내부의 이야기입니다."
+		if i == 0 {
+			narration = "눈을 감는 순간, 당신은 죽습니다."
+		}
+		if i == 1 {
+			narration = "당신이 격리실 문을 열었을 때 느꼈던 공포."
+		}
+		if i == 2 {
+			narration = "당신은 이 사실을 아직 모르고 있었습니다."
+		}
+		scenes[i] = map[string]interface{}{
+			"scene_num":          i + 1,
+			"narration":          narration,
+			"visual_description": "Visual for scene",
+			"fact_tags":          []map[string]string{{"key": "fact", "content": "content"}},
+			"mood":               moods[i],
+		}
+	}
+	scenario := map[string]interface{}{
+		"scp_id":   "SCP-173",
+		"title":    "The Sculpture - SCP-173",
+		"scenes":   scenes,
+		"metadata": map[string]string{"template_version": "1.0"},
+	}
+	data, _ := json.Marshal(scenario)
+	return string(data)
+}
+
 func sampleReviewOutput() string {
 	report := map[string]interface{}{
 		"overall_pass": true,
@@ -70,6 +112,34 @@ func sampleReviewOutput() string {
 		"corrections":  []interface{}{},
 	}
 	data, _ := json.Marshal(report)
+	return string(data)
+}
+
+func sampleCriticPassOutput() string {
+	verdict := map[string]interface{}{
+		"verdict":        "pass",
+		"hook_effective": true,
+		"retention_risk": "low",
+		"ending_impact":  "strong",
+		"feedback":       "좋은 시나리오입니다.",
+		"scene_notes":    []interface{}{},
+	}
+	data, _ := json.Marshal(verdict)
+	return string(data)
+}
+
+func sampleCriticRetryOutput() string {
+	verdict := map[string]interface{}{
+		"verdict":        "retry",
+		"hook_effective": false,
+		"retention_risk": "high",
+		"ending_impact":  "weak",
+		"feedback":       "Scene 1의 Hook이 약합니다. Shock 타입으로 교체하세요.",
+		"scene_notes": []map[string]interface{}{
+			{"scene_num": 1, "issue": "weak hook", "suggestion": "Use Shock type"},
+		},
+	}
+	data, _ := json.Marshal(verdict)
 	return string(data)
 }
 
@@ -123,6 +193,7 @@ func TestScenarioPipeline_Run_Success(t *testing.T) {
 		TemplatesDir:          templatesDir,
 		TargetDurationMin:     10,
 		FactCoverageThreshold: 80.0,
+		MaxAttempts:           1, // Disable retry for backward compat test
 	})
 	require.NoError(t, err)
 
@@ -149,6 +220,9 @@ func TestScenarioPipeline_Run_Success(t *testing.T) {
 	assert.FileExists(t, filepath.Join(wsPath, "stages", "02_structure.json"))
 	assert.FileExists(t, filepath.Join(wsPath, "stages", "03_writing.json"))
 	assert.FileExists(t, filepath.Join(wsPath, "stages", "04_review.json"))
+
+	// Verify attempts
+	assert.Equal(t, 1, result.Attempts)
 }
 
 func TestScenarioPipeline_Run_ResumeFromCheckpoint(t *testing.T) {
@@ -202,6 +276,7 @@ func TestScenarioPipeline_Run_ResumeFromCheckpoint(t *testing.T) {
 		TemplatesDir:          templatesDir,
 		TargetDurationMin:     10,
 		FactCoverageThreshold: 80.0,
+		MaxAttempts:           1, // Disable retry for backward compat test
 	})
 	require.NoError(t, err)
 
@@ -222,8 +297,6 @@ func TestScenarioPipeline_GlossaryInjection(t *testing.T) {
 
 	// Create glossary with entries
 	g := glossary.New()
-	// We can't add entries directly, but we test that the section is built
-	// For a real test, we'd use LoadFromFile with a test fixture
 
 	pipeline, err := NewScenarioPipeline(mockLLM, g, ScenarioPipelineConfig{
 		TemplatesDir:          templatesDir,
@@ -338,7 +411,7 @@ func TestScenarioPipeline_FormatGuideInjection(t *testing.T) {
 	templates := map[string]string{
 		"01_research.md":  "Research {scp_id}\n{format_guide}",
 		"02_structure.md": "Structure {scp_id}\n{format_guide}",
-		"03_writing.md":   "Writing {scp_id}\n{format_guide}",
+		"03_writing.md":   "Writing {scp_id}\n{format_guide}\n{quality_feedback}",
 		"04_review.md":    "Review {scp_id}",
 	}
 	for name, content := range templates {
@@ -417,6 +490,320 @@ func TestExtractJSONFromContent(t *testing.T) {
 	}
 }
 
+// --- Quality Gate integration tests ---
+
+func TestScenarioPipeline_QualityGate_PassFirstAttempt(t *testing.T) {
+	templatesDir := setupTemplatesDirWithCritic(t)
+	wsPath := t.TempDir()
+	mockLLM := mocks.NewMockLLM(t)
+	g := glossary.New()
+
+	// Stage 1: Research
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Research")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content:      "### Visual Identity Profile\nTall concrete statue",
+		InputTokens:  100,
+		OutputTokens: 200,
+		Model:        "test-model",
+	}, nil).Once()
+
+	// Stage 2: Structure
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Structure")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content:      `[{"scene_num":1}]`,
+		InputTokens:  150,
+		OutputTokens: 100,
+		Model:        "test-model",
+	}, nil).Once()
+
+	// Stage 3: Writing — high-quality output that passes Layer 1
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Writing")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content:      sampleQualityWritingOutput(),
+		InputTokens:  200,
+		OutputTokens: 300,
+		Model:        "test-model",
+	}, nil).Once()
+
+	// Stage 4: Review
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Review")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content:      sampleReviewOutput(),
+		InputTokens:  250,
+		OutputTokens: 50,
+		Model:        "test-model",
+	}, nil).Once()
+
+	// Critic Agent: pass
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Content Director")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content:      sampleCriticPassOutput(),
+		InputTokens:  300,
+		OutputTokens: 100,
+		Model:        "test-model",
+	}, nil).Once()
+
+	pipeline, err := NewScenarioPipeline(mockLLM, g, ScenarioPipelineConfig{
+		TemplatesDir:          templatesDir,
+		TargetDurationMin:     10,
+		FactCoverageThreshold: 80.0,
+	})
+	require.NoError(t, err)
+
+	result, err := pipeline.Run(context.Background(), sampleSCPData(), wsPath)
+	require.NoError(t, err)
+
+	assert.NotNil(t, result.Scenario)
+	assert.Equal(t, 7, len(result.Scenario.Scenes))
+	assert.Equal(t, 1, result.Attempts)
+}
+
+func TestScenarioPipeline_QualityGate_RetryOnLayer1Fail(t *testing.T) {
+	templatesDir := setupTemplatesDirWithCritic(t)
+	wsPath := t.TempDir()
+	mockLLM := mocks.NewMockLLM(t)
+	g := glossary.New()
+
+	// Stage 1: Research
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Research")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content:      "### Visual Identity Profile\nTall concrete statue",
+		InputTokens:  100,
+		OutputTokens: 200,
+		Model:        "test-model",
+	}, nil).Once()
+
+	// Stage 2: Structure
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Structure")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content:      `[{"scene_num":1}]`,
+		InputTokens:  150,
+		OutputTokens: 100,
+		Model:        "test-model",
+	}, nil).Once()
+
+	writingCallCount := 0
+	// Stage 3: Writing — first call returns bad output (no hook), second returns good
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Writing")
+	}), mock.Anything).Return(
+		func(_ context.Context, _ []llm.Message, _ llm.CompletionOptions) *llm.CompletionResult {
+			writingCallCount++
+			content := sampleWritingOutput() // bad: only 2 scenes, fails Layer 1
+			if writingCallCount > 1 {
+				content = sampleQualityWritingOutput() // good: passes Layer 1
+			}
+			return &llm.CompletionResult{Content: content, InputTokens: 200, OutputTokens: 300, Model: "test-model"}
+		},
+		func(_ context.Context, _ []llm.Message, _ llm.CompletionOptions) error { return nil },
+	)
+
+	// Stage 4: Review (called each attempt)
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Review")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content:      sampleReviewOutput(),
+		InputTokens:  250,
+		OutputTokens: 50,
+		Model:        "test-model",
+	}, nil)
+
+	// Critic Agent: pass on second attempt
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Content Director")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content:      sampleCriticPassOutput(),
+		InputTokens:  300,
+		OutputTokens: 100,
+		Model:        "test-model",
+	}, nil).Once()
+
+	pipeline, err := NewScenarioPipeline(mockLLM, g, ScenarioPipelineConfig{
+		TemplatesDir:          templatesDir,
+		TargetDurationMin:     10,
+		FactCoverageThreshold: 80.0,
+	})
+	require.NoError(t, err)
+
+	result, err := pipeline.Run(context.Background(), sampleSCPData(), wsPath)
+	require.NoError(t, err)
+
+	assert.NotNil(t, result.Scenario)
+	assert.Equal(t, 2, result.Attempts, "should have taken 2 attempts")
+	assert.Equal(t, 7, len(result.Scenario.Scenes), "second attempt should have 7 scenes")
+}
+
+func TestScenarioPipeline_QualityGate_RetryOnCriticReject(t *testing.T) {
+	templatesDir := setupTemplatesDirWithCritic(t)
+	wsPath := t.TempDir()
+	mockLLM := mocks.NewMockLLM(t)
+	g := glossary.New()
+
+	// Stages 1-2
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Research")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: "### Visual Identity Profile\nTall concrete statue", InputTokens: 100, OutputTokens: 200, Model: "test-model",
+	}, nil).Once()
+
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Structure")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: `[{"scene_num":1}]`, InputTokens: 150, OutputTokens: 100, Model: "test-model",
+	}, nil).Once()
+
+	// Stage 3: Writing — always returns quality output (passes Layer 1)
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Writing")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: sampleQualityWritingOutput(), InputTokens: 200, OutputTokens: 300, Model: "test-model",
+	}, nil)
+
+	// Stage 4: Review
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Review")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: sampleReviewOutput(), InputTokens: 250, OutputTokens: 50, Model: "test-model",
+	}, nil)
+
+	// Critic Agent: first call rejects, second passes
+	criticCallCount := 0
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Content Director")
+	}), mock.Anything).Return(
+		func(_ context.Context, _ []llm.Message, _ llm.CompletionOptions) *llm.CompletionResult {
+			criticCallCount++
+			content := sampleCriticRetryOutput()
+			if criticCallCount > 1 {
+				content = sampleCriticPassOutput()
+			}
+			return &llm.CompletionResult{Content: content, InputTokens: 300, OutputTokens: 100, Model: "test-model"}
+		},
+		func(_ context.Context, _ []llm.Message, _ llm.CompletionOptions) error { return nil },
+	)
+
+	pipeline, err := NewScenarioPipeline(mockLLM, g, ScenarioPipelineConfig{
+		TemplatesDir:          templatesDir,
+		TargetDurationMin:     10,
+		FactCoverageThreshold: 80.0,
+	})
+	require.NoError(t, err)
+
+	result, err := pipeline.Run(context.Background(), sampleSCPData(), wsPath)
+	require.NoError(t, err)
+
+	assert.NotNil(t, result.Scenario)
+	assert.Equal(t, 2, result.Attempts, "should take 2 attempts due to Critic rejection")
+}
+
+func TestScenarioPipeline_QualityGate_MaxAttemptsExhausted(t *testing.T) {
+	templatesDir := setupTemplatesDirWithCritic(t)
+	wsPath := t.TempDir()
+	mockLLM := mocks.NewMockLLM(t)
+	g := glossary.New()
+
+	// Stages 1-2
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Research")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: "### Visual Identity Profile\nTall concrete statue", InputTokens: 100, OutputTokens: 200, Model: "test-model",
+	}, nil).Once()
+
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Structure")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: `[{"scene_num":1}]`, InputTokens: 150, OutputTokens: 100, Model: "test-model",
+	}, nil).Once()
+
+	// Always return quality writing (passes Layer 1)
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Writing")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: sampleQualityWritingOutput(), InputTokens: 200, OutputTokens: 300, Model: "test-model",
+	}, nil)
+
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Review")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: sampleReviewOutput(), InputTokens: 250, OutputTokens: 50, Model: "test-model",
+	}, nil)
+
+	// Critic always rejects
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Content Director")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: sampleCriticRetryOutput(), InputTokens: 300, OutputTokens: 100, Model: "test-model",
+	}, nil)
+
+	pipeline, err := NewScenarioPipeline(mockLLM, g, ScenarioPipelineConfig{
+		TemplatesDir:          templatesDir,
+		TargetDurationMin:     10,
+		FactCoverageThreshold: 80.0,
+		MaxAttempts:           3,
+	})
+	require.NoError(t, err)
+
+	result, err := pipeline.Run(context.Background(), sampleSCPData(), wsPath)
+	require.NoError(t, err, "pipeline should not error when max attempts exhausted — uses best attempt")
+
+	assert.NotNil(t, result.Scenario)
+	assert.Equal(t, 3, result.Attempts, "should have used exactly 3 attempts")
+}
+
+func TestScenarioPipeline_QualityGate_NoCriticTemplate(t *testing.T) {
+	templatesDir := setupTemplatesDir(t) // No critic template
+	wsPath := t.TempDir()
+	mockLLM := mocks.NewMockLLM(t)
+	g := glossary.New()
+
+	// Stages 1-4
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Research")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: "### Visual Identity Profile\nTall concrete statue", InputTokens: 100, OutputTokens: 200, Model: "test-model",
+	}, nil).Once()
+
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Structure")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: `[{"scene_num":1}]`, InputTokens: 150, OutputTokens: 100, Model: "test-model",
+	}, nil).Once()
+
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Writing")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: sampleQualityWritingOutput(), InputTokens: 200, OutputTokens: 300, Model: "test-model",
+	}, nil).Once()
+
+	mockLLM.On("Complete", mock.Anything, mock.MatchedBy(func(msgs []llm.Message) bool {
+		return len(msgs) > 0 && containsString(msgs[0].Content, "Review")
+	}), mock.Anything).Return(&llm.CompletionResult{
+		Content: sampleReviewOutput(), InputTokens: 250, OutputTokens: 50, Model: "test-model",
+	}, nil).Once()
+
+	pipeline, err := NewScenarioPipeline(mockLLM, g, ScenarioPipelineConfig{
+		TemplatesDir:          templatesDir,
+		TargetDurationMin:     10,
+		FactCoverageThreshold: 80.0,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, pipeline.criticTemplate, "no critic template should be loaded")
+
+	result, err := pipeline.Run(context.Background(), sampleSCPData(), wsPath)
+	require.NoError(t, err)
+
+	assert.NotNil(t, result.Scenario)
+	assert.Equal(t, 1, result.Attempts, "should pass on first attempt with Layer 1 only")
+	// Verify no Critic LLM calls were made (mock would fail if unexpected call)
+}
+
 // Helper to check if any message content contains a substring.
 func containsString(content, substr string) bool {
 	return len(content) >= len(substr) && contains(content, substr)
@@ -431,21 +818,3 @@ func contains(s, sub string) bool {
 	return false
 }
 
-// Re-export sampleSCPData for tests in same package (already defined in scenario_test.go).
-// If this causes a duplicate, remove from here.
-func sampleSCPDataForPipeline() *workspace.SCPData {
-	return &workspace.SCPData{
-		SCPID: "SCP-173",
-		Facts: &workspace.FactsFile{
-			SchemaVersion: "1.0",
-			Facts:         map[string]string{"containment": "Euclid", "origin": "Site-19"},
-		},
-		Meta: &workspace.MetaFile{
-			SchemaVersion: "1.0",
-			Title:         "The Sculpture",
-			ObjectClass:   "Euclid",
-			Series:        "I",
-		},
-		MainText: "SCP-173 is a concrete sculpture...",
-	}
-}
