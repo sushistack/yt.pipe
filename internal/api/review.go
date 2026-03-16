@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -186,6 +187,53 @@ func (s *Server) handleServeImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.serveSceneAsset(w, r, "image.png")
+}
+
+// handleServeShotImage serves a specific shot image within a scene.
+// GET /api/v1/projects/{id}/scenes/{num}/shots/{shotNum}/image?token=xxx
+func (s *Server) handleServeShotImage(w http.ResponseWriter, r *http.Request) {
+	if !checkReadRateLimit(w, r) {
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	project, ok := validateReviewToken(s, w, r, projectID)
+	if !ok {
+		return
+	}
+
+	numStr := chi.URLParam(r, "num")
+	sceneNum, err := strconv.Atoi(numStr)
+	if err != nil || sceneNum < 1 {
+		WriteError(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid scene number")
+		return
+	}
+
+	shotStr := chi.URLParam(r, "shotNum")
+	shotNum, shotErr := strconv.Atoi(shotStr)
+	if shotErr != nil || shotNum < 1 {
+		WriteError(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid shot number")
+		return
+	}
+
+	projectPath := project.WorkspacePath
+	if projectPath == "" {
+		projectPath = filepath.Join(s.workspacePath, project.ID)
+	}
+
+	sceneDir := filepath.Join(projectPath, "scenes", strconv.Itoa(sceneNum))
+	for _, ext := range []string{"png", "jpg", "webp"} {
+		assetPath := filepath.Join(sceneDir, fmt.Sprintf("shot_%d.%s", shotNum, ext))
+		cleaned := filepath.Clean(assetPath)
+		if !strings.HasPrefix(cleaned, filepath.Clean(projectPath)) {
+			WriteError(w, r, http.StatusForbidden, "FORBIDDEN", "path traversal denied")
+			return
+		}
+		if _, statErr := os.Stat(cleaned); statErr == nil {
+			http.ServeFile(w, r, cleaned)
+			return
+		}
+	}
+	WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "shot image not found")
 }
 
 // handleServeAudio serves a scene's audio file.

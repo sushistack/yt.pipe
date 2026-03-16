@@ -13,6 +13,9 @@
         .htmx-indicator { opacity: 0; transition: opacity 0.2s; }
         .htmx-request .htmx-indicator { opacity: 1; }
         .htmx-request.htmx-indicator { opacity: 1; }
+        .shot-carousel::-webkit-scrollbar { display: none; }
+        [id^="carousel-"]:hover .carousel-arrow { opacity: 1 !important; }
+        .carousel-arrow:hover { background: rgba(0,0,0,0.7) !important; }
         /* Scrollbar */
         .scroll-thin { scrollbar-width: thin; }
         .scroll-thin::-webkit-scrollbar { width: 4px; }
@@ -96,6 +99,28 @@
                 if (r.ok) { showToast('Scene inserted', 'success'); location.reload(); }
                 else { showToast('Failed to insert', 'error'); }
             });
+        }
+
+        /* Shot carousel navigation */
+        function carouselNav(sceneNum, dir) {
+            var track = document.getElementById('carousel-track-' + sceneNum);
+            if (!track) return;
+            var w = track.offsetWidth;
+            track.scrollBy({ left: dir * w, behavior: 'smooth' });
+        }
+        function carouselGoTo(sceneNum, idx) {
+            var track = document.getElementById('carousel-track-' + sceneNum);
+            if (!track || !track.children[idx]) return;
+            track.children[idx].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+        }
+        function updateCarouselDots(sceneNum) {
+            var track = document.getElementById('carousel-track-' + sceneNum);
+            var dots = document.getElementById('carousel-dots-' + sceneNum);
+            if (!track || !dots) return;
+            var idx = Math.round(track.scrollLeft / track.offsetWidth);
+            for (var i = 0; i < dots.children.length; i++) {
+                dots.children[i].style.background = (i === idx) ? '#6b7280' : 'transparent';
+            }
         }
 
         function apiPost(url) {

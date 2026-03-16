@@ -16,8 +16,9 @@ var reviewScopedRoutes = map[string]bool{
 	// Review page
 	"/review/{project_id}": true,
 	// Scene asset serving
-	"/api/v1/projects/{id}/scenes/{num}/image": true,
-	"/api/v1/projects/{id}/scenes/{num}/audio": true,
+	"/api/v1/projects/{id}/scenes/{num}/image":                true,
+	"/api/v1/projects/{id}/scenes/{num}/shots/{shotNum}/image": true,
+	"/api/v1/projects/{id}/scenes/{num}/audio":                true,
 	// Scene approval/reject
 	"/api/v1/projects/{id}/scenes/{num}/approve": true,
 	"/api/v1/projects/{id}/scenes/{num}/reject":  true,

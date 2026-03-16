@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"path/filepath"
 	"strings"
 	"time"
@@ -436,6 +437,7 @@ func parseSceneManifestJSON(data []byte) (*domain.Scene, error) {
 		AudioDuration float64             `json:"audio_duration"`
 		SubtitlePath  string              `json:"subtitle_path"`
 		WordTimings   []domain.WordTiming `json:"word_timings"`
+		Shots         []domain.Shot       `json:"shots,omitempty"`
 	}
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, err
@@ -448,6 +450,7 @@ func parseSceneManifestJSON(data []byte) (*domain.Scene, error) {
 		AudioDuration: m.AudioDuration,
 		SubtitlePath:  m.SubtitlePath,
 		WordTimings:   m.WordTimings,
+		Shots:         m.Shots,
 	}, nil
 }
 
@@ -461,6 +464,7 @@ func writeSceneManifest(sceneDir string, scene *domain.Scene) error {
 		AudioDuration float64             `json:"audio_duration"`
 		SubtitlePath  string              `json:"subtitle_path,omitempty"`
 		WordTimings   []domain.WordTiming `json:"word_timings,omitempty"`
+		Shots         []domain.Shot       `json:"shots,omitempty"`
 	}{
 		SceneNum:      scene.SceneNum,
 		Narration:     scene.Narration,
@@ -469,6 +473,7 @@ func writeSceneManifest(sceneDir string, scene *domain.Scene) error {
 		AudioDuration: scene.AudioDuration,
 		SubtitlePath:  scene.SubtitlePath,
 		WordTimings:   scene.WordTimings,
+		Shots:         scene.Shots,
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -705,6 +710,7 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 
 	total := len(scenes)
 	completed := 0
+	completedShots := 0
 	var resultPaths []string
 	projectPath := project.WorkspacePath
 	if projectPath == "" {
@@ -752,11 +758,28 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 		}
 	}
 
+	// Pre-calculate total shots for accurate progress
+	var progressMu sync.Mutex
+	totalShots := 0
+	for _, sceneNum := range scenes {
+		narration := sceneNarrations[sceneNum]
+		sents := domain.SplitNarrationSentences(narration)
+		if len(sents) == 0 {
+			totalShots++
+		} else {
+			totalShots += len(sents)
+		}
+	}
+	if totalShots == 0 {
+		totalShots = total
+	}
+
 	slog.Info("image generation started",
 		"project_id", project.ID,
 		"job_id", jobID,
 		"scenes", scenes,
-		"total", total,
+		"total_scenes", total,
+		"total_shots", totalShots,
 	)
 
 	for _, sceneNum := range scenes {
@@ -772,37 +795,75 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 		if promptText == "" {
 			promptText = fmt.Sprintf("Scene %d image for project %s", sceneNum, project.SCPID)
 		}
-		prompt := service.ImagePromptResult{
-			SceneNum:        sceneNum,
-			SanitizedPrompt: promptText,
-			SCPID:           project.SCPID,
-			SceneText:       sceneNarrations[sceneNum],
-			EntityVisible:   sceneEntityVisible[sceneNum],
-		}
 
 		// Try to read a manual prompt from the scene directory (overrides scenario)
 		if manualPrompt, exists, err := s.imageGenSvc.ReadManualPrompt(projectPath, sceneNum); err == nil && exists {
-			prompt.SanitizedPrompt = manualPrompt
+			promptText = manualPrompt
 		}
 
-		scene, err := s.imageGenSvc.GenerateSceneImage(ctx, prompt, project.ID, projectPath, imagegen.GenerateOptions{})
-		if err != nil {
-			slog.Error("image generation failed for scene",
-				"project_id", project.ID,
-				"job_id", jobID,
-				"scene_num", sceneNum,
-				"error", err,
-			)
-			errMsg := fmt.Sprintf("scene %d: %s", sceneNum, err.Error())
-			s.updateJobRecord(jobID, JobStatusFailed, completed*100/total, "", errMsg)
-			s.webhooks.NotifyJobFailed(project.ID, project.SCPID, jobID, "image_generate", errMsg, sceneNum, "", BuildReviewURL(project.ID, project.ReviewToken))
-			return
+		// Generate per-sentence shot images for this scene
+		narration := sceneNarrations[sceneNum]
+		sentences := domain.SplitNarrationSentences(narration)
+		if len(sentences) == 0 {
+			sentences = []string{narration}
+		}
+
+		// Generate shots in parallel (up to 4 concurrent)
+		type shotResult struct {
+			idx   int
+			shot  *domain.Shot
+			err   error
+		}
+		results := make([]shotResult, len(sentences))
+		sem := make(chan struct{}, 4) // concurrency limit
+		var wg sync.WaitGroup
+
+		for shotIdx := range sentences {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				sem <- struct{}{}        // acquire
+				defer func() { <-sem }() // release
+
+				shotNum := idx + 1
+				entityVisible := sceneEntityVisible[sceneNum]
+				shot, shotErr := s.imageGenSvc.GenerateShotImage(ctx, project.ID, projectPath,
+					sceneNum, shotNum, promptText, "", entityVisible, project.SCPID, imagegen.GenerateOptions{})
+				results[idx] = shotResult{idx: idx, shot: shot, err: shotErr}
+
+				// Update progress atomically
+				progressMu.Lock()
+				completedShots++
+				shotProgress := completedShots * 100 / totalShots
+				progressMu.Unlock()
+				s.updateJobRecord(jobID, JobStatusRunning, shotProgress, "", "")
+			}(shotIdx)
+		}
+		wg.Wait()
+
+		// Check results
+		var sceneImagePath string
+		for _, r := range results {
+			if r.err != nil {
+				slog.Error("image generation failed for shot",
+					"project_id", project.ID,
+					"job_id", jobID,
+					"scene_num", sceneNum,
+					"shot_num", r.idx+1,
+					"error", r.err,
+				)
+				// Continue with other shots — fault-tolerant
+				continue
+			}
+			if r.idx == 0 && r.shot != nil {
+				sceneImagePath = r.shot.ImagePath
+			}
 		}
 
 		completed++
-		progress := completed * 100 / total
-		if scene != nil && scene.ImagePath != "" {
-			resultPaths = append(resultPaths, scene.ImagePath)
+		progress := completedShots * 100 / totalShots
+		if sceneImagePath != "" {
+			resultPaths = append(resultPaths, sceneImagePath)
 		}
 		s.updateJobRecord(jobID, JobStatusRunning, progress, "", "")
 

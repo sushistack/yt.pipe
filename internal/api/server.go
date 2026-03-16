@@ -197,6 +197,7 @@ func (s *Server) setupRouter() {
 	r.Get("/dashboard/projects/{id}/characters/uploaded/image", s.handleUploadedCharacterImage)
 	r.Get("/dashboard/projects/{id}/characters/candidates/{num}/image", s.handleCandidateImage)
 	r.Get("/dashboard/projects/{id}/scenes/{num}/image", s.handleDashboardImage)
+	r.Get("/dashboard/projects/{id}/scenes/{num}/shots/{shotNum}/image", s.handleDashboardShotImage)
 	r.Get("/dashboard/projects/{id}/scenes/{num}/audio", s.handleDashboardAudio)
 	r.Get("/dashboard/projects/{id}/output/*", s.handleDashboardOutputFile)
 	r.Get("/dashboard/scps", s.handleListAvailableSCPs)
@@ -223,6 +224,7 @@ func (s *Server) setupRouter() {
 
 		// Review-specific routes (review token auth)
 		r.Get("/projects/{id}/scenes/{num}/image", s.handleServeImage)
+		r.Get("/projects/{id}/scenes/{num}/shots/{shotNum}/image", s.handleServeShotImage)
 		r.Get("/projects/{id}/scenes/{num}/audio", s.handleServeAudio)
 		r.Patch("/projects/{id}/scenes/{num}/narration", s.handleUpdateNarration)
 		r.Post("/projects/{id}/scenes", s.handleAddScene)

@@ -55,14 +55,19 @@ func (s *ImageGenService) SetSelectedCharacterImage(imagePath string) error {
 	return nil
 }
 
-// GenerateSceneImage generates an image for a single scene and saves it to the scene directory.
-// It uses retry with exponential backoff for the API call and updates the scene manifest.
-// If CharacterService is set and prompt contains SCPID/SceneText, character references are auto-injected.
-func (s *ImageGenService) GenerateSceneImage(ctx context.Context, prompt ImagePromptResult, projectID, projectPath string, opts imagegen.GenerateOptions) (*domain.Scene, error) {
-	// Character auto-reference: inject character refs only for scenes where entity is visible.
-	// entity_visible is determined by the scenario writing stage (LLM decides per scene).
-	if s.characterSvc != nil && prompt.SCPID != "" && prompt.EntityVisible {
-		char, _ := s.characterSvc.CheckExistingCharacter(prompt.SCPID)
+// GenerateShotImage generates an image for a single shot and saves it to the scene directory.
+func (s *ImageGenService) GenerateShotImage(
+	ctx context.Context,
+	projectID, projectPath string,
+	sceneNum, shotNum int,
+	prompt, negativePrompt string,
+	entityVisible bool,
+	scpID string,
+	opts imagegen.GenerateOptions,
+) (*domain.Shot, error) {
+	// Character auto-reference: inject character refs only when entity is visible
+	if s.characterSvc != nil && scpID != "" && entityVisible {
+		char, _ := s.characterSvc.CheckExistingCharacter(scpID)
 		if char != nil && char.SelectedImagePath != "" {
 			opts.CharacterRefs = []imagegen.CharacterRef{{
 				Name:             char.CanonicalName,
@@ -70,7 +75,7 @@ func (s *ImageGenService) GenerateSceneImage(ctx context.Context, prompt ImagePr
 				ImagePromptBase:  char.ImagePromptBase,
 			}}
 			s.logger.Info("character refs injected (entity_visible=true)",
-				"project_id", projectID, "scene_num", prompt.SceneNum, "scp_id", prompt.SCPID)
+				"project_id", projectID, "scene_num", sceneNum, "shot_num", shotNum, "scp_id", scpID)
 		}
 	}
 
@@ -81,130 +86,185 @@ func (s *ImageGenService) GenerateSceneImage(ctx context.Context, prompt ImagePr
 	// Scene-type classification: character-present scenes with reference image → try Edit() first
 	useEdit := len(opts.CharacterRefs) > 0 && len(s.selectedCharacterImage) > 0
 	if useEdit {
-		// Try Edit once to check support (not inside retry — ErrNotSupported is deterministic)
-		editResult, editErr := s.imageGen.Edit(ctx, s.selectedCharacterImage, prompt.SanitizedPrompt, imagegen.EditOptions{
+		editResult, editErr := s.imageGen.Edit(ctx, s.selectedCharacterImage, prompt, imagegen.EditOptions{
 			Width:  opts.Width,
 			Height: opts.Height,
 			Model:  opts.Model,
 			Seed:   opts.Seed,
 		})
-		if errors.Is(editErr, imagegen.ErrNotSupported) {
-			// Provider doesn't support Edit — fall back to Generate path
-			useEdit = false
-			genMethod = "fallback_t2i"
-		} else if editErr != nil {
-			// Real error on first attempt — let retry handle it
-			genMethod = "image_edit"
-		} else {
+		if editErr == nil {
 			result = editResult
 			genMethod = "image_edit"
+		} else if errors.Is(editErr, imagegen.ErrNotSupported) {
+			genMethod = "fallback_t2i"
+		} else {
+			// Edit failed — fall back to text-to-image instead of retrying Edit
+			s.logger.Warn("image edit failed, falling back to text-to-image",
+				"scene_num", sceneNum, "shot_num", shotNum, "err", editErr)
+			genMethod = "fallback_t2i"
 		}
 	}
 
-	// If Edit succeeded, skip retry. Otherwise retry the appropriate method.
 	if result == nil {
 		err := retry.Do(ctx, 3, 1*time.Second, func() error {
 			var genErr error
-			if useEdit {
-				result, genErr = s.imageGen.Edit(ctx, s.selectedCharacterImage, prompt.SanitizedPrompt, imagegen.EditOptions{
-					Width:  opts.Width,
-					Height: opts.Height,
-					Model:  opts.Model,
-					Seed:   opts.Seed,
-				})
-			} else {
-				result, genErr = s.imageGen.Generate(ctx, prompt.SanitizedPrompt, opts)
-			}
+			result, genErr = s.imageGen.Generate(ctx, prompt, opts)
 			return genErr
 		})
 		if err != nil {
-			s.logger.Error("image generation failed",
+			s.logger.Error("shot image generation failed",
 				"project_id", projectID,
-				"scene_num", prompt.SceneNum,
+				"scene_num", sceneNum,
+				"shot_num", shotNum,
 				"method", genMethod,
 				"err", err,
 			)
-			s.markSceneFailed(projectID, prompt.SceneNum, err)
-			return nil, fmt.Errorf("image gen: scene %d: %w", prompt.SceneNum, err)
+			s.markShotFailed(projectID, sceneNum, shotNum)
+			return nil, fmt.Errorf("image gen: scene %d shot %d: %w", sceneNum, shotNum, err)
 		}
 	}
 
 	elapsed := time.Since(start).Milliseconds()
 
 	// Save image to scene directory
-	sceneDir, err := workspace.InitSceneDir(projectPath, prompt.SceneNum)
+	sceneDir, err := workspace.InitSceneDir(projectPath, sceneNum)
 	if err != nil {
-		return nil, fmt.Errorf("image gen: init scene dir %d: %w", prompt.SceneNum, err)
+		return nil, fmt.Errorf("image gen: init scene dir %d: %w", sceneNum, err)
 	}
 
 	ext := result.Format
 	if ext == "" {
 		ext = "png"
 	}
-	imagePath := filepath.Join(sceneDir, fmt.Sprintf("image.%s", ext))
+	imagePath := filepath.Join(sceneDir, fmt.Sprintf("shot_%d.%s", shotNum, ext))
 	if err := workspace.WriteFileAtomic(imagePath, result.ImageData); err != nil {
-		return nil, fmt.Errorf("image gen: save image %d: %w", prompt.SceneNum, err)
+		return nil, fmt.Errorf("image gen: save shot image %d/%d: %w", sceneNum, shotNum, err)
 	}
 
-	// Save prompts to scene directory (prompt.txt per AC3)
-	promptPath := filepath.Join(sceneDir, "prompt.txt")
-	if err := workspace.WriteFileAtomic(promptPath, []byte(prompt.SanitizedPrompt)); err != nil {
-		return nil, fmt.Errorf("image gen: save prompt %d: %w", prompt.SceneNum, err)
+	// Save prompt to scene directory
+	promptPath := filepath.Join(sceneDir, fmt.Sprintf("shot_%d_prompt.txt", shotNum))
+	if err := workspace.WriteFileAtomic(promptPath, []byte(prompt)); err != nil {
+		return nil, fmt.Errorf("image gen: save shot prompt %d/%d: %w", sceneNum, shotNum, err)
 	}
 
-	// Compute image hash for manifest
+	// Compute image hash and update shot manifest
 	imgHash := hashBytes(result.ImageData)
+	s.updateShotManifestImageHash(projectID, sceneNum, shotNum, imgHash, genMethod)
 
-	// Update scene manifest in SQLite (AC1: image hash + generation timestamp + method)
-	s.updateManifestImageHash(projectID, prompt.SceneNum, imgHash, genMethod)
-
-	s.logger.Info("scene image generated",
+	s.logger.Info("shot image generated",
 		"project_id", projectID,
-		"scene_num", prompt.SceneNum,
+		"scene_num", sceneNum,
+		"shot_num", shotNum,
 		"format", ext,
 		"method", genMethod,
 		"duration_ms", elapsed,
 		"image_hash", imgHash[:16],
 	)
 
-	return &domain.Scene{
-		SceneNum:    prompt.SceneNum,
-		ImagePrompt: prompt.SanitizedPrompt,
+	return &domain.Shot{
+		ShotNum:     shotNum,
+		ImagePrompt: prompt,
 		ImagePath:   imagePath,
 	}, nil
 }
 
-// GenerateAllImages generates images for all or selected scenes.
-// If sceneNums is non-empty, only those scenes are generated (AC2: selective regeneration).
-// On partial failure, it continues processing remaining scenes and returns all successful results (AC4).
-func (s *ImageGenService) GenerateAllImages(ctx context.Context, prompts []ImagePromptResult, projectID, projectPath string, opts imagegen.GenerateOptions, sceneNums []int) ([]*domain.Scene, error) {
-	filtered := filterPrompts(prompts, sceneNums)
-
-	scenes := make([]*domain.Scene, 0, len(filtered))
+// GenerateAllShotImages generates images for all shots across all scenes.
+// Skips shots in skipShots map (from incremental checker).
+// Fault-tolerant: on per-shot error, logs + marks shot_manifest as failed + continues.
+func (s *ImageGenService) GenerateAllShotImages(
+	ctx context.Context,
+	scenePrompts []*ScenePromptOutput,
+	projectID, projectPath, scpID string,
+	opts imagegen.GenerateOptions,
+	skipShots map[domain.ShotKey]bool,
+) ([]*domain.Scene, error) {
+	scenes := make([]*domain.Scene, 0, len(scenePrompts))
 	var errs []error
-	for _, p := range filtered {
-		// Check context cancellation between scenes (M3)
+
+	for _, sp := range scenePrompts {
+		if sp == nil {
+			continue
+		}
+
 		if err := ctx.Err(); err != nil {
-			s.logger.Warn("image generation cancelled", "project_id", projectID, "remaining", len(filtered)-len(scenes)-len(errs))
+			s.logger.Warn("shot image generation cancelled", "project_id", projectID)
 			errs = append(errs, fmt.Errorf("image gen: cancelled: %w", err))
 			break
 		}
 
-		scene, err := s.GenerateSceneImage(ctx, p, projectID, projectPath, opts)
-		if err != nil {
-			errs = append(errs, err)
-			continue
+		scene := &domain.Scene{
+			SceneNum: sp.SceneNum,
+			Shots:    make([]domain.Shot, 0, len(sp.Shots)),
 		}
+
+		for _, shot := range sp.Shots {
+			key := domain.ShotKey{SceneNum: sp.SceneNum, ShotNum: shot.ShotNum}
+			if skipShots[key] {
+				s.logger.Info("shot unchanged, skipping",
+					"scene_num", sp.SceneNum, "shot_num", shot.ShotNum)
+				// Preserve existing image path from workspace
+				existingPath := findExistingShotImage(projectPath, sp.SceneNum, shot.ShotNum)
+				scene.Shots = append(scene.Shots, domain.Shot{
+					ShotNum:      shot.ShotNum,
+					SentenceText: shot.SentenceText,
+					ImagePath:    existingPath,
+				})
+				continue
+			}
+
+			if shot.FinalPrompt == "" {
+				s.logger.Warn("shot has no prompt, skipping",
+					"scene_num", sp.SceneNum, "shot_num", shot.ShotNum)
+				scene.Shots = append(scene.Shots, domain.Shot{
+					ShotNum:      shot.ShotNum,
+					SentenceText: shot.SentenceText,
+				})
+				continue
+			}
+
+			entityVisible := false
+			if shot.ShotDesc != nil {
+				entityVisible = shot.ShotDesc.EntityVisible
+			}
+
+			genShot, err := s.GenerateShotImage(ctx, projectID, projectPath,
+				sp.SceneNum, shot.ShotNum,
+				shot.FinalPrompt, shot.NegativePrompt,
+				entityVisible, scpID, opts)
+			if err != nil {
+				errs = append(errs, err)
+				scene.Shots = append(scene.Shots, domain.Shot{
+					ShotNum:      shot.ShotNum,
+					SentenceText: shot.SentenceText,
+				})
+				continue
+			}
+
+			genShot.SentenceText = shot.SentenceText
+			genShot.NegativePrompt = shot.NegativePrompt
+			if shot.ShotDesc != nil {
+				genShot.Role = shot.ShotDesc.Role
+				genShot.CameraType = shot.ShotDesc.CameraType
+				genShot.EntityVisible = shot.ShotDesc.EntityVisible
+			}
+			scene.Shots = append(scene.Shots, *genShot)
+		}
+
+		// Set scene ImagePath to first shot's image (backward compat)
+		if len(scene.Shots) > 0 && scene.Shots[0].ImagePath != "" {
+			scene.ImagePath = scene.Shots[0].ImagePath
+		}
+
 		scenes = append(scenes, scene)
 	}
+
 	if len(errs) > 0 {
-		return scenes, fmt.Errorf("image gen: %d/%d scenes failed: %w", len(errs), len(filtered), errors.Join(errs...))
+		return scenes, fmt.Errorf("image gen: %d shot(s) failed: %w", len(errs), errors.Join(errs...))
 	}
 	return scenes, nil
 }
 
-// ReadManualPrompt reads a manually edited prompt file from the scene directory (AC3).
-// Returns the prompt text and true if the file exists and differs from the original.
+// ReadManualPrompt reads a manually edited prompt file from the scene directory.
 func (s *ImageGenService) ReadManualPrompt(projectPath string, sceneNum int) (string, bool, error) {
 	sceneDir := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", sceneNum))
 	promptPath := filepath.Join(sceneDir, "prompt.txt")
@@ -220,67 +280,53 @@ func (s *ImageGenService) ReadManualPrompt(projectPath string, sceneNum int) (st
 	return strings.TrimSpace(string(data)), true, nil
 }
 
-// filterPrompts filters prompts to only include specified scene numbers.
-// If sceneNums is empty, returns all prompts (no filtering).
-func filterPrompts(prompts []ImagePromptResult, sceneNums []int) []ImagePromptResult {
-	if len(sceneNums) == 0 {
-		return prompts
-	}
-	wanted := make(map[int]bool, len(sceneNums))
-	for _, n := range sceneNums {
-		wanted[n] = true
-	}
-	filtered := make([]ImagePromptResult, 0, len(sceneNums))
-	for _, p := range prompts {
-		if wanted[p.SceneNum] {
-			filtered = append(filtered, p)
-		}
-	}
-	return filtered
-}
-
-// updateManifestImageHash updates the scene manifest with the image hash and generation method.
-func (s *ImageGenService) updateManifestImageHash(projectID string, sceneNum int, imgHash, genMethod string) {
-	manifest, err := s.store.GetManifest(projectID, sceneNum)
+// updateShotManifestImageHash updates the shot manifest with the image hash and generation method.
+func (s *ImageGenService) updateShotManifestImageHash(projectID string, sceneNum, shotNum int, imgHash, genMethod string) {
+	manifest, err := s.store.GetShotManifest(projectID, sceneNum, shotNum)
 	if err != nil {
-		// Manifest may not exist yet; create it
-		manifest = &domain.SceneManifest{
-			ProjectID:        projectID,
-			SceneNum:         sceneNum,
-			ImageHash:        imgHash,
-			GenerationMethod: genMethod,
-			Status:           "image_generated",
+		manifest = &domain.ShotManifest{
+			ProjectID: projectID,
+			SceneNum:  sceneNum,
+			ShotNum:   shotNum,
+			ImageHash: imgHash,
+			GenMethod: genMethod,
+			Status:    "generated",
 		}
-		if createErr := s.store.CreateManifest(manifest); createErr != nil {
-			s.logger.Error("failed to create manifest", "project_id", projectID, "scene_num", sceneNum, "err", createErr)
+		if createErr := s.store.CreateShotManifest(manifest); createErr != nil {
+			s.logger.Error("failed to create shot manifest", "project_id", projectID,
+				"scene_num", sceneNum, "shot_num", shotNum, "err", createErr)
 		}
 		return
 	}
 	manifest.ImageHash = imgHash
-	manifest.GenerationMethod = genMethod
-	manifest.Status = "image_generated"
-	if updateErr := s.store.UpdateManifest(manifest); updateErr != nil {
-		s.logger.Error("failed to update manifest", "project_id", projectID, "scene_num", sceneNum, "err", updateErr)
+	manifest.GenMethod = genMethod
+	manifest.Status = "generated"
+	if updateErr := s.store.UpdateShotManifest(manifest); updateErr != nil {
+		s.logger.Error("failed to update shot manifest", "project_id", projectID,
+			"scene_num", sceneNum, "shot_num", shotNum, "err", updateErr)
 	}
 }
 
-// markSceneFailed marks a scene as failed in the manifest (AC4).
-func (s *ImageGenService) markSceneFailed(projectID string, sceneNum int, genErr error) {
-	manifest, err := s.store.GetManifest(projectID, sceneNum)
+// markShotFailed marks a shot as failed in the manifest.
+func (s *ImageGenService) markShotFailed(projectID string, sceneNum, shotNum int) {
+	manifest, err := s.store.GetShotManifest(projectID, sceneNum, shotNum)
 	if err != nil {
-		manifest = &domain.SceneManifest{
+		manifest = &domain.ShotManifest{
 			ProjectID: projectID,
 			SceneNum:  sceneNum,
-			Status:    "image_failed",
+			ShotNum:   shotNum,
+			Status:    "failed",
 		}
-		if createErr := s.store.CreateManifest(manifest); createErr != nil {
-			s.logger.Error("failed to create failed manifest", "project_id", projectID, "scene_num", sceneNum, "err", createErr)
+		if createErr := s.store.CreateShotManifest(manifest); createErr != nil {
+			s.logger.Error("failed to create failed shot manifest", "project_id", projectID,
+				"scene_num", sceneNum, "shot_num", shotNum, "err", createErr)
 		}
 		return
 	}
-	manifest.Status = "image_failed"
-	if updateErr := s.store.UpdateManifest(manifest); updateErr != nil {
-		s.logger.Error("failed to update failed manifest", "project_id", projectID, "scene_num", sceneNum, "err", updateErr)
+	manifest.Status = "failed"
+	if updateErr := s.store.UpdateShotManifest(manifest); updateErr != nil {
+		s.logger.Error("failed to update failed shot manifest", "project_id", projectID,
+			"scene_num", sceneNum, "shot_num", shotNum, "err", updateErr)
 	}
 }
 
@@ -290,12 +336,44 @@ func hashBytes(data []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-// BackupSceneImage backs up an existing scene image before regeneration.
-// The backup is saved as image.prev.{ext} in the same directory.
+// findExistingShotImage finds the existing shot image file on disk.
+func findExistingShotImage(projectPath string, sceneNum, shotNum int) string {
+	sceneDir := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", sceneNum))
+	for _, ext := range []string{"png", "jpg", "webp"} {
+		p := filepath.Join(sceneDir, fmt.Sprintf("shot_%d.%s", shotNum, ext))
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// BackupShotImage backs up an existing shot image before regeneration.
+func BackupShotImage(projectPath string, sceneNum, shotNum int) {
+	sceneDir := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", sceneNum))
+
+	for _, ext := range []string{"png", "jpg", "webp"} {
+		src := filepath.Join(sceneDir, fmt.Sprintf("shot_%d.%s", shotNum, ext))
+		if _, err := os.Stat(src); err == nil {
+			dst := filepath.Join(sceneDir, fmt.Sprintf("shot_%d.prev.%s", shotNum, ext))
+			data, readErr := os.ReadFile(src)
+			if readErr == nil {
+				_ = os.WriteFile(dst, data, 0o644)
+				slog.Info("shot image backed up",
+					"scene_num", sceneNum,
+					"shot_num", shotNum,
+					"backup", dst,
+				)
+			}
+			return
+		}
+	}
+}
+
+// BackupSceneImage backs up an existing scene image before regeneration (backward compat).
 func BackupSceneImage(projectPath string, sceneNum int) {
 	sceneDir := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", sceneNum))
 
-	// Find existing image file
 	for _, ext := range []string{"png", "jpg", "webp"} {
 		src := filepath.Join(sceneDir, "image."+ext)
 		if _, err := os.Stat(src); err == nil {

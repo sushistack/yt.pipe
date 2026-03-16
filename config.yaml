@@ -19,16 +19,16 @@
 # SCP structured data source directory (read-only)
 # Contains facts.json, meta.json, main.txt per SCP
 # Env: YTP_SCP_DATA_PATH
-scp_data_path: "/data/raw"
+scp_data_path: "/mnt/data/raw"
 
 # Project workspace directory for generated assets
 # Each project creates a subdirectory: {scp-id}-{timestamp}/
 # Env: YTP_WORKSPACE_PATH
-workspace_path: "/data/projects"
+workspace_path: "/mnt/data/projects"
 
 # SQLite database file path (metadata, state, job queue)
 # Env: YTP_DB_PATH
-db_path: "/data/db/yt-pipe.db"
+db_path: "/mnt/data/db/yt-pipe.db"
 
 # SCP glossary JSON file path for term pronunciation and accuracy
 # Leave empty to disable glossary features
@@ -38,7 +38,7 @@ glossary_path: ""
 # Path to prompt template files (scenario pipeline uses templates/scenario/*.md)
 # In Docker: /templates (copied into image)
 # Env: YTP_TEMPLATES_PATH
-templates_path: "/templates"
+templates_path: "./templates"
 
 # ---------------------------------------------------------------------------
 # API Server
@@ -46,7 +46,7 @@ templates_path: "/templates"
 api:
   # Bind address for HTTP server
   # Env: YTP_API_HOST
-  host: "0.0.0.0"
+  host: "localhost"
 
   # Listen port (1-65535)
   # Env: YTP_API_PORT
@@ -98,6 +98,11 @@ imagegen:
   # Model name (provider-specific)
   # Env: YTP_IMAGEGEN_MODEL
   model: "black-forest-labs/FLUX.1-schnell"
+
+  # Image dimensions (must be a supported size for the model)
+  # FLUX.1-schnell: 1024x576, 576x1024, 1024x1024, 768x512, 768x1024
+  width: 1024
+  height: 576
 
 # ---------------------------------------------------------------------------
 # TTS Plugin (text-to-speech narration)

@@ -115,7 +115,7 @@ func sampleScenarioOutput() *domain.ScenarioOutput {
 				Mood:              "suspenseful",
 			},
 		},
-		Metadata: map[string]string{"template_version": "1.0"},
+		Metadata: map[string]any{"template_version": "1.0"},
 	}
 }
 

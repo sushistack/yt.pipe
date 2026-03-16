@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -391,18 +392,13 @@ func (r *Runner) runApprovalPath(ctx context.Context, project *domain.Project, s
 			StartedAt:   start,
 		})
 		stageStart := time.Now()
-		prompts, err := service.GenerateImagePrompts(scenario, nil)
-		if err != nil {
-			result.Status = "failed"
-			return result, r.pipelineError(service.StageImageGenerate, 0, err, project.SCPID)
-		}
 		imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
 		r.wireCharacterToImageSvc(imgSvc)
-		_, err = imgSvc.GenerateAllImages(ctx, prompts, project.ID, project.WorkspacePath, r.imageOpts, nil)
-		result.Stages = append(result.Stages, stageResult(string(service.StageImageGenerate), stageStart, err))
-		if err != nil {
+		_, genErr := r.generateShotImages(ctx, scenario, imgSvc, project)
+		result.Stages = append(result.Stages, stageResult(string(service.StageImageGenerate), stageStart, genErr))
+		if genErr != nil {
 			result.Status = "failed"
-			return result, r.pipelineError(service.StageImageGenerate, 0, err, project.SCPID)
+			return result, r.pipelineError(service.StageImageGenerate, 0, genErr, project.SCPID)
 		}
 		r.saveCheckpointAfterStage(project.WorkspacePath, project.ID, service.StageImageGenerate, sceneCount)
 
@@ -755,17 +751,6 @@ func (r *Runner) runParallelGeneration(ctx context.Context, scenario *domain.Sce
 		"scp_id", project.SCPID,
 		"scene_count", len(scenario.Scenes))
 
-	// Generate image prompts first
-	prompts, err := service.GenerateImagePrompts(scenario, nil)
-	if err != nil {
-		return nil, nil, &service.PipelineError{
-			Stage:      service.StageImageGenerate,
-			Cause:      fmt.Sprintf("generate image prompts: %s", err),
-			RecoverCmd: fmt.Sprintf("yt-pipe run %s", project.SCPID),
-			Err:        err,
-		}
-	}
-
 	var (
 		imageScenes []*domain.Scene
 		ttsScenes   []*domain.Scene
@@ -780,7 +765,7 @@ func (r *Runner) runParallelGeneration(ctx context.Context, scenario *domain.Sce
 		defer wg.Done()
 		imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
 		r.wireCharacterToImageSvc(imgSvc)
-		imageScenes, imageErr = imgSvc.GenerateAllImages(ctx, prompts, project.ID, project.WorkspacePath, r.imageOpts, nil)
+		imageScenes, imageErr = r.generateShotImages(ctx, scenario, imgSvc, project)
 	}()
 
 	// TTS synthesis goroutine
@@ -841,28 +826,12 @@ func (r *Runner) runImageGenerateStage(ctx context.Context, scpID string) error 
 	if err != nil {
 		return fmt.Errorf("image generate: load scenario: %w", err)
 	}
-	prompts, err := service.GenerateImagePrompts(scenario, nil)
-	if err != nil {
-		return fmt.Errorf("image generate: prompts: %w", err)
-	}
 
 	imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
 	r.wireCharacterToImageSvc(imgSvc)
 
-	total := len(prompts)
-	for i, p := range prompts {
-		r.logger.Info("image generation progress",
-			"scene", fmt.Sprintf("%d/%d", i+1, total),
-			"scene_num", p.SceneNum,
-			"status", "generating",
-		)
-		_, err := imgSvc.GenerateSceneImage(ctx, p, project.ID, project.WorkspacePath, r.imageOpts)
-		if err != nil {
-			r.logger.Error("scene image failed", "scene_num", p.SceneNum, "err", err)
-			continue
-		}
-	}
-	return nil
+	_, err = r.generateShotImages(ctx, scenario, imgSvc, project)
+	return err
 }
 
 // RunImageRegenerate regenerates images for specific scenes with backup.
@@ -875,10 +844,6 @@ func (r *Runner) RunImageRegenerate(ctx context.Context, scpID string, sceneNums
 	if err != nil {
 		return fmt.Errorf("image regenerate: load scenario: %w", err)
 	}
-	prompts, err := service.GenerateImagePrompts(scenario, nil)
-	if err != nil {
-		return fmt.Errorf("image regenerate: prompts: %w", err)
-	}
 
 	imgSvc := service.NewImageGenService(r.imageGen, r.store, r.logger)
 	r.wireCharacterToImageSvc(imgSvc)
@@ -888,7 +853,7 @@ func (r *Runner) RunImageRegenerate(ctx context.Context, scpID string, sceneNums
 		service.BackupSceneImage(project.WorkspacePath, num)
 	}
 
-	_, err = imgSvc.GenerateAllImages(ctx, prompts, project.ID, project.WorkspacePath, r.imageOpts, sceneNums)
+	_, err = r.generateShotImages(ctx, scenario, imgSvc, project)
 	if err != nil {
 		return fmt.Errorf("image regenerate: %w", err)
 	}
@@ -1029,9 +994,12 @@ func (r *Runner) generateCopyright(project *domain.Project, assemblerSvc *servic
 // workspaceHasImages checks if image assets exist for at least one scene in the workspace.
 func (r *Runner) workspaceHasImages(projectPath string, sceneCount int) bool {
 	for i := 1; i <= sceneCount; i++ {
-		imgPath := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", i), "image.png")
-		if _, err := os.Stat(imgPath); err == nil {
-			return true
+		sceneDir := filepath.Join(projectPath, "scenes", fmt.Sprintf("%d", i))
+		// Check for shot-based images (shot_1.png, etc.) or legacy single image (image.png)
+		for _, pattern := range []string{"shot_1.png", "shot_1.jpg", "shot_1.webp", "image.png"} {
+			if _, err := os.Stat(filepath.Join(sceneDir, pattern)); err == nil {
+				return true
+			}
 		}
 	}
 	return false
@@ -1101,6 +1069,7 @@ func mergeSceneData(imageScenes, ttsScenes []*domain.Scene, timings []service.Sc
 		byNum[s.SceneNum] = &domain.Scene{
 			SceneNum:  s.SceneNum,
 			ImagePath: s.ImagePath,
+			Shots:     s.Shots,
 		}
 	}
 	for _, s := range ttsScenes {
@@ -1129,7 +1098,84 @@ func mergeSceneData(imageScenes, ttsScenes []*domain.Scene, timings []service.Sc
 	sort.Slice(scenes, func(i, j int) bool {
 		return scenes[i].SceneNum < scenes[j].SceneNum
 	})
+
+	// Resolve shot timings from WordTimings
+	for _, scene := range scenes {
+		if len(scene.Shots) > 0 && len(scene.WordTimings) > 0 {
+			resolveShotTimings(scene)
+		}
+	}
+
 	return scenes
+}
+
+// resolveShotTimings maps sentence-based shots to WordTiming timestamps.
+func resolveShotTimings(scene *domain.Scene) {
+	sentences := domain.SplitNarrationSentences(scene.Narration)
+	if len(sentences) != len(scene.Shots) {
+		// Mismatch — assign equal duration fallback
+		if len(scene.Shots) > 0 && scene.AudioDuration > 0 {
+			equalDur := scene.AudioDuration / float64(len(scene.Shots))
+			for i := range scene.Shots {
+				scene.Shots[i].StartSec = float64(i) * equalDur
+				scene.Shots[i].EndSec = float64(i+1) * equalDur
+			}
+		}
+		return
+	}
+
+	// Build sentence → time range mapping from WordTimings
+	sentenceTimings := mapSentencesToTimings(sentences, scene.WordTimings)
+	for i := range scene.Shots {
+		if i < len(sentenceTimings) {
+			scene.Shots[i].StartSec = sentenceTimings[i].Start
+			scene.Shots[i].EndSec = sentenceTimings[i].End
+		}
+	}
+}
+
+type sentenceTiming struct {
+	Start float64
+	End   float64
+}
+
+// mapSentencesToTimings accumulates word timings to find sentence boundaries.
+func mapSentencesToTimings(sentences []string, wordTimings []domain.WordTiming) []sentenceTiming {
+	if len(wordTimings) == 0 {
+		return make([]sentenceTiming, len(sentences))
+	}
+
+	timings := make([]sentenceTiming, len(sentences))
+	wordIdx := 0
+
+	for si, sentence := range sentences {
+		if wordIdx < len(wordTimings) {
+			timings[si].Start = wordTimings[wordIdx].StartSec
+		}
+
+		sentenceWords := countKoreanWords(sentence)
+		endWordIdx := wordIdx + sentenceWords - 1
+		if endWordIdx >= len(wordTimings) {
+			endWordIdx = len(wordTimings) - 1
+		}
+		if endWordIdx >= 0 {
+			timings[si].End = wordTimings[endWordIdx].EndSec
+		}
+		wordIdx = endWordIdx + 1
+	}
+
+	// Ensure last sentence extends to audio end
+	if len(timings) > 0 && len(wordTimings) > 0 {
+		timings[len(timings)-1].End = wordTimings[len(wordTimings)-1].EndSec
+	}
+
+	return timings
+}
+
+// countKoreanWords counts words in a Korean/mixed sentence by splitting on whitespace.
+func countKoreanWords(sentence string) int {
+	words := strings.Fields(sentence)
+	return len(words)
 }
 
 func toDomainWordTimings(timings []domain.WordTiming) []domain.WordTiming {
@@ -1171,6 +1217,53 @@ func loadScenesFromDir(projectPath string) ([]*domain.Scene, error) {
 	return scenes, nil
 }
 
+// generateShotImages runs the shot breakdown pipeline and generates images per shot.
+func (r *Runner) generateShotImages(ctx context.Context, scenario *domain.ScenarioOutput, imgSvc *service.ImageGenService, project *domain.Project) ([]*domain.Scene, error) {
+	// Shot breakdown: generate per-sentence shot descriptions + prompts
+	shotPipeline, err := service.NewShotBreakdownPipeline(r.llm, service.ShotBreakdownConfig{
+		TemplatesDir: r.templatesPath,
+	})
+	if err != nil {
+		return nil, &service.PipelineError{
+			Stage:      service.StageImageGenerate,
+			Cause:      fmt.Sprintf("init shot breakdown: %s", err),
+			RecoverCmd: fmt.Sprintf("yt-pipe run %s", project.SCPID),
+			Err:        err,
+		}
+	}
+
+	frozenDesc := ""
+	visualIdentity := ""
+	if r.characterSvc != nil && project.SCPID != "" {
+		char, _ := r.characterSvc.CheckExistingCharacter(project.SCPID)
+		if char != nil {
+			frozenDesc = char.VisualDescriptor
+			visualIdentity = char.ImagePromptBase
+		}
+	}
+
+	scenePrompts, err := shotPipeline.GenerateAllScenePrompts(ctx, scenario, frozenDesc, visualIdentity)
+	if err != nil {
+		return nil, &service.PipelineError{
+			Stage:      service.StageImageGenerate,
+			Cause:      fmt.Sprintf("shot breakdown: %s", err),
+			RecoverCmd: fmt.Sprintf("yt-pipe run %s", project.SCPID),
+			Err:        err,
+		}
+	}
+
+	// Incremental: skip unchanged shots
+	skipChecker := NewSceneSkipChecker(r.store, r.logger)
+	_, toSkip := skipChecker.FilterShotsForImageGen(project.ID, scenePrompts)
+	skipMap := make(map[domain.ShotKey]bool, len(toSkip))
+	for _, k := range toSkip {
+		skipMap[k] = true
+	}
+
+	// Image generation: per-shot
+	return imgSvc.GenerateAllShotImages(ctx, scenePrompts, project.ID, project.WorkspacePath, project.SCPID, r.imageOpts, skipMap)
+}
+
 // wireCharacterToImageSvc wires the character service and selected image into an ImageGenService.
 func (r *Runner) wireCharacterToImageSvc(imgSvc *service.ImageGenService) {
 	if r.characterSvc != nil {
@@ -1190,6 +1283,7 @@ func parseSceneManifest(data []byte) (*domain.Scene, error) {
 		AudioDuration float64             `json:"audio_duration"`
 		SubtitlePath  string              `json:"subtitle_path"`
 		WordTimings   []domain.WordTiming `json:"word_timings"`
+		Shots         []domain.Shot       `json:"shots,omitempty"`
 	}
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, err
@@ -1202,5 +1296,6 @@ func parseSceneManifest(data []byte) (*domain.Scene, error) {
 		AudioDuration: m.AudioDuration,
 		SubtitlePath:  m.SubtitlePath,
 		WordTimings:   m.WordTimings,
+		Shots:         m.Shots,
 	}, nil
 }

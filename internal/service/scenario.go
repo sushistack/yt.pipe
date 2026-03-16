@@ -203,7 +203,7 @@ func (ss *ScenarioService) generateScenarioInternal(ctx context.Context, scpData
 
 	// Record pipeline mode in metadata
 	if scenario.Metadata == nil {
-		scenario.Metadata = make(map[string]string)
+		scenario.Metadata = make(map[string]any)
 	}
 	scenario.Metadata["pipeline_mode"] = "4-stage"
 	scenario.Metadata["templates_dir"] = ss.templatesDir

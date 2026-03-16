@@ -148,38 +148,94 @@ func buildDraftProject(scenes []domain.Scene, canvas output.CanvasConfig, now ti
 		}
 		audioDur := secsToMicro(dur)
 
-		// Video material + segment
-		videoMat := VideoMaterial{
-			ID:           newID(),
-			Type:         "photo",
-			Duration:     audioDur,
-			Path:         scene.ImagePath,
-			Width:        canvas.Width,
-			Height:       canvas.Height,
-			MaterialName: fmt.Sprintf("scene_%d", scene.SceneNum),
-			CategoryName: "local",
-		}
-		dp.Materials.Videos = append(dp.Materials.Videos, videoMat)
+		// Video track: one clip per shot (or single image fallback)
+		if len(scene.Shots) > 0 {
+			// Compute shot timeline positions within this scene
+			var shotOffset int64
+			for si, shot := range scene.Shots {
+				imagePath := shot.ImagePath
+				if shot.VideoPath != "" {
+					imagePath = shot.VideoPath
+				}
 
-		videoSeg := Segment{
-			ID:              newID(),
-			SourceTimerange: &TimeRange{Start: 0, Duration: audioDur},
-			TargetTimerange: &TimeRange{Start: timelinePos, Duration: audioDur},
-			Speed:           1.0,
-			Volume:          1.0,
-			Clip: &Clip{
-				Scale:     &XY{X: 1.0, Y: 1.0},
-				Rotation:  0,
-				Transform: &XY{X: 0, Y: 0},
-				Flip:      &Flip{},
-				Alpha:     1.0,
-			},
-			MaterialID:        videoMat.ID,
-			ExtraMaterialRefs: []string{},
-			RenderIndex:       0,
-			Visible:           true,
+				shotDur := secsToMicro(shot.EndSec - shot.StartSec)
+				if shotDur <= 0 {
+					// Equal distribution fallback when timings not resolved
+					shotDur = audioDur / int64(len(scene.Shots))
+					// Last shot gets remaining duration to avoid rounding gaps
+					if si == len(scene.Shots)-1 {
+						shotDur = audioDur - shotOffset
+					}
+				}
+				shotStart := timelinePos + shotOffset
+
+				videoMat := VideoMaterial{
+					ID:           newID(),
+					Type:         "photo",
+					Duration:     shotDur,
+					Path:         imagePath,
+					Width:        canvas.Width,
+					Height:       canvas.Height,
+					MaterialName: fmt.Sprintf("scene_%d_shot_%d", scene.SceneNum, shot.ShotNum),
+					CategoryName: "local",
+				}
+				dp.Materials.Videos = append(dp.Materials.Videos, videoMat)
+
+				videoSeg := Segment{
+					ID:              newID(),
+					SourceTimerange: &TimeRange{Start: 0, Duration: shotDur},
+					TargetTimerange: &TimeRange{Start: shotStart, Duration: shotDur},
+					Speed:           1.0,
+					Volume:          1.0,
+					Clip: &Clip{
+						Scale:     &XY{X: 1.0, Y: 1.0},
+						Rotation:  0,
+						Transform: &XY{X: 0, Y: 0},
+						Flip:      &Flip{},
+						Alpha:     1.0,
+					},
+					MaterialID:        videoMat.ID,
+					ExtraMaterialRefs: []string{},
+					RenderIndex:       0,
+					Visible:           true,
+				}
+				videoTrack.Segments = append(videoTrack.Segments, videoSeg)
+				shotOffset += shotDur
+			}
+		} else {
+			// Backward compat: no shots = single image clip
+			videoMat := VideoMaterial{
+				ID:           newID(),
+				Type:         "photo",
+				Duration:     audioDur,
+				Path:         scene.ImagePath,
+				Width:        canvas.Width,
+				Height:       canvas.Height,
+				MaterialName: fmt.Sprintf("scene_%d", scene.SceneNum),
+				CategoryName: "local",
+			}
+			dp.Materials.Videos = append(dp.Materials.Videos, videoMat)
+
+			videoSeg := Segment{
+				ID:              newID(),
+				SourceTimerange: &TimeRange{Start: 0, Duration: audioDur},
+				TargetTimerange: &TimeRange{Start: timelinePos, Duration: audioDur},
+				Speed:           1.0,
+				Volume:          1.0,
+				Clip: &Clip{
+					Scale:     &XY{X: 1.0, Y: 1.0},
+					Rotation:  0,
+					Transform: &XY{X: 0, Y: 0},
+					Flip:      &Flip{},
+					Alpha:     1.0,
+				},
+				MaterialID:        videoMat.ID,
+				ExtraMaterialRefs: []string{},
+				RenderIndex:       0,
+				Visible:           true,
+			}
+			videoTrack.Segments = append(videoTrack.Segments, videoSeg)
 		}
-		videoTrack.Segments = append(videoTrack.Segments, videoSeg)
 
 		// Audio material + segment (skip for scenes without narration)
 		if scene.AudioPath != "" {

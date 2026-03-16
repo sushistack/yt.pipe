@@ -22,8 +22,8 @@ func setupShotBreakdownTemplates(t *testing.T) string {
 	imgDir := filepath.Join(tmpDir, "image")
 	require.NoError(t, os.MkdirAll(imgDir, 0o755))
 
-	// Minimal templates for testing
-	tmpl1 := "Break down scene {scene_number}: {synopsis} with descriptor: {frozen_descriptor}"
+	// Minimal templates for testing — use new per-sentence variables
+	tmpl1 := "Break down scene {scene_number} shot {shot_number}: {sentence} with descriptor: {frozen_descriptor}"
 	tmpl2 := "Convert shot to prompt: {shot_json} with descriptor: {frozen_descriptor}"
 
 	require.NoError(t, os.WriteFile(filepath.Join(imgDir, "01_shot_breakdown.md"), []byte(tmpl1), 0o644))
@@ -90,6 +90,7 @@ func TestGenerateScenePrompt_Success(t *testing.T) {
 	sp, err := NewShotBreakdownPipeline(mockLLM, ShotBreakdownConfig{TemplatesDir: tmpDir})
 	require.NoError(t, err)
 
+	// Synopsis is a single sentence → generates 1 shot
 	output, err := sp.GenerateScenePrompt(context.Background(), ScenePromptInput{
 		SceneNum:             1,
 		Synopsis:             "A dark hallway in the facility",
@@ -100,11 +101,12 @@ func TestGenerateScenePrompt_Success(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, output.SceneNum)
-	assert.Equal(t, "wide", output.ShotDesc.CameraType)
-	assert.True(t, output.ShotDesc.EntityVisible)
-	assert.NotEmpty(t, output.FinalPrompt)
-	assert.Contains(t, output.FinalPrompt, "anime")
-	assert.NotEmpty(t, output.NegativePrompt)
+	require.Len(t, output.Shots, 1)
+	assert.Equal(t, "wide", output.Shots[0].ShotDesc.CameraType)
+	assert.True(t, output.Shots[0].ShotDesc.EntityVisible)
+	assert.NotEmpty(t, output.Shots[0].FinalPrompt)
+	assert.Contains(t, output.Shots[0].FinalPrompt, "anime")
+	assert.NotEmpty(t, output.Shots[0].NegativePrompt)
 }
 
 func TestGenerateAllScenePrompts_Continuity(t *testing.T) {
@@ -135,8 +137,8 @@ func TestGenerateAllScenePrompts_Continuity(t *testing.T) {
 
 	scenario := &domain.ScenarioOutput{
 		Scenes: []domain.SceneScript{
-			{SceneNum: 1, VisualDescription: "scene 1", Mood: "calm"},
-			{SceneNum: 2, VisualDescription: "scene 2", Mood: "tense"},
+			{SceneNum: 1, Narration: "장면 하나다.", Mood: "calm"},
+			{SceneNum: 2, Narration: "장면 둘이다.", Mood: "tense"},
 		},
 	}
 
@@ -145,6 +147,9 @@ func TestGenerateAllScenePrompts_Continuity(t *testing.T) {
 	assert.Len(t, results, 2)
 	assert.NotNil(t, results[0])
 	assert.NotNil(t, results[1])
+	// Each scene has 1 sentence → 1 shot
+	assert.Len(t, results[0].Shots, 1)
+	assert.Len(t, results[1].Shots, 1)
 }
 
 func TestSanitizeImagePrompt(t *testing.T) {

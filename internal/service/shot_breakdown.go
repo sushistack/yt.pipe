@@ -7,12 +7,21 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/sushistack/yt.pipe/internal/domain"
 	"github.com/sushistack/yt.pipe/internal/plugin/llm"
 )
+
+// DefaultDangerousTerms are removed from prompts during sanitization.
+var DefaultDangerousTerms = []string{
+	"gore", "blood", "violent", "gruesome",
+	"mutilation", "decapitation", "dismemberment",
+}
+
+var multiSpaceRe = regexp.MustCompile(`\s{2,}`)
 
 // ShotBreakdownStage identifies a stage in the 2-stage image prompt pipeline.
 type ShotBreakdownStage string
@@ -73,59 +82,122 @@ func NewShotBreakdownPipeline(l llm.LLM, cfg ShotBreakdownConfig) (*ShotBreakdow
 	return sp, nil
 }
 
-// ScenePromptInput holds all input data needed to generate an image prompt for a scene.
-type ScenePromptInput struct {
-	SceneNum              int
-	Synopsis              string // narration text or visual description
-	EmotionalBeat         string // mood
-	EntityVisualIdentity  string // full visual identity profile from research
-	FrozenDescriptor      string // locked descriptor text
-	PreviousLastShotCtx   string // previous scene's last shot context for continuity
+// SentencePromptInput holds input for generating a shot description for one sentence.
+type SentencePromptInput struct {
+	SceneNum             int
+	ShotNum              int    // 1-based
+	TotalShots           int    // total sentences in this scene
+	Sentence             string // the specific narration sentence
+	EmotionalBeat        string
+	EntityVisualIdentity string
+	FrozenDescriptor     string
+	PreviousShotCtx      string // previous shot's context (within same scene or last shot of prev scene)
 }
 
-// ScenePromptOutput holds the complete output from the 2-stage pipeline for a scene.
-type ScenePromptOutput struct {
-	SceneNum       int              `json:"scene_num"`
+// ScenePromptInput holds all input data needed to generate image prompts for a scene.
+type ScenePromptInput struct {
+	SceneNum             int
+	Synopsis             string // narration text — split into sentences internally
+	EmotionalBeat        string // mood
+	EntityVisualIdentity string // full visual identity profile from research
+	FrozenDescriptor     string // locked descriptor text
+	PreviousLastShotCtx  string // previous scene's last shot context for continuity
+}
+
+// ShotOutput holds the pipeline output for a single shot (sentence).
+type ShotOutput struct {
+	ShotNum        int              `json:"shot_num"`
 	ShotDesc       *ShotDescription `json:"shot_description"`
 	PromptResult   *ShotPromptResult `json:"prompt_result"`
 	FinalPrompt    string           `json:"final_prompt"`
 	NegativePrompt string           `json:"negative_prompt"`
+	SentenceText   string           `json:"sentence_text"`
+}
+
+// ScenePromptOutput holds the complete output from the 2-stage pipeline for a scene.
+type ScenePromptOutput struct {
+	SceneNum int          `json:"scene_num"`
+	Shots    []ShotOutput `json:"shots"`
 }
 
 // GenerateScenePrompt runs the 2-stage pipeline for a single scene.
+// Splits narration into sentences and generates one shot per sentence.
 func (sp *ShotBreakdownPipeline) GenerateScenePrompt(ctx context.Context, input ScenePromptInput) (*ScenePromptOutput, error) {
 	start := time.Now()
 
-	// Stage 1: Shot Breakdown
-	shotDesc, err := sp.runShotBreakdown(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("scene %d shot breakdown: %w", input.SceneNum, err)
+	sentences := domain.SplitNarrationSentences(input.Synopsis)
+	if len(sentences) == 0 {
+		return nil, fmt.Errorf("scene %d: no sentences in narration", input.SceneNum)
 	}
 
-	// Stage 2: Shot-to-Prompt
-	promptResult, err := sp.runShotToPrompt(ctx, shotDesc, input.FrozenDescriptor)
-	if err != nil {
-		return nil, fmt.Errorf("scene %d shot-to-prompt: %w", input.SceneNum, err)
+	output := &ScenePromptOutput{
+		SceneNum: input.SceneNum,
+		Shots:    make([]ShotOutput, 0, len(sentences)),
 	}
 
-	// Apply safety sanitization and cinematic suffix
-	finalPrompt := sanitizeImagePrompt(promptResult.Prompt)
+	previousCtx := input.PreviousLastShotCtx
+
+	for i, sentence := range sentences {
+		if err := ctx.Err(); err != nil {
+			return output, fmt.Errorf("scene %d shot %d: cancelled: %w", input.SceneNum, i+1, err)
+		}
+
+		sentInput := SentencePromptInput{
+			SceneNum:             input.SceneNum,
+			ShotNum:              i + 1,
+			TotalShots:           len(sentences),
+			Sentence:             sentence,
+			EmotionalBeat:        input.EmotionalBeat,
+			EntityVisualIdentity: input.EntityVisualIdentity,
+			FrozenDescriptor:     input.FrozenDescriptor,
+			PreviousShotCtx:      previousCtx,
+		}
+
+		// Stage 1: Shot Breakdown
+		shotDesc, err := sp.runShotBreakdown(ctx, sentInput)
+		if err != nil {
+			slog.Error("shot breakdown failed", "scene_num", input.SceneNum, "shot_num", i+1, "err", err)
+			output.Shots = append(output.Shots, ShotOutput{
+				ShotNum:      i + 1,
+				SentenceText: sentence,
+			})
+			continue
+		}
+
+		// Stage 2: Shot-to-Prompt
+		promptResult, err := sp.runShotToPrompt(ctx, shotDesc, input.FrozenDescriptor)
+		if err != nil {
+			slog.Error("shot-to-prompt failed", "scene_num", input.SceneNum, "shot_num", i+1, "err", err)
+			output.Shots = append(output.Shots, ShotOutput{
+				ShotNum:      i + 1,
+				ShotDesc:     shotDesc,
+				SentenceText: sentence,
+			})
+			continue
+		}
+
+		finalPrompt := sanitizeImagePrompt(promptResult.Prompt)
+
+		output.Shots = append(output.Shots, ShotOutput{
+			ShotNum:        i + 1,
+			ShotDesc:       shotDesc,
+			PromptResult:   promptResult,
+			FinalPrompt:    finalPrompt,
+			NegativePrompt: promptResult.NegativePrompt,
+			SentenceText:   sentence,
+		})
+
+		previousCtx = formatShotContext(shotDesc)
+	}
 
 	elapsed := time.Since(start)
 	slog.Info("shot breakdown pipeline completed",
 		"scene_num", input.SceneNum,
-		"entity_visible", shotDesc.EntityVisible,
-		"camera_type", shotDesc.CameraType,
+		"shots", len(output.Shots),
 		"duration_ms", elapsed.Milliseconds(),
 	)
 
-	return &ScenePromptOutput{
-		SceneNum:       input.SceneNum,
-		ShotDesc:       shotDesc,
-		PromptResult:   promptResult,
-		FinalPrompt:    finalPrompt,
-		NegativePrompt: promptResult.NegativePrompt,
-	}, nil
+	return output, nil
 }
 
 // GenerateAllScenePrompts runs the 2-stage pipeline for all scenes sequentially,
@@ -141,7 +213,7 @@ func (sp *ShotBreakdownPipeline) GenerateAllScenePrompts(ctx context.Context, sc
 
 		input := ScenePromptInput{
 			SceneNum:             scene.SceneNum,
-			Synopsis:             scene.VisualDescription,
+			Synopsis:             scene.Narration,
 			EmotionalBeat:        scene.Mood,
 			EntityVisualIdentity: visualIdentity,
 			FrozenDescriptor:     frozenDescriptor,
@@ -151,27 +223,31 @@ func (sp *ShotBreakdownPipeline) GenerateAllScenePrompts(ctx context.Context, sc
 		output, err := sp.GenerateScenePrompt(ctx, input)
 		if err != nil {
 			slog.Error("shot breakdown failed for scene", "scene_num", scene.SceneNum, "err", err)
-			// Continue with remaining scenes
 			results = append(results, nil)
 			continue
 		}
 
 		results = append(results, output)
-		// Carry shot context for next scene
-		previousCtx = formatShotContext(output.ShotDesc)
+		// Carry last shot's context to next scene
+		if len(output.Shots) > 0 {
+			lastShot := output.Shots[len(output.Shots)-1]
+			previousCtx = formatShotContext(lastShot.ShotDesc)
+		}
 	}
 
 	return results, nil
 }
 
-func (sp *ShotBreakdownPipeline) runShotBreakdown(ctx context.Context, input ScenePromptInput) (*ShotDescription, error) {
+func (sp *ShotBreakdownPipeline) runShotBreakdown(ctx context.Context, input SentencePromptInput) (*ShotDescription, error) {
 	tmpl := sp.templates[StageShotBreakdown]
 	prompt := strings.ReplaceAll(tmpl, "{entity_visual_identity}", input.EntityVisualIdentity)
 	prompt = strings.ReplaceAll(prompt, "{frozen_descriptor}", input.FrozenDescriptor)
 	prompt = strings.ReplaceAll(prompt, "{scene_number}", fmt.Sprintf("%d", input.SceneNum))
-	prompt = strings.ReplaceAll(prompt, "{synopsis}", input.Synopsis)
+	prompt = strings.ReplaceAll(prompt, "{shot_number}", fmt.Sprintf("%d", input.ShotNum))
+	prompt = strings.ReplaceAll(prompt, "{total_shots}", fmt.Sprintf("%d", input.TotalShots))
+	prompt = strings.ReplaceAll(prompt, "{sentence}", input.Sentence)
 	prompt = strings.ReplaceAll(prompt, "{emotional_beat}", input.EmotionalBeat)
-	prompt = strings.ReplaceAll(prompt, "{previous_last_shot_context}", input.PreviousLastShotCtx)
+	prompt = strings.ReplaceAll(prompt, "{previous_shot_context}", input.PreviousShotCtx)
 
 	result, err := sp.llm.Complete(ctx, []llm.Message{
 		{Role: "user", Content: prompt},

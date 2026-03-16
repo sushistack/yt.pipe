@@ -25,7 +25,6 @@ func newTestImageGenService(t *testing.T, mockIG *mocks.MockImageGen) (*ImageGen
 	return NewImageGenService(mockIG, s, logger), s
 }
 
-// createTestProject inserts a project record to satisfy FK constraints on scene_manifests.
 func createTestProject(t *testing.T, s *store.Store, projectID string) {
 	t.Helper()
 	err := s.CreateProject(&domain.Project{
@@ -37,7 +36,7 @@ func createTestProject(t *testing.T, s *store.Store, projectID string) {
 	require.NoError(t, err)
 }
 
-func TestGenerateSceneImage_Success(t *testing.T) {
+func TestGenerateShotImage_Success(t *testing.T) {
 	mockIG := mocks.NewMockImageGen(t)
 	svc, st := newTestImageGenService(t, mockIG)
 	ctx := context.Background()
@@ -45,7 +44,7 @@ func TestGenerateSceneImage_Success(t *testing.T) {
 	projectID := "test-project"
 	createTestProject(t, st, projectID)
 
-	mockIG.On("Generate", mock.Anything, "sanitized prompt, anime illustration", mock.Anything).
+	mockIG.On("Generate", mock.Anything, "shot prompt, anime illustration", mock.Anything).
 		Return(&imagegen.ImageResult{
 			ImageData: []byte("fake-png-data"),
 			Format:    "png",
@@ -53,28 +52,23 @@ func TestGenerateSceneImage_Success(t *testing.T) {
 			Height:    1024,
 		}, nil)
 
-	prompt := ImagePromptResult{
-		SceneNum:        1,
-		OriginalPrompt:  "original prompt",
-		SanitizedPrompt: "sanitized prompt, anime illustration",
-	}
-
-	scene, err := svc.GenerateSceneImage(ctx, prompt, projectID, projectPath, imagegen.GenerateOptions{})
+	shot, err := svc.GenerateShotImage(ctx, projectID, projectPath,
+		1, 1, "shot prompt, anime illustration", "", false, "SCP-TEST", imagegen.GenerateOptions{})
 	require.NoError(t, err)
 
-	assert.Equal(t, 1, scene.SceneNum)
-	assert.Contains(t, scene.ImagePath, "image.png")
-	assert.FileExists(t, scene.ImagePath)
-	assert.FileExists(t, filepath.Join(projectPath, "scenes", "1", "prompt.txt"))
+	assert.Equal(t, 1, shot.ShotNum)
+	assert.Contains(t, shot.ImagePath, "shot_1.png")
+	assert.FileExists(t, shot.ImagePath)
+	assert.FileExists(t, filepath.Join(projectPath, "scenes", "1", "shot_1_prompt.txt"))
 
-	// AC1: Verify manifest updated with image hash
-	manifest, err := st.GetManifest(projectID, 1)
+	// Verify shot manifest updated
+	manifest, err := st.GetShotManifest(projectID, 1, 1)
 	require.NoError(t, err)
 	assert.NotEmpty(t, manifest.ImageHash)
-	assert.Equal(t, "image_generated", manifest.Status)
+	assert.Equal(t, "generated", manifest.Status)
 }
 
-func TestGenerateAllImages_Success(t *testing.T) {
+func TestGenerateAllShotImages_Success(t *testing.T) {
 	mockIG := mocks.NewMockImageGen(t)
 	svc, st := newTestImageGenService(t, mockIG)
 	ctx := context.Background()
@@ -87,17 +81,56 @@ func TestGenerateAllImages_Success(t *testing.T) {
 			Format:    "png",
 		}, nil)
 
-	prompts := []ImagePromptResult{
-		{SceneNum: 1, SanitizedPrompt: "prompt 1"},
-		{SceneNum: 2, SanitizedPrompt: "prompt 2"},
+	scenePrompts := []*ScenePromptOutput{
+		{SceneNum: 1, Shots: []ShotOutput{
+			{ShotNum: 1, FinalPrompt: "prompt 1", SentenceText: "s1", ShotDesc: &ShotDescription{EntityVisible: false}},
+			{ShotNum: 2, FinalPrompt: "prompt 2", SentenceText: "s2", ShotDesc: &ShotDescription{EntityVisible: false}},
+		}},
+		{SceneNum: 2, Shots: []ShotOutput{
+			{ShotNum: 1, FinalPrompt: "prompt 3", SentenceText: "s3", ShotDesc: &ShotDescription{EntityVisible: false}},
+		}},
 	}
 
-	scenes, err := svc.GenerateAllImages(ctx, prompts, "proj", projectPath, imagegen.GenerateOptions{}, nil)
+	scenes, err := svc.GenerateAllShotImages(ctx, scenePrompts, "proj", projectPath, "SCP-TEST", imagegen.GenerateOptions{}, nil)
 	require.NoError(t, err)
 	assert.Len(t, scenes, 2)
+	assert.Len(t, scenes[0].Shots, 2)
+	assert.Len(t, scenes[1].Shots, 1)
 }
 
-func TestGenerateAllImages_PartialFailure(t *testing.T) {
+func TestGenerateAllShotImages_SkipMap(t *testing.T) {
+	mockIG := mocks.NewMockImageGen(t)
+	svc, st := newTestImageGenService(t, mockIG)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	createTestProject(t, st, "proj")
+
+	// Only shot 2 should generate (shot 1 skipped)
+	mockIG.On("Generate", mock.Anything, "prompt 2", mock.Anything).
+		Return(&imagegen.ImageResult{ImageData: []byte("data"), Format: "png"}, nil)
+
+	scenePrompts := []*ScenePromptOutput{
+		{SceneNum: 1, Shots: []ShotOutput{
+			{ShotNum: 1, FinalPrompt: "prompt 1", SentenceText: "s1", ShotDesc: &ShotDescription{EntityVisible: false}},
+			{ShotNum: 2, FinalPrompt: "prompt 2", SentenceText: "s2", ShotDesc: &ShotDescription{EntityVisible: false}},
+		}},
+	}
+
+	skipMap := map[domain.ShotKey]bool{
+		{SceneNum: 1, ShotNum: 1}: true,
+	}
+
+	scenes, err := svc.GenerateAllShotImages(ctx, scenePrompts, "proj", projectPath, "SCP-TEST", imagegen.GenerateOptions{}, skipMap)
+	require.NoError(t, err)
+	assert.Len(t, scenes, 1)
+	assert.Len(t, scenes[0].Shots, 2)
+	// Shot 1 skipped — no ImagePath
+	assert.Empty(t, scenes[0].Shots[0].ImagePath)
+	// Shot 2 generated
+	assert.NotEmpty(t, scenes[0].Shots[1].ImagePath)
+}
+
+func TestGenerateAllShotImages_PartialFailure(t *testing.T) {
 	mockIG := mocks.NewMockImageGen(t)
 	svc, st := newTestImageGenService(t, mockIG)
 	ctx := context.Background()
@@ -110,61 +143,18 @@ func TestGenerateAllImages_PartialFailure(t *testing.T) {
 	mockIG.On("Generate", mock.Anything, "prompt 2", mock.Anything).
 		Return(nil, assert.AnError)
 
-	prompts := []ImagePromptResult{
-		{SceneNum: 1, SanitizedPrompt: "prompt 1"},
-		{SceneNum: 2, SanitizedPrompt: "prompt 2"},
+	scenePrompts := []*ScenePromptOutput{
+		{SceneNum: 1, Shots: []ShotOutput{
+			{ShotNum: 1, FinalPrompt: "prompt 1", SentenceText: "s1", ShotDesc: &ShotDescription{EntityVisible: false}},
+			{ShotNum: 2, FinalPrompt: "prompt 2", SentenceText: "s2", ShotDesc: &ShotDescription{EntityVisible: false}},
+		}},
 	}
 
-	scenes, err := svc.GenerateAllImages(ctx, prompts, projectID, projectPath, imagegen.GenerateOptions{}, nil)
+	scenes, err := svc.GenerateAllShotImages(ctx, scenePrompts, projectID, projectPath, "SCP-TEST", imagegen.GenerateOptions{}, nil)
 	require.Error(t, err)
-	assert.Len(t, scenes, 1) // partial results
-
-	// AC4: Verify failed scene marked in manifest
-	manifest, getErr := st.GetManifest(projectID, 2)
-	require.NoError(t, getErr)
-	assert.Equal(t, "image_failed", manifest.Status)
-}
-
-func TestGenerateAllImages_SceneFilter(t *testing.T) {
-	mockIG := mocks.NewMockImageGen(t)
-	svc, st := newTestImageGenService(t, mockIG)
-	ctx := context.Background()
-	projectPath := t.TempDir()
-	createTestProject(t, st, "proj")
-
-	// Only scene 2 should be called
-	mockIG.On("Generate", mock.Anything, "prompt 2", mock.Anything).
-		Return(&imagegen.ImageResult{ImageData: []byte("data"), Format: "png"}, nil)
-
-	prompts := []ImagePromptResult{
-		{SceneNum: 1, SanitizedPrompt: "prompt 1"},
-		{SceneNum: 2, SanitizedPrompt: "prompt 2"},
-		{SceneNum: 3, SanitizedPrompt: "prompt 3"},
-	}
-
-	// AC2: Only regenerate scene 2
-	scenes, err := svc.GenerateAllImages(ctx, prompts, "proj", projectPath, imagegen.GenerateOptions{}, []int{2})
-	require.NoError(t, err)
 	assert.Len(t, scenes, 1)
-	assert.Equal(t, 2, scenes[0].SceneNum)
-}
-
-func TestGenerateAllImages_ContextCancellation(t *testing.T) {
-	mockIG := mocks.NewMockImageGen(t)
-	svc, _ := newTestImageGenService(t, mockIG)
-	projectPath := t.TempDir()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	prompts := []ImagePromptResult{
-		{SceneNum: 1, SanitizedPrompt: "prompt 1"},
-	}
-
-	scenes, err := svc.GenerateAllImages(ctx, prompts, "proj", projectPath, imagegen.GenerateOptions{}, nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cancelled")
-	assert.Empty(t, scenes)
+	// Shot 1 succeeded, shot 2 failed but still in array
+	assert.Len(t, scenes[0].Shots, 2)
 }
 
 func TestReadManualPrompt_Exists(t *testing.T) {
@@ -172,12 +162,10 @@ func TestReadManualPrompt_Exists(t *testing.T) {
 	svc, _ := newTestImageGenService(t, mockIG)
 	projectPath := t.TempDir()
 
-	// Create scene dir and prompt file
 	sceneDir := filepath.Join(projectPath, "scenes", "3")
 	require.NoError(t, os.MkdirAll(sceneDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(sceneDir, "prompt.txt"), []byte("edited prompt"), 0o644))
 
-	// AC3: Read manually edited prompt
 	prompt, exists, err := svc.ReadManualPrompt(projectPath, 3)
 	require.NoError(t, err)
 	assert.True(t, exists)
@@ -193,22 +181,4 @@ func TestReadManualPrompt_NotExists(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists)
 	assert.Empty(t, prompt)
-}
-
-func TestFilterPrompts(t *testing.T) {
-	prompts := []ImagePromptResult{
-		{SceneNum: 1}, {SceneNum: 2}, {SceneNum: 3}, {SceneNum: 4}, {SceneNum: 5},
-	}
-
-	// No filter - all returned
-	assert.Len(t, filterPrompts(prompts, nil), 5)
-
-	// Filter specific scenes
-	filtered := filterPrompts(prompts, []int{2, 4})
-	assert.Len(t, filtered, 2)
-	assert.Equal(t, 2, filtered[0].SceneNum)
-	assert.Equal(t, 4, filtered[1].SceneNum)
-
-	// Filter non-existent scene
-	assert.Len(t, filterPrompts(prompts, []int{99}), 0)
 }

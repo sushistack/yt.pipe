@@ -65,7 +65,7 @@ func sampleWritingOutput() string {
 				"mood":               "suspenseful",
 			},
 		},
-		"metadata": map[string]string{"template_version": "1.0"},
+		"metadata": map[string]any{"template_version": "1.0"},
 	}
 	data, _ := json.Marshal(scenario)
 	return string(data)
@@ -98,7 +98,7 @@ func sampleQualityWritingOutput() string {
 		"scp_id":   "SCP-173",
 		"title":    "The Sculpture - SCP-173",
 		"scenes":   scenes,
-		"metadata": map[string]string{"template_version": "1.0"},
+		"metadata": map[string]any{"template_version": "1.0"},
 	}
 	data, _ := json.Marshal(scenario)
 	return string(data)

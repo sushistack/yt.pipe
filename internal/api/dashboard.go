@@ -284,6 +284,11 @@ type outputFileData struct {
 	Path string // relative path within workspace for download URL
 }
 
+type shotViewData struct {
+	ShotNum  int
+	ImageURL string
+}
+
 type sceneViewData struct {
 	ProjectID   string
 	SceneNum    int
@@ -295,6 +300,7 @@ type sceneViewData struct {
 	HasAudio    bool
 	ImageURL    string
 	AudioURL    string
+	Shots       []shotViewData
 }
 
 // handleProjectDetail renders the project detail page.
@@ -317,6 +323,35 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			for _, sc := range dashboard.Scenes {
 				hasImage := sc.ImagePath != "" || sc.ImageStatus == "generated" || sc.ImageStatus == "approved"
 				hasAudio := sc.TTSPath != "" || sc.TTSStatus == "generated" || sc.TTSStatus == "approved"
+
+				// Discover shot images for this scene
+				var shots []shotViewData
+				projectPath := project.WorkspacePath
+				if projectPath == "" {
+					projectPath = filepath.Join(s.workspacePath, project.ID)
+				}
+				sceneDir := filepath.Join(projectPath, "scenes", strconv.Itoa(sc.SceneNum))
+				for shotNum := 1; shotNum <= 50; shotNum++ {
+					found := false
+					for _, ext := range []string{"png", "jpg", "webp"} {
+						p := filepath.Join(sceneDir, fmt.Sprintf("shot_%d.%s", shotNum, ext))
+						if _, statErr := os.Stat(p); statErr == nil {
+							found = true
+							break
+						}
+					}
+					if !found {
+						break
+					}
+					shots = append(shots, shotViewData{
+						ShotNum:  shotNum,
+						ImageURL: fmt.Sprintf("/dashboard/projects/%s/scenes/%d/shots/%d/image", projectID, sc.SceneNum, shotNum),
+					})
+				}
+				if len(shots) > 0 {
+					hasImage = true
+				}
+
 				scenes = append(scenes, sceneViewData{
 					ProjectID:   projectID,
 					SceneNum:    sc.SceneNum,
@@ -328,6 +363,7 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					HasAudio:    hasAudio,
 					ImageURL:    fmt.Sprintf("/dashboard/projects/%s/scenes/%d/image", projectID, sc.SceneNum),
 					AudioURL:    fmt.Sprintf("/dashboard/projects/%s/scenes/%d/audio", projectID, sc.SceneNum),
+					Shots:       shots,
 				})
 			}
 		}
@@ -348,11 +384,15 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	if project.WorkspacePath != "" {
 		if scenarioData, err := workspace.ReadFile(filepath.Join(project.WorkspacePath, "scenario.json")); err == nil {
 			var scenarioMeta struct {
-				Metadata map[string]string `json:"metadata"`
+				Metadata map[string]any `json:"metadata"`
 			}
 			if json.Unmarshal(scenarioData, &scenarioMeta) == nil && scenarioMeta.Metadata != nil {
-				scenarioPipeline = scenarioMeta.Metadata["pipeline_mode"]
-				scenarioFormatGuide = scenarioMeta.Metadata["format_guide"]
+				if v, ok := scenarioMeta.Metadata["pipeline_mode"].(string); ok {
+					scenarioPipeline = v
+				}
+				if v, ok := scenarioMeta.Metadata["format_guide"].(string); ok {
+					scenarioFormatGuide = v
+				}
 			}
 		}
 	}
@@ -727,6 +767,49 @@ func hasUploadedImage(project *domain.Project) bool {
 
 func (s *Server) handleDashboardImage(w http.ResponseWriter, r *http.Request) {
 	s.handleDashboardAsset(w, r, "image.png")
+}
+
+func (s *Server) handleDashboardShotImage(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "id")
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		http.Error(w, "Project not found", http.StatusNotFound)
+		return
+	}
+
+	numStr := chi.URLParam(r, "num")
+	sceneNum, convErr := strconv.Atoi(numStr)
+	if convErr != nil || sceneNum < 1 {
+		http.Error(w, "Invalid scene number", http.StatusBadRequest)
+		return
+	}
+
+	shotStr := chi.URLParam(r, "shotNum")
+	shotNum, shotErr := strconv.Atoi(shotStr)
+	if shotErr != nil || shotNum < 1 {
+		http.Error(w, "Invalid shot number", http.StatusBadRequest)
+		return
+	}
+
+	projectPath := project.WorkspacePath
+	if projectPath == "" {
+		projectPath = filepath.Join(s.workspacePath, project.ID)
+	}
+
+	sceneDir := filepath.Join(projectPath, "scenes", strconv.Itoa(sceneNum))
+	for _, ext := range []string{"png", "jpg", "webp"} {
+		assetPath := filepath.Join(sceneDir, fmt.Sprintf("shot_%d.%s", shotNum, ext))
+		cleaned := filepath.Clean(assetPath)
+		if !strings.HasPrefix(cleaned, filepath.Clean(projectPath)) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		if _, statErr := os.Stat(cleaned); statErr == nil {
+			http.ServeFile(w, r, cleaned)
+			return
+		}
+	}
+	http.Error(w, "Not found", http.StatusNotFound)
 }
 
 func (s *Server) handleDashboardAudio(w http.ResponseWriter, r *http.Request) {

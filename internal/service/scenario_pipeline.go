@@ -498,7 +498,7 @@ func parseScenarioFromWriting(content string, scpID string) (*domain.ScenarioOut
 			Mood          string `json:"mood"`
 			EntityVisible bool   `json:"entity_visible"`
 		} `json:"scenes"`
-		Metadata map[string]string `json:"metadata"`
+		Metadata map[string]any `json:"metadata"`
 	}
 
 	if err := json.Unmarshal([]byte(cleaned), &raw); err != nil {
@@ -511,7 +511,7 @@ func parseScenarioFromWriting(content string, scpID string) (*domain.ScenarioOut
 		Metadata: raw.Metadata,
 	}
 	if scenario.Metadata == nil {
-		scenario.Metadata = map[string]string{}
+		scenario.Metadata = map[string]any{}
 	}
 
 	for _, s := range raw.Scenes {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/sushistack/yt.pipe/internal/domain"
 	"github.com/sushistack/yt.pipe/internal/service"
 	"github.com/sushistack/yt.pipe/internal/store"
 )
@@ -31,35 +32,44 @@ func NewSceneSkipChecker(s *store.Store, logger *slog.Logger) *SceneSkipChecker 
 	return &SceneSkipChecker{store: s, logger: logger}
 }
 
-// FilterScenesForImageGen returns scene numbers that need image regeneration.
-// Compares current prompt hashes against stored manifest hashes.
-func (c *SceneSkipChecker) FilterScenesForImageGen(projectID string, prompts []service.ImagePromptResult) (toGenerate, toSkip []int) {
-	manifests, err := c.store.ListManifestsByProject(projectID)
-	if err != nil || len(manifests) == 0 {
-		// No manifests = all scenes need generation
-		for _, p := range prompts {
-			toGenerate = append(toGenerate, p.SceneNum)
+// FilterShotsForImageGen returns shot keys that need image regeneration.
+// Compares current sentence hashes against stored shot manifest hashes.
+func (c *SceneSkipChecker) FilterShotsForImageGen(
+	projectID string,
+	scenePrompts []*service.ScenePromptOutput,
+) (toGenerate, toSkip []domain.ShotKey) {
+	for _, sp := range scenePrompts {
+		if sp == nil {
+			continue
 		}
-		return
-	}
 
-	manifestMap := make(map[int]*manifestEntry, len(manifests))
-	for _, m := range manifests {
-		manifestMap[m.SceneNum] = &manifestEntry{
-			contentHash: m.ContentHash,
-			imageHash:   m.ImageHash,
+		// Check if scene shot count changed — invalidate all shots if so
+		storedShots, _ := c.store.ListShotManifestsByScene(projectID, sp.SceneNum)
+		if len(storedShots) != len(sp.Shots) && len(storedShots) > 0 {
+			c.logger.Info("scene shot count changed, invalidating all shots",
+				"scene_num", sp.SceneNum,
+				"stored", len(storedShots),
+				"new", len(sp.Shots))
+			_ = c.store.DeleteShotManifestsByScene(projectID, sp.SceneNum)
+			// All shots need regeneration
+			for _, shot := range sp.Shots {
+				toGenerate = append(toGenerate, domain.ShotKey{SceneNum: sp.SceneNum, ShotNum: shot.ShotNum})
+			}
+			continue
 		}
-	}
 
-	for _, p := range prompts {
-		currentHash := service.ContentHash([]byte(p.SanitizedPrompt))
-		if entry, ok := manifestMap[p.SceneNum]; ok && entry.contentHash == currentHash && entry.imageHash != "" {
-			c.logger.Info("scene unchanged, skipping",
-				"scene_num", p.SceneNum,
-				"asset", "image")
-			toSkip = append(toSkip, p.SceneNum)
-		} else {
-			toGenerate = append(toGenerate, p.SceneNum)
+		for _, shot := range sp.Shots {
+			key := domain.ShotKey{SceneNum: sp.SceneNum, ShotNum: shot.ShotNum}
+			currentHash := service.ContentHash([]byte(shot.SentenceText))
+
+			manifest, err := c.store.GetShotManifest(projectID, sp.SceneNum, shot.ShotNum)
+			if err == nil && manifest.ContentHash == currentHash && manifest.ImageHash != "" {
+				c.logger.Info("shot unchanged, skipping",
+					"scene_num", sp.SceneNum, "shot_num", shot.ShotNum, "asset", "image")
+				toSkip = append(toSkip, key)
+			} else {
+				toGenerate = append(toGenerate, key)
+			}
 		}
 	}
 	return

@@ -5,7 +5,7 @@ type ScenarioOutput struct {
 	SCPID    string
 	Title    string
 	Scenes   []SceneScript
-	Metadata map[string]string
+	Metadata map[string]any
 }
 
 // SceneScript represents a single scene's script from scenario generation

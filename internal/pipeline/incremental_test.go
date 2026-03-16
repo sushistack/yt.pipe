@@ -19,72 +19,94 @@ func setupTestDB(t *testing.T) *store.Store {
 	return db
 }
 
-func TestSceneSkipChecker_FilterScenesForImageGen_NoManifests(t *testing.T) {
+func TestSceneSkipChecker_FilterShotsForImageGen_NoManifests(t *testing.T) {
 	db := setupTestDB(t)
 	checker := NewSceneSkipChecker(db, slog.Default())
 
-	prompts := []service.ImagePromptResult{
-		{SceneNum: 1, SanitizedPrompt: "prompt 1"},
-		{SceneNum: 2, SanitizedPrompt: "prompt 2"},
+	scenePrompts := []*service.ScenePromptOutput{
+		{SceneNum: 1, Shots: []service.ShotOutput{
+			{ShotNum: 1, SentenceText: "sentence 1"},
+			{ShotNum: 2, SentenceText: "sentence 2"},
+		}},
 	}
 
-	toGen, toSkip := checker.FilterScenesForImageGen("proj-1", prompts)
+	toGen, toSkip := checker.FilterShotsForImageGen("proj-1", scenePrompts)
 	assert.Len(t, toGen, 2)
 	assert.Empty(t, toSkip)
 }
 
-func TestSceneSkipChecker_FilterScenesForImageGen_WithMatching(t *testing.T) {
+func TestSceneSkipChecker_FilterShotsForImageGen_WithMatching(t *testing.T) {
 	db := setupTestDB(t)
 
-	// Create a project first
 	proj := &domain.Project{ID: "proj-1", SCPID: "SCP-173", Status: "pending", WorkspacePath: "/tmp"}
 	require.NoError(t, db.CreateProject(proj))
 
-	// Pre-populate manifest with matching hash
-	prompt1Hash := service.ContentHash([]byte("prompt 1"))
-	require.NoError(t, db.CreateManifest(&domain.SceneManifest{
+	// Pre-populate shot manifests — must match shot count (2 stored = 2 in prompt)
+	sentenceHash := service.ContentHash([]byte("sentence 1"))
+	require.NoError(t, db.CreateShotManifest(&domain.ShotManifest{
 		ProjectID:   "proj-1",
 		SceneNum:    1,
-		ContentHash: prompt1Hash,
-		ImageHash:   "some-image-hash", // Has been generated
-		Status:      "image_generated",
+		ShotNum:     1,
+		ContentHash: sentenceHash,
+		ImageHash:   "some-image-hash",
+		GenMethod:   "text_to_image",
+		Status:      "generated",
+	}))
+	require.NoError(t, db.CreateShotManifest(&domain.ShotManifest{
+		ProjectID:   "proj-1",
+		SceneNum:    1,
+		ShotNum:     2,
+		ContentHash: "old-hash",
+		ImageHash:   "",
+		GenMethod:   "text_to_image",
+		Status:      "pending",
 	}))
 
 	checker := NewSceneSkipChecker(db, slog.Default())
 
-	prompts := []service.ImagePromptResult{
-		{SceneNum: 1, SanitizedPrompt: "prompt 1"}, // Same hash → skip
-		{SceneNum: 2, SanitizedPrompt: "prompt 2"}, // No manifest → generate
+	scenePrompts := []*service.ScenePromptOutput{
+		{SceneNum: 1, Shots: []service.ShotOutput{
+			{ShotNum: 1, SentenceText: "sentence 1"}, // Same hash + image exists → skip
+			{ShotNum: 2, SentenceText: "sentence 2"}, // No image hash → generate
+		}},
 	}
 
-	toGen, toSkip := checker.FilterScenesForImageGen("proj-1", prompts)
-	assert.Equal(t, []int{2}, toGen)
-	assert.Equal(t, []int{1}, toSkip)
+	toGen, toSkip := checker.FilterShotsForImageGen("proj-1", scenePrompts)
+	assert.Len(t, toGen, 1)
+	assert.Equal(t, domain.ShotKey{SceneNum: 1, ShotNum: 2}, toGen[0])
+	assert.Len(t, toSkip, 1)
+	assert.Equal(t, domain.ShotKey{SceneNum: 1, ShotNum: 1}, toSkip[0])
 }
 
-func TestSceneSkipChecker_FilterScenesForImageGen_ChangedPrompt(t *testing.T) {
+func TestSceneSkipChecker_FilterShotsForImageGen_SceneExpanded(t *testing.T) {
 	db := setupTestDB(t)
 
 	proj := &domain.Project{ID: "proj-1", SCPID: "SCP-173", Status: "pending", WorkspacePath: "/tmp"}
 	require.NoError(t, db.CreateProject(proj))
 
-	oldHash := service.ContentHash([]byte("old prompt"))
-	require.NoError(t, db.CreateManifest(&domain.SceneManifest{
-		ProjectID:   "proj-1",
-		SceneNum:    1,
-		ContentHash: oldHash,
-		ImageHash:   "img-hash",
-		Status:      "image_generated",
+	// Scene previously had 2 shots
+	require.NoError(t, db.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "proj-1", SceneNum: 1, ShotNum: 1,
+		ContentHash: "hash1", ImageHash: "img1", GenMethod: "text_to_image", Status: "generated",
+	}))
+	require.NoError(t, db.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "proj-1", SceneNum: 1, ShotNum: 2,
+		ContentHash: "hash2", ImageHash: "img2", GenMethod: "text_to_image", Status: "generated",
 	}))
 
 	checker := NewSceneSkipChecker(db, slog.Default())
 
-	prompts := []service.ImagePromptResult{
-		{SceneNum: 1, SanitizedPrompt: "new prompt"}, // Changed → regenerate
+	// Now scene has 3 shots → all should regenerate
+	scenePrompts := []*service.ScenePromptOutput{
+		{SceneNum: 1, Shots: []service.ShotOutput{
+			{ShotNum: 1, SentenceText: "s1"},
+			{ShotNum: 2, SentenceText: "s2"},
+			{ShotNum: 3, SentenceText: "s3"},
+		}},
 	}
 
-	toGen, toSkip := checker.FilterScenesForImageGen("proj-1", prompts)
-	assert.Equal(t, []int{1}, toGen)
+	toGen, toSkip := checker.FilterShotsForImageGen("proj-1", scenePrompts)
+	assert.Len(t, toGen, 3)
 	assert.Empty(t, toSkip)
 }
 
