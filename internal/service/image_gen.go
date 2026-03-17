@@ -59,7 +59,7 @@ func (s *ImageGenService) SetSelectedCharacterImage(imagePath string) error {
 func (s *ImageGenService) GenerateShotImage(
 	ctx context.Context,
 	projectID, projectPath string,
-	sceneNum, sentenceStart, sentenceEnd, cutNum int,
+	sceneNum, sentenceStart, sentenceEnd, cutNum, shotNum int,
 	prompt, negativePrompt string,
 	entityVisible bool,
 	scpID string,
@@ -121,7 +121,7 @@ func (s *ImageGenService) GenerateShotImage(
 				"method", genMethod,
 				"err", err,
 			)
-			s.markCutFailed(projectID, sceneNum, sentenceStart, sentenceEnd, cutNum)
+			s.markCutFailed(projectID, sceneNum, sentenceStart, sentenceEnd, cutNum, shotNum)
 			return nil, fmt.Errorf("image gen: scene %d cut %d_%d: %w", sceneNum, sentenceStart, cutNum, err)
 		}
 	}
@@ -152,7 +152,7 @@ func (s *ImageGenService) GenerateShotImage(
 	// Compute hashes and update shot manifest
 	imgHash := hashBytes(result.ImageData)
 	contentHash := hashBytes([]byte(prompt))
-	s.updateCutManifestImageHash(projectID, sceneNum, sentenceStart, sentenceEnd, cutNum, contentHash, imgHash, genMethod)
+	s.updateCutManifestImageHash(projectID, sceneNum, sentenceStart, sentenceEnd, cutNum, shotNum, contentHash, imgHash, genMethod)
 
 	s.logger.Info("cut image generated",
 		"project_id", projectID,
@@ -241,7 +241,7 @@ func (s *ImageGenService) GenerateAllCutImages(
 			}
 
 			genShot, err := s.GenerateShotImage(ctx, projectID, projectPath,
-				sc.SceneNum, cut.SentenceStart, cut.SentenceEnd, cut.CutNum,
+				sc.SceneNum, cut.SentenceStart, cut.SentenceEnd, cut.CutNum, i+1,
 				cut.FinalPrompt, cut.NegativePrompt,
 				entityVisible, scpID, opts)
 			if err != nil {
@@ -362,12 +362,13 @@ func (s *ImageGenService) ReadManualPrompt(projectPath string, sceneNum int) (st
 }
 
 // updateCutManifestImageHash updates the cut manifest with the image hash and generation method.
-func (s *ImageGenService) updateCutManifestImageHash(projectID string, sceneNum, sentenceStart, sentenceEnd, cutNum int, contentHash, imgHash, genMethod string) {
+func (s *ImageGenService) updateCutManifestImageHash(projectID string, sceneNum, sentenceStart, sentenceEnd, cutNum, shotNum int, contentHash, imgHash, genMethod string) {
 	manifest, err := s.store.GetShotManifest(projectID, sceneNum, sentenceStart, cutNum)
 	if err != nil {
 		manifest = &domain.ShotManifest{
 			ProjectID:     projectID,
 			SceneNum:      sceneNum,
+			ShotNum:       shotNum,
 			SentenceStart: sentenceStart,
 			SentenceEnd:   sentenceEnd,
 			CutNum:        cutNum,
@@ -394,12 +395,13 @@ func (s *ImageGenService) updateCutManifestImageHash(projectID string, sceneNum,
 }
 
 // markCutFailed marks a cut as failed in the manifest.
-func (s *ImageGenService) markCutFailed(projectID string, sceneNum, sentenceStart, sentenceEnd, cutNum int) {
+func (s *ImageGenService) markCutFailed(projectID string, sceneNum, sentenceStart, sentenceEnd, cutNum, shotNum int) {
 	manifest, err := s.store.GetShotManifest(projectID, sceneNum, sentenceStart, cutNum)
 	if err != nil {
 		manifest = &domain.ShotManifest{
 			ProjectID:     projectID,
 			SceneNum:      sceneNum,
+			ShotNum:       shotNum,
 			SentenceStart: sentenceStart,
 			SentenceEnd:   sentenceEnd,
 			CutNum:        cutNum,

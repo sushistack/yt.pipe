@@ -53,7 +53,7 @@ func TestGenerateShotImage_Success(t *testing.T) {
 		}, nil)
 
 	shot, err := svc.GenerateShotImage(ctx, projectID, projectPath,
-		1, 1, 1, 1, "shot prompt, anime illustration", "", false, "SCP-TEST", imagegen.GenerateOptions{})
+		1, 1, 1, 1, 1, "shot prompt, anime illustration", "", false, "SCP-TEST", imagegen.GenerateOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, shot.SentenceStart)
