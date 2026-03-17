@@ -708,6 +708,12 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 		}
 	}()
 
+	if s.imageGenSvc == nil {
+		slog.Error("image generation service not initialized", "project_id", project.ID)
+		s.updateJobRecord(jobID, JobStatusFailed, 0, "", "image generation service not available")
+		return
+	}
+
 	total := len(scenes)
 	completed := 0
 	completedShots := 0
