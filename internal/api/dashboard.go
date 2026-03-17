@@ -543,12 +543,19 @@ func computeDependencies(project *domain.Project, basePath string) map[string]bo
 		return deps
 	}
 
-	// Check images: all scenes have image files
+	// Check images: all scenes have image files (image.*, shot_*, or cut_* naming)
 	allImages := true
 	allTTS := true
 	for i := 1; i <= project.SceneCount; i++ {
 		sceneDir := filepath.Join(project.WorkspacePath, "scenes", fmt.Sprintf("%d", i))
-		if !fileExistsWithExtensions(sceneDir, "image", []string{"png", "jpg", "webp"}) {
+		hasImage := fileExistsWithExtensions(sceneDir, "image", []string{"png", "jpg", "webp"})
+		if !hasImage {
+			// Check for shot_N or cut_N_M naming (multi-shot / cut decomposition)
+			shotMatches, _ := filepath.Glob(filepath.Join(sceneDir, "shot_*.png"))
+			cutMatches, _ := filepath.Glob(filepath.Join(sceneDir, "cut_*.png"))
+			hasImage = len(shotMatches) > 0 || len(cutMatches) > 0
+		}
+		if !hasImage {
 			allImages = false
 		}
 		if !fileExistsWithExtensions(sceneDir, "audio", []string{"wav", "mp3", "ogg"}) {
