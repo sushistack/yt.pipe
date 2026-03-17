@@ -17,7 +17,8 @@ type Scene struct {
 	AudioDuration float64
 	WordTimings   []WordTiming
 	SubtitlePath  string
-	Shots         []Shot `json:"shots,omitempty"`
+	Shots         []Shot          `json:"shots,omitempty"`
+	VisualMeta    SceneVisualMeta `json:"visual_meta,omitempty"`
 }
 
 // WordTiming represents a single word's timing within TTS audio output
@@ -27,10 +28,13 @@ type WordTiming struct {
 	EndSec   float64
 }
 
-// Shot represents a single visual shot within a scene.
-// Each shot maps 1:1 to a narration sentence.
+// Shot represents a single visual shot (cut) within a scene.
+// A cut may cover one or more sentences (merge) or a sentence may produce multiple cuts (split).
 type Shot struct {
-	ShotNum        int     `json:"shot_num"`
+	ShotNum        int     `json:"shot_num"`         // sequential index (deprecated, kept for backward compat)
+	SentenceStart  int     `json:"sentence_start"`   // first sentence covered (1-based)
+	SentenceEnd    int     `json:"sentence_end"`     // last sentence covered (start == end for split, start < end for merge)
+	CutNum         int     `json:"cut_num"`           // cut number within the sentence range
 	Role           string  `json:"role"`
 	CameraType     string  `json:"camera_type"`
 	EntityVisible  bool    `json:"entity_visible"`
@@ -43,10 +47,20 @@ type Shot struct {
 	SentenceText   string  `json:"sentence_text"`
 }
 
-// ShotKey uniquely identifies a shot within a project.
+// ShotKey uniquely identifies a cut within a project using 3-level addressing.
 type ShotKey struct {
-	SceneNum int
-	ShotNum  int
+	SceneNum      int
+	SentenceStart int
+	CutNum        int
+	ShotNum       int // deprecated: kept for backward compat with old skip maps
+}
+
+// SceneVisualMeta holds structured visual metadata for a scene.
+type SceneVisualMeta struct {
+	Location          string   `json:"location"`
+	CharactersPresent []string `json:"characters_present"`
+	ColorPalette      string   `json:"color_palette"`
+	Atmosphere        string   `json:"atmosphere"`
 }
 
 // SplitNarrationSentences splits Korean narration into sentences.

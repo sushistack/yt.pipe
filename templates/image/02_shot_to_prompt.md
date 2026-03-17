@@ -6,14 +6,22 @@ You are an expert at converting cinematographic shot descriptions into image gen
 ## Frozen Descriptor (preserve EXACTLY if entity is visible)
 {frozen_descriptor}
 
+## Style Context
+- Art Style: {art_style}
+- Color Palette: {scene_palette}
+- Atmosphere: {scene_atmosphere}
+- Character Style Guide: {style_guide}
+
 ## Instructions
 
-Convert the shot description into an image generation prompt for an **anime illustration style** output. Rules:
+Convert the shot description into an image generation prompt for a **{art_style}** style output. Rules:
 1. If entity_visible is true, the main subject description MUST start with the frozen descriptor VERBATIM
 2. Include camera angle, lighting, mood, and motion naturally
-3. Use anime/illustration art direction: cel shading, vibrant palette, dramatic lighting, clean linework
-4. Generate a negative prompt to prevent visual inconsistency
-5. If entity_visible is true, include entity-specific negative prompts
+3. Use the specified art style direction with appropriate techniques
+4. Apply the color palette and atmosphere from the style context
+5. If a character style guide is provided and entity is visible, incorporate those style rules
+6. Generate a negative prompt to prevent visual inconsistency
+7. If entity_visible is true, include entity-specific negative prompts
 
 ## Output Format (JSON only)
 
@@ -30,7 +38,7 @@ Convert the shot description into an image generation prompt for an **anime illu
 - Camera angle and composition
 - Lighting description
 - Mood and atmosphere
-- Technical suffix: "anime illustration, dark horror anime style, highly detailed, vibrant colors, cel shading, sharp lines, dramatic lighting, 16:9 aspect ratio"
+- Technical suffix based on art style
 
 ### Negative Prompt Should Include:
 - Generic: "blurry, low quality, watermark, text, logo, photorealistic, 3D render, photograph, live action"

@@ -324,13 +324,14 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				hasImage := sc.ImagePath != "" || sc.ImageStatus == "generated" || sc.ImageStatus == "approved"
 				hasAudio := sc.TTSPath != "" || sc.TTSStatus == "generated" || sc.TTSStatus == "approved"
 
-				// Discover shot images for this scene
+				// Discover shot/cut images for this scene
 				var shots []shotViewData
 				projectPath := project.WorkspacePath
 				if projectPath == "" {
 					projectPath = filepath.Join(s.workspacePath, project.ID)
 				}
 				sceneDir := filepath.Join(projectPath, "scenes", strconv.Itoa(sc.SceneNum))
+				// Try legacy shot_N naming first, then new cut_N_M naming
 				for shotNum := 1; shotNum <= 50; shotNum++ {
 					found := false
 					for _, ext := range []string{"png", "jpg", "webp"} {
@@ -338,6 +339,16 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 						if _, statErr := os.Stat(p); statErr == nil {
 							found = true
 							break
+						}
+					}
+					if !found {
+						// Try cut naming: cut_{sentenceStart}_{cutNum}
+						for _, ext := range []string{"png", "jpg", "webp"} {
+							p := filepath.Join(sceneDir, fmt.Sprintf("cut_%d_1.%s", shotNum, ext))
+							if _, statErr := os.Stat(p); statErr == nil {
+								found = true
+								break
+							}
 						}
 					}
 					if !found {
@@ -797,16 +808,23 @@ func (s *Server) handleDashboardShotImage(w http.ResponseWriter, r *http.Request
 	}
 
 	sceneDir := filepath.Join(projectPath, "scenes", strconv.Itoa(sceneNum))
-	for _, ext := range []string{"png", "jpg", "webp"} {
-		assetPath := filepath.Join(sceneDir, fmt.Sprintf("shot_%d.%s", shotNum, ext))
-		cleaned := filepath.Clean(assetPath)
-		if !strings.HasPrefix(cleaned, filepath.Clean(projectPath)) {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
-		if _, statErr := os.Stat(cleaned); statErr == nil {
-			http.ServeFile(w, r, cleaned)
-			return
+	// Try legacy shot_N naming, then new cut_N_1 naming
+	patterns := []string{
+		fmt.Sprintf("shot_%d", shotNum),
+		fmt.Sprintf("cut_%d_1", shotNum),
+	}
+	for _, pattern := range patterns {
+		for _, ext := range []string{"png", "jpg", "webp"} {
+			assetPath := filepath.Join(sceneDir, pattern+"."+ext)
+			cleaned := filepath.Clean(assetPath)
+			if !strings.HasPrefix(cleaned, filepath.Clean(projectPath)) {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+			if _, statErr := os.Stat(cleaned); statErr == nil {
+				http.ServeFile(w, r, cleaned)
+				return
+			}
 		}
 	}
 	http.Error(w, "Not found", http.StatusNotFound)

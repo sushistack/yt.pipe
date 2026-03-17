@@ -140,7 +140,7 @@ func (f *fakeLLM) GenerateScenario(_ context.Context, scpID string, _ string, _ 
 			{SceneNum: 2, Narration: "Scene 2 narration for " + scpID, VisualDescription: "Security personnel approaching", Mood: "suspense", FactTags: []domain.FactTag{{Key: "containment", Content: "Class-III"}}},
 			{SceneNum: 3, Narration: "Scene 3 narration for " + scpID, VisualDescription: "The entity in full view", Mood: "horror", FactTags: []domain.FactTag{{Key: "behavior", Content: "Hostile"}}},
 		},
-		Metadata: map[string]string{"duration_estimate": "10min"},
+		Metadata: map[string]any{"duration_estimate": "10min"},
 	}, nil
 }
 
@@ -335,7 +335,7 @@ func acceptDialogs(page playwright.Page) {
 // seedProject creates a project via the API and returns its ID.
 func seedProject(t *testing.T, baseURL string, scpID string) string {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{"scp_id": scpID})
+	body, _ := json.Marshal(map[string]any{"scp_id": scpID})
 	resp, err := http.Post(baseURL+"/api/v1/projects", "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -392,7 +392,7 @@ func seedProjectAtStage(t *testing.T, baseURL string, st *store.Store, scpID str
 			{SceneNum: 2, Narration: "Personnel approach " + scpID + " cautiously", VisualDescription: "Security personnel approaching " + scpID, Mood: "suspense", EntityVisible: true},
 			{SceneNum: 3, Narration: scpID + " stands motionless in full view", VisualDescription: "The entity " + scpID + " in full view", Mood: "horror", EntityVisible: true},
 		},
-		Metadata: map[string]string{"duration_estimate": "10min"},
+		Metadata: map[string]any{"duration_estimate": "10min"},
 	}
 	scenarioJSON, _ := json.Marshal(scenario)
 	require.NoError(t, os.WriteFile(filepath.Join(wsPath, "scenario.json"), scenarioJSON, 0o644))
@@ -501,7 +501,7 @@ func seedProjectAtStage(t *testing.T, baseURL string, st *store.Store, scpID str
 // setStage sets a project's stage via the API.
 func setStage(t *testing.T, baseURL, projectID, stage string) {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{"stage": stage})
+	body, _ := json.Marshal(map[string]any{"stage": stage})
 	req, err := http.NewRequest(http.MethodPatch, baseURL+"/api/v1/projects/"+projectID+"/stage", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")

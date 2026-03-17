@@ -62,10 +62,53 @@ func (c *SceneSkipChecker) FilterShotsForImageGen(
 			key := domain.ShotKey{SceneNum: sp.SceneNum, ShotNum: shot.ShotNum}
 			currentHash := service.ContentHash([]byte(shot.SentenceText))
 
-			manifest, err := c.store.GetShotManifest(projectID, sp.SceneNum, shot.ShotNum)
+			// Legacy path: use shot_num as sentence_start, cut_num=1
+			manifest, err := c.store.GetShotManifest(projectID, sp.SceneNum, shot.ShotNum, 1)
 			if err == nil && manifest.ContentHash == currentHash && manifest.ImageHash != "" {
 				c.logger.Info("shot unchanged, skipping",
 					"scene_num", sp.SceneNum, "shot_num", shot.ShotNum, "asset", "image")
+				toSkip = append(toSkip, key)
+			} else {
+				toGenerate = append(toGenerate, key)
+			}
+		}
+	}
+	return
+}
+
+// FilterCutsForImageGen returns cut keys that need image regeneration.
+// Compares current content hashes (narration + scene metadata) against stored manifest hashes.
+func (c *SceneSkipChecker) FilterCutsForImageGen(
+	projectID string,
+	sceneCuts []*service.SceneCutOutput,
+) (toGenerate, toSkip []domain.ShotKey) {
+	for _, sc := range sceneCuts {
+		if sc == nil {
+			continue
+		}
+
+		storedManifests, _ := c.store.ListShotManifestsByScene(projectID, sc.SceneNum)
+		if len(storedManifests) != len(sc.Cuts) && len(storedManifests) > 0 {
+			c.logger.Info("scene cut count changed, invalidating all cuts",
+				"scene_num", sc.SceneNum,
+				"stored", len(storedManifests),
+				"new", len(sc.Cuts))
+			_ = c.store.DeleteShotManifestsByScene(projectID, sc.SceneNum)
+			for _, cut := range sc.Cuts {
+				toGenerate = append(toGenerate, domain.ShotKey{
+					SceneNum: sc.SceneNum, SentenceStart: cut.SentenceStart, CutNum: cut.CutNum})
+			}
+			continue
+		}
+
+		for _, cut := range sc.Cuts {
+			key := domain.ShotKey{SceneNum: sc.SceneNum, SentenceStart: cut.SentenceStart, CutNum: cut.CutNum}
+			currentHash := service.ContentHash([]byte(cut.FinalPrompt))
+
+			manifest, err := c.store.GetShotManifest(projectID, sc.SceneNum, cut.SentenceStart, cut.CutNum)
+			if err == nil && manifest.ContentHash == currentHash && manifest.ImageHash != "" {
+				c.logger.Info("cut unchanged, skipping",
+					"scene_num", sc.SceneNum, "sentence_start", cut.SentenceStart, "cut_num", cut.CutNum)
 				toSkip = append(toSkip, key)
 			} else {
 				toGenerate = append(toGenerate, key)

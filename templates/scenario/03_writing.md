@@ -88,9 +88,19 @@ For each scene, produce:
   "visual_description": "English description for image generation, including frozen descriptor when entity visible",
   "fact_tags": [{"key": "fact_key", "content": "relevant fact text"}],
   "mood": "tense",
-  "entity_visible": true
+  "entity_visible": true,
+  "location": "underground containment chamber",
+  "characters_present": ["SCP-173", "D-9341"],
+  "color_palette": "desaturated blues and grays, cold fluorescent white",
+  "atmosphere": "claustrophobic, sterile, oppressive silence"
 }
 ```
+
+### Scene Visual Metadata Rules:
+- `location`: Brief English description of where this scene takes place
+- `characters_present`: Array of character/entity names visible or referenced in this scene
+- `color_palette`: Dominant colors and visual tone for this scene's imagery
+- `atmosphere`: One-line mood/atmosphere description for image generation context
 
 **`entity_visible` rules:**
 - `true`: SCP 개체가 이 씬의 이미지에 등장해야 하는 경우 (직접 보이거나, 실루엣, 그림자 등)

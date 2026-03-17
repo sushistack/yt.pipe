@@ -45,6 +45,7 @@ type Runner struct {
 
 	characterSvc               *service.CharacterService
 	selectedCharacterImagePath string
+	styleConfig                domain.StyleConfig
 
 	// ProgressFunc is called on stage transitions for real-time feedback.
 	ProgressFunc func(service.PipelineProgress)
@@ -1217,16 +1218,15 @@ func loadScenesFromDir(projectPath string) ([]*domain.Scene, error) {
 	return scenes, nil
 }
 
-// generateShotImages runs the shot breakdown pipeline and generates images per shot.
+// generateShotImages runs the cut decomposition pipeline and generates images per cut.
 func (r *Runner) generateShotImages(ctx context.Context, scenario *domain.ScenarioOutput, imgSvc *service.ImageGenService, project *domain.Project) ([]*domain.Scene, error) {
-	// Shot breakdown: generate per-sentence shot descriptions + prompts
-	shotPipeline, err := service.NewShotBreakdownPipeline(r.llm, service.ShotBreakdownConfig{
+	cutPipeline, err := service.NewShotBreakdownPipeline(r.llm, service.ShotBreakdownConfig{
 		TemplatesDir: r.templatesPath,
 	})
 	if err != nil {
 		return nil, &service.PipelineError{
 			Stage:      service.StageImageGenerate,
-			Cause:      fmt.Sprintf("init shot breakdown: %s", err),
+			Cause:      fmt.Sprintf("init cut pipeline: %s", err),
 			RecoverCmd: fmt.Sprintf("yt-pipe run %s", project.SCPID),
 			Err:        err,
 		}
@@ -1234,34 +1234,60 @@ func (r *Runner) generateShotImages(ctx context.Context, scenario *domain.Scenar
 
 	frozenDesc := ""
 	visualIdentity := ""
+	styleGuide := ""
 	if r.characterSvc != nil && project.SCPID != "" {
 		char, _ := r.characterSvc.CheckExistingCharacter(project.SCPID)
 		if char != nil {
 			frozenDesc = char.VisualDescriptor
 			visualIdentity = char.ImagePromptBase
+			styleGuide = char.StyleGuide
 		}
 	}
 
-	scenePrompts, err := shotPipeline.GenerateAllScenePrompts(ctx, scenario, frozenDesc, visualIdentity)
+	// Build SceneCutInput per scene with visual metadata + merged style
+	inputs := make([]service.SceneCutInput, 0, len(scenario.Scenes))
+	for _, scene := range scenario.Scenes {
+		mergedStyle := domain.MergeSceneStyle(r.styleConfig, domain.SceneVisualMeta{
+			Location:          scene.Location,
+			CharactersPresent: scene.CharactersPresent,
+			ColorPalette:      scene.ColorPalette,
+			Atmosphere:        scene.Atmosphere,
+		})
+
+		inputs = append(inputs, service.SceneCutInput{
+			SceneNum:             scene.SceneNum,
+			Narration:            scene.Narration,
+			Mood:                 scene.Mood,
+			Location:             scene.Location,
+			CharactersPresent:    scene.CharactersPresent,
+			ColorPalette:         mergedStyle.ColorPalette,
+			Atmosphere:           mergedStyle.Mood,
+			EntityVisualIdentity: visualIdentity,
+			FrozenDescriptor:     frozenDesc,
+			StyleGuide:           styleGuide,
+			StyleConfig:          mergedStyle,
+		})
+	}
+
+	sceneCuts, err := cutPipeline.GenerateAllSceneCuts(ctx, inputs)
 	if err != nil {
 		return nil, &service.PipelineError{
 			Stage:      service.StageImageGenerate,
-			Cause:      fmt.Sprintf("shot breakdown: %s", err),
+			Cause:      fmt.Sprintf("cut decomposition: %s", err),
 			RecoverCmd: fmt.Sprintf("yt-pipe run %s", project.SCPID),
 			Err:        err,
 		}
 	}
 
-	// Incremental: skip unchanged shots
+	// Incremental: skip unchanged cuts
 	skipChecker := NewSceneSkipChecker(r.store, r.logger)
-	_, toSkip := skipChecker.FilterShotsForImageGen(project.ID, scenePrompts)
+	_, toSkip := skipChecker.FilterCutsForImageGen(project.ID, sceneCuts)
 	skipMap := make(map[domain.ShotKey]bool, len(toSkip))
 	for _, k := range toSkip {
 		skipMap[k] = true
 	}
 
-	// Image generation: per-shot
-	return imgSvc.GenerateAllShotImages(ctx, scenePrompts, project.ID, project.WorkspacePath, project.SCPID, r.imageOpts, skipMap)
+	return imgSvc.GenerateAllCutImages(ctx, sceneCuts, project.ID, project.WorkspacePath, project.SCPID, r.imageOpts, skipMap)
 }
 
 // wireCharacterToImageSvc wires the character service and selected image into an ImageGenService.

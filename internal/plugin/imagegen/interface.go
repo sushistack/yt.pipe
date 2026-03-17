@@ -21,6 +21,7 @@ type CharacterRef struct {
 	Name             string // canonical character name (e.g. "SCP-173")
 	VisualDescriptor string // visual appearance description
 	ImagePromptBase  string // base prompt fragment for this character
+	StyleGuide       string // character-specific style rules
 }
 
 // GenerateOptions holds optional parameters for image generation.

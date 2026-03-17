@@ -177,7 +177,7 @@ func TestSanitizeImagePrompt(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := sanitizeImagePrompt(tt.input)
+			result := sanitizeImagePrompt(tt.input, "")
 			if tt.contains != "" {
 				assert.Contains(t, result, tt.contains)
 			}
@@ -186,6 +186,70 @@ func TestSanitizeImagePrompt(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRepairJSON_TrailingComma(t *testing.T) {
+	input := `[{"a": 1},]`
+	result := repairJSON(input)
+	assert.Equal(t, `[{"a": 1}]`, result)
+}
+
+func TestRepairJSON_UnclosedBracket(t *testing.T) {
+	input := `[{"a": 1}`
+	result := repairJSON(input)
+	assert.Equal(t, `[{"a": 1}]`, result)
+}
+
+func TestRepairJSON_BracketsInsideStrings(t *testing.T) {
+	input := `[{"subject": "figure in [shadows]"}]`
+	result := repairJSON(input)
+	assert.Equal(t, `[{"subject": "figure in [shadows]"}]`, result)
+}
+
+func TestRepairJSON_ValidJSON(t *testing.T) {
+	input := `[{"a": 1}, {"b": 2}]`
+	result := repairJSON(input)
+	assert.Equal(t, `[{"a": 1}, {"b": 2}]`, result)
+}
+
+func TestValidateCutDescriptions_MaxCutsGuard(t *testing.T) {
+	cuts := []CutDescription{
+		{SentenceStart: 1, SentenceEnd: 1, CutNum: 1},
+		{SentenceStart: 1, SentenceEnd: 1, CutNum: 2},
+		{SentenceStart: 1, SentenceEnd: 1, CutNum: 3},
+		{SentenceStart: 1, SentenceEnd: 1, CutNum: 4}, // should be discarded
+	}
+	result := validateCutDescriptions(cuts, 3)
+	count := 0
+	for _, c := range result {
+		if c.SentenceStart == 1 && c.SentenceEnd == 1 {
+			count++
+		}
+	}
+	assert.Equal(t, 3, count)
+}
+
+func TestValidateCutDescriptions_FillsGaps(t *testing.T) {
+	cuts := []CutDescription{
+		{SentenceStart: 1, SentenceEnd: 1, CutNum: 1},
+		{SentenceStart: 3, SentenceEnd: 3, CutNum: 1},
+	}
+	result := validateCutDescriptions(cuts, 3)
+	covered := make(map[int]bool)
+	for _, c := range result {
+		for s := c.SentenceStart; s <= c.SentenceEnd; s++ {
+			covered[s] = true
+		}
+	}
+	assert.True(t, covered[1])
+	assert.True(t, covered[2])
+	assert.True(t, covered[3])
+}
+
+func TestSanitizeImagePrompt_CustomSuffix(t *testing.T) {
+	result := sanitizeImagePrompt("a dark corridor", "watercolor illustration, soft lines")
+	assert.Contains(t, result, "watercolor illustration")
+	assert.NotContains(t, result, "anime illustration")
 }
 
 func TestFormatShotContext(t *testing.T) {

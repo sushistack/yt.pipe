@@ -221,16 +221,23 @@ func (s *Server) handleServeShotImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sceneDir := filepath.Join(projectPath, "scenes", strconv.Itoa(sceneNum))
-	for _, ext := range []string{"png", "jpg", "webp"} {
-		assetPath := filepath.Join(sceneDir, fmt.Sprintf("shot_%d.%s", shotNum, ext))
-		cleaned := filepath.Clean(assetPath)
-		if !strings.HasPrefix(cleaned, filepath.Clean(projectPath)) {
-			WriteError(w, r, http.StatusForbidden, "FORBIDDEN", "path traversal denied")
-			return
-		}
-		if _, statErr := os.Stat(cleaned); statErr == nil {
-			http.ServeFile(w, r, cleaned)
-			return
+	// Try legacy shot_N naming, then new cut_N_1 naming
+	patterns := []string{
+		fmt.Sprintf("shot_%d", shotNum),
+		fmt.Sprintf("cut_%d_1", shotNum),
+	}
+	for _, pattern := range patterns {
+		for _, ext := range []string{"png", "jpg", "webp"} {
+			assetPath := filepath.Join(sceneDir, pattern+"."+ext)
+			cleaned := filepath.Clean(assetPath)
+			if !strings.HasPrefix(cleaned, filepath.Clean(projectPath)) {
+				WriteError(w, r, http.StatusForbidden, "FORBIDDEN", "path traversal denied")
+				return
+			}
+			if _, statErr := os.Stat(cleaned); statErr == nil {
+				http.ServeFile(w, r, cleaned)
+				return
+			}
 		}
 	}
 	WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "shot image not found")

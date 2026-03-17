@@ -16,6 +16,10 @@ type SceneScript struct {
 	FactTags          []FactTag
 	Mood              string
 	EntityVisible     bool
+	Location          string   `json:"location"`
+	CharactersPresent []string `json:"characters_present"`
+	ColorPalette      string   `json:"color_palette"`
+	Atmosphere        string   `json:"atmosphere"`
 }
 
 // FactTag represents a tagged fact reference

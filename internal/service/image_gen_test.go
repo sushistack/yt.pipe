@@ -53,7 +53,7 @@ func TestGenerateShotImage_Success(t *testing.T) {
 		}, nil)
 
 	shot, err := svc.GenerateShotImage(ctx, projectID, projectPath,
-		1, 1, "shot prompt, anime illustration", "", false, "SCP-TEST", imagegen.GenerateOptions{})
+		1, 1, 1, 1, "shot prompt, anime illustration", "", false, "SCP-TEST", imagegen.GenerateOptions{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, shot.ShotNum)
@@ -62,7 +62,7 @@ func TestGenerateShotImage_Success(t *testing.T) {
 	assert.FileExists(t, filepath.Join(projectPath, "scenes", "1", "shot_1_prompt.txt"))
 
 	// Verify shot manifest updated
-	manifest, err := st.GetShotManifest(projectID, 1, 1)
+	manifest, err := st.GetShotManifest(projectID, 1, 1, 1)
 	require.NoError(t, err)
 	assert.NotEmpty(t, manifest.ImageHash)
 	assert.Equal(t, "generated", manifest.Status)

@@ -828,7 +828,7 @@ func (s *Server) executeImageGeneration(ctx context.Context, jobID string, proje
 				shotNum := idx + 1
 				entityVisible := sceneEntityVisible[sceneNum]
 				shot, shotErr := s.imageGenSvc.GenerateShotImage(ctx, project.ID, projectPath,
-					sceneNum, shotNum, promptText, "", entityVisible, project.SCPID, imagegen.GenerateOptions{})
+					sceneNum, shotNum, shotNum, 1, promptText, "", entityVisible, project.SCPID, imagegen.GenerateOptions{})
 				results[idx] = shotResult{idx: idx, shot: shot, err: shotErr}
 
 				// Update progress atomically
