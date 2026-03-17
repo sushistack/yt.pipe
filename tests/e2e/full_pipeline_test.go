@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sushistack/yt.pipe/internal/domain"
-	"github.com/sushistack/yt.pipe/internal/store"
 )
 
 // TestFullPipeline_BrowserDriven runs the entire pipeline through the browser UI:
@@ -308,115 +306,4 @@ func TestFullPipeline_APIOnly(t *testing.T) {
 	t.Log("═══════════════════════════════════════════")
 }
 
-// --- Test helpers ---
-
-// bulkApprove approves all scenes for a given asset type directly in the DB.
-func bulkApprove(t *testing.T, st *store.Store, projectID, assetType string, sceneCount int) {
-	t.Helper()
-	for i := 1; i <= sceneCount; i++ {
-		_, err := st.DB().Exec(
-			`INSERT OR REPLACE INTO scene_approvals (project_id, scene_num, asset_type, status, attempts) VALUES (?, ?, ?, 'approved', 1)`,
-			projectID, i, assetType,
-		)
-		require.NoError(t, err)
-	}
-}
-
-// writeSceneManifests writes manifest.json files needed by the assembler.
-func writeSceneManifests(t *testing.T, wsPath string, sceneCount int) {
-	t.Helper()
-	for i := 1; i <= sceneCount; i++ {
-		sceneDir := filepath.Join(wsPath, "scenes", fmt.Sprintf("%d", i))
-		_ = os.MkdirAll(sceneDir, 0o755)
-
-		imgPath := findFirstFile(sceneDir, []string{"*.png", "*.jpg", "*.webp"})
-		audioPath := filepath.Join(sceneDir, "audio.wav")
-		subtitlePath := filepath.Join(sceneDir, "subtitle.json")
-
-		manifest := map[string]interface{}{
-			"scene_num":      i,
-			"narration":      fmt.Sprintf("Narration for scene %d", i),
-			"image_path":     imgPath,
-			"audio_path":     audioPath,
-			"audio_duration": 0.5,
-			"subtitle_path":  subtitlePath,
-			"word_timings":   []map[string]interface{}{{"Word": "test", "StartSec": 0.0, "EndSec": 0.5}},
-		}
-		data, _ := json.Marshal(manifest)
-		_ = os.WriteFile(filepath.Join(sceneDir, "manifest.json"), data, 0o644)
-	}
-}
-
-// findFirstFile returns the first file matching any of the patterns in a directory.
-func findFirstFile(dir string, patterns []string) string {
-	for _, pattern := range patterns {
-		matches, _ := filepath.Glob(filepath.Join(dir, pattern))
-		if len(matches) > 0 {
-			return matches[0]
-		}
-	}
-	return ""
-}
-
-// countFilesByExt counts files with the given extension across scene directories.
-func countFilesByExt(scenesDir string, sceneCount int, ext string) int {
-	count := 0
-	for i := 1; i <= sceneCount; i++ {
-		sceneDir := filepath.Join(scenesDir, fmt.Sprintf("%d", i))
-		entries, _ := os.ReadDir(sceneDir)
-		for _, e := range entries {
-			if filepath.Ext(e.Name()) == ext {
-				count++
-			}
-		}
-	}
-	return count
-}
-
-// pollUntilStage polls the project until it reaches the expected stage or times out.
-func pollUntilStage(t *testing.T, st *store.Store, projectID, expectedStage string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
-		proj, err := st.GetProject(projectID)
-		if err != nil {
-			continue
-		}
-		if stageIndex(proj.Status) >= stageIndex(expectedStage) {
-			return
-		}
-	}
-	t.Fatalf("timeout waiting for stage %s", expectedStage)
-}
-
-// pollUntilJobDone polls until no running job of the given type exists.
-func pollUntilJobDone(t *testing.T, st *store.Store, projectID, jobType string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
-		jobs, err := st.ListJobsByProject(projectID)
-		if err != nil {
-			continue
-		}
-		running := false
-		for _, j := range jobs {
-			if j.Type == jobType && (j.Status == "running" || j.Status == "pending") {
-				running = true
-				break
-			}
-		}
-		if !running {
-			return
-		}
-	}
-	t.Fatalf("timeout waiting for job %s to complete", jobType)
-}
-
-func apiPost(t *testing.T, baseURL, path string) *http.Response {
-	t.Helper()
-	resp, err := http.Post(baseURL+path, "application/json", nil)
-	require.NoError(t, err)
-	return resp
-}
+// Shared helpers (bulkApprove, writeSceneManifests, etc.) are in helpers_test.go

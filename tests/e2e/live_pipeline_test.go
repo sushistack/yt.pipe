@@ -1,4 +1,4 @@
-//go:build e2e
+//go:build liveapi
 
 package e2e
 
@@ -28,6 +28,8 @@ import (
 	"github.com/sushistack/yt.pipe/internal/store"
 )
 
+const liveSCPDataPath = "/mnt/data/raw"
+
 // requireEnv returns the env value or skips the test.
 func requireEnv(t *testing.T, key string) string {
 	t.Helper()
@@ -47,8 +49,8 @@ func startLiveServer(t *testing.T) (string, *store.Store) {
 	imgKey := requireEnv(t, "YTP_IMAGEGEN_API_KEY")
 	ttsKey := requireEnv(t, "YTP_TTS_API_KEY")
 
-	if _, err := os.Stat(realSCPDataPath); os.IsNotExist(err) {
-		t.Skipf("SCP data not found at %s", realSCPDataPath)
+	if _, err := os.Stat(liveSCPDataPath); os.IsNotExist(err) {
+		t.Skipf("SCP data not found at %s", liveSCPDataPath)
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "live.db")
@@ -58,7 +60,7 @@ func startLiveServer(t *testing.T) (string, *store.Store) {
 	root := projectRoot()
 	cfg := &config.Config{
 		WorkspacePath: t.TempDir(),
-		SCPDataPath:   realSCPDataPath,
+		SCPDataPath:   liveSCPDataPath,
 		API:           config.APIConfig{Host: "127.0.0.1", Port: 0},
 	}
 
