@@ -31,7 +31,7 @@ documentCounts:
   brainstorming: 1
   projectDocs: 0
 workflowType: 'prd'
-lastEdited: '2026-03-09'
+lastEdited: '2026-03-18'
 editHistory:
   - date: '2026-03-07'
     changes: 'NFR 측정 방법 추가(10개), 누락 FR 추가(FR41-44), FR 개선(FR6,7,14,28,30,39), API 엔드포인트/에러코드/비동기 패턴 상세 추가, 리스크 전략 보강(CapCut/TTS), 보안 NFR24 추가, FR26 추적성 해소, 구현 누출 제거(FR5,10,NFR6,9,20,21,23), 수치 충돌 해결(70→75%)'
@@ -39,6 +39,8 @@ editHistory:
     changes: '5대 영역 보강: (1) 프롬프트 템플릿 관리 구조 FR45-47 신규 + MVP 승격, (2) 캐릭터 ID카드 영속화/프리셋 FR48-50 신규 + MVP 승격, (3) TTS 분위기 프리셋/VC FR51-53 신규 + Qwen3-TTS 참조 명시 + FR13 보강, (4) 이미지/TTS 씬별 승인 워크플로우 FR54-56 신규 + FR22 상태머신 확장, (5) BGM 프리셋 라이브러리 FR57-59 신규 + FR17 보강. 저니1/2 보강, 저니 요구사항 매트릭스 확장, CLI 명령어 7개 추가, Phase1/2 조정'
   - date: '2026-03-09'
     changes: 'Party Mode 검증 기반 수정: (1) 저니5 온보딩에 프롬프트 템플릿 접점 추가, (2) FR46/50/52/58/59 측정 기준 보강 — 버전 관리 범위·자동 참조 트리거·자동 매핑 확인 프로세스·덕킹 파라미터 설정, (3) FR53(VC)을 MVP→Phase2 이동 (옵셔널 성격과 MVP 모순 해소), (4) FR60 신규 — BGM 라이선스 메타데이터 관리+자동 크레딧 (도메인-FR 갭 해소), (5) FR61 신규 — 프롬프트 마이그레이션+기본 템플릿 자동 설치'
+  - date: '2026-03-18'
+    changes: '확장 범위는 별도 PRD(prd-enhancement.md)로 분리. 브레인스토밍 세션(2026-03-17) 기반 25개 아이디어 중 6개 핵심 FR + 15개 로드맵 항목. 기존 PRD는 변경 없음'
 ---
 
 # Product Requirements Document - youtube.pipeline
