@@ -3,10 +3,14 @@ stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 lastStep: 8
 status: 'complete'
 completedAt: '2026-03-08'
+lastIncrementalUpdate: '2026-03-18'
 inputDocuments:
   - _bmad-output/planning-artifacts/prd.md
   - _bmad-output/planning-artifacts/prd-validation-report.md
   - _bmad-output/brainstorming/brainstorming-session-2026-03-07-1200.md
+  - _bmad-output/planning-artifacts/prd-enhancement.md
+  - _bmad-output/brainstorming/brainstorming-session-2026-03-17-1000.md
+  - _bmad-output/planning-artifacts/brainstorming-feasibility-analysis-2026-03-18.md
 workflowType: 'architecture'
 project_name: 'youtube.pipeline'
 user_name: 'Jay'
@@ -1136,3 +1140,763 @@ service/assembler.go  → store/bgm (BGM 할당 조회)
 - FR53 VC(Voice Cloning) → Phase 2 (TTS 플러그인 인터페이스에 옵셔널 `VoiceCloner` 인터페이스 예약)
 - 프롬프트 A/B 테스트 → Phase 2
 - BGM 자동 작곡/생성 → Phase 3
+
+---
+
+## Incremental Update: EFR1-EFR6 (2026-03-18)
+
+> 이 섹션은 PRD Enhancement(`prd-enhancement.md`)의 EFR1-EFR6이 추가된 후 아키텍처 증분 업데이트를 기록한다.
+> 핵심 아키텍처 결정(Go, Cobra, Chi, SQLite, 플러그인 패턴, 의존 방향)은 **변경 없음**.
+> 기존 구조 위에 모듈 추가/확장 + Docker 베이스 이미지 변경으로 해결.
+>
+> **입력 문서:**
+> - `_bmad-output/planning-artifacts/prd-enhancement.md` (EFR1-6 + 로드맵 R1-R15)
+> - `_bmad-output/brainstorming/brainstorming-session-2026-03-17-1000.md`
+> - `_bmad-output/planning-artifacts/brainstorming-feasibility-analysis-2026-03-18.md`
+
+### Decision Priority Analysis (EFR)
+
+**Critical Decisions (Block Implementation):**
+- LLM 인터페이스 Vision 확장 (`CompleteWithVision()` 메서드 추가) — EFR3 전제
+- Docker 베이스 이미지 `scratch` → `alpine` 변경 — EFR6 전제
+- FFmpeg Assembler 구현체 (`plugin/output/ffmpeg/`) — EFR6 핵심
+
+**Important Decisions (Shape Architecture):**
+- 용어사전 제안 저장: SQLite `glossary_suggestions` 테이블 — EFR2
+- 자동 승인 로직: `ApprovalService` 확장 + `auto_approve_threshold` 설정 — EFR4
+- 배치 프리뷰 데이터 구조 — EFR5
+
+**Deferred Decisions (Post-Enhancement):**
+- R1 SFX 자동 삽입 → Phase 2 (BGMService 패턴 복제)
+- R2 동적 자막 스타일링 → Phase 2 (TextMaterial 스타일 매핑)
+- R3 문장 단위 이미지-자막 동기화 → Phase 2 (Shot 데이터 이미 존재, 조립 로직 수정)
+- R4 썸네일+제목+설명 자동 생성 → Phase 2 (LLM + 이미지 합성)
+- R5 스타일 프리셋 시스템 → Phase 2 (Config 구조 확장)
+- R6 Qwen 이미지 프로바이더 → Phase 2 (ImageGen 구현체 추가)
+- R7 에셋 레지스트리 → Phase 2 (SQLite + 파일시스템)
+- R8 CapCut 완전 대체 → Phase 3 (EFR6 의존)
+- R9 핵심 씬 i2v → Phase 3 (VideoGen 플러그인)
+- R10 AI 이미지 트랜지션 → Phase 3 (보간 모델)
+- R11 역방향 파이프라인 → Phase 3 (Google API + Qwen-VL)
+- R12 승인 전방 이동 → Phase 3 (EFR6 의존)
+- R13 CI/CD 패턴 → Phase 3 (EFR4 + EFR6 + FR30)
+- R14 듀얼 프로파일 → Phase 3 (Phase 2 기능 전제)
+- R15 콘텐츠 캘린더 → Phase 3 (R13 의존)
+
+### LLM Interface Vision Extension (EFR3 전제)
+
+**결정:** 기존 `LLM` 인터페이스에 `CompleteWithVision()` 메서드를 추가한다. 기존 `ImageGen.Edit()`의 `ErrNotSupported` 패턴을 따른다.
+
+**Rationale:**
+- Vision은 LLM의 능력이므로 LLM 플러그인 안에 두는 것이 자연스러움
+- 기존 `Complete()` 시그니처 변경 없이 호환성 유지
+- 구현체가 Vision을 지원하지 않으면 `ErrNotSupported` 반환
+
+```go
+// plugin/llm/interface.go — 추가
+
+// VisionMessage represents a multimodal message with text and images.
+type VisionMessage struct {
+    Role    string         // "system", "user", "assistant"
+    Content []ContentPart  // mixed text + image parts
+}
+
+type ContentPart struct {
+    Type     string // "text" or "image_url"
+    Text     string // Type=="text" 일 때
+    ImageURL string // Type=="image_url" 일 때 (base64 data URI or URL)
+}
+
+// CompleteWithVision sends multimodal messages to a vision-capable LLM.
+// Returns ErrNotSupported if the provider does not support vision.
+CompleteWithVision(ctx context.Context, messages []VisionMessage, opts CompletionOptions) (*CompletionResult, error)
+```
+
+**구현체 매핑:**
+- `OpenAICompatibleProvider` → Qwen-VL, GPT-4V 등 OpenAI 호환 Vision API 지원. 기존 HTTP 호출 로직 재사용, `messages` 구조만 변경
+- 비전 미지원 프로바이더 → `ErrNotSupported` 반환
+
+**테스트 전략:**
+- `CompleteWithVision()` 인터페이스 mock 테스트
+- `ErrNotSupported` 반환 시 graceful fallback 검증
+- Vision 메시지 직렬화 포맷 검증 (OpenAI multimodal format)
+
+### Docker Base Image Change (EFR6 전제)
+
+**결정:** Docker 베이스 이미지를 `scratch` → `alpine`으로 변경한다.
+
+**Rationale:**
+- FFmpeg 바이너리가 필요하므로 `scratch` 불가
+- `alpine`은 `apk add ffmpeg`으로 간편 설치 (~80MB)
+- 1인 홈서버에서 이미지 크기 우선순위 낮음
+- Phase 3에서 추가 외부 바이너리(i2v 모델 등) 필요 가능성 고려
+
+```dockerfile
+# Dockerfile 변경
+
+# Stage 2: Runtime
+FROM alpine:3.21
+RUN apk add --no-cache ffmpeg ca-certificates tzdata
+RUN adduser -D -u 65534 appuser
+COPY --from=builder /yt-pipe /yt-pipe
+COPY --from=builder /templates /templates
+USER appuser
+EXPOSE 8080
+ENTRYPOINT ["/yt-pipe"]
+```
+
+**ENFR3 준수:** FFmpeg 미설치 시 명확한 에러 메시지 출력
+
+```go
+// plugin/output/ffmpeg/ffmpeg.go
+func checkFFmpegAvailable() error {
+    if _, err := exec.LookPath("ffmpeg"); err != nil {
+        return fmt.Errorf("ffmpeg binary not found in PATH: install ffmpeg or use Docker image with ffmpeg included")
+    }
+    return nil
+}
+```
+
+### EFR1: YouTube Chapters — 아키텍처
+
+**위치:** `service/timing.go`에 `GenerateChapters()` 메서드 추가
+
+**Rationale:** 타이밍 데이터(`Timeline`)를 직접 사용하며 ~30줄 수준. 별도 파일 불필요.
+
+```go
+// service/timing.go — 추가
+
+// ChapterEntry represents a single YouTube chapter.
+type ChapterEntry struct {
+    TimestampSec float64
+    Title        string
+}
+
+// GenerateChapters converts a Timeline into YouTube chapter format.
+// Output: "0:00 Title\n1:23 Title\n..."
+func (s *TimingService) GenerateChapters(timeline *Timeline) []ChapterEntry
+
+// SaveChaptersFile writes chapters to {projectPath}/chapters.txt
+func (s *TimingService) SaveChaptersFile(chapters []ChapterEntry, projectPath string) error
+```
+
+**챕터 제목 생성 규칙:**
+- 첫 번째 씬: "Intro" (고정)
+- 이후 씬: `Scene.Mood` + `Scene.VisualDesc` 앞 30자 조합
+- 포맷: `M:SS` (1시간 미만), `H:MM:SS` (1시간 이상)
+
+**CLI:**
+```
+yt-pipe chapters <scp-id>   # chapters.txt 생성
+```
+
+**테스트 전략:**
+- `GenerateChapters()` 단위 테스트: 다양한 타이밍 입력 → 챕터 포맷 검증
+- 0초 시작, 1시간 이상 타이밍, 단일 씬 엣지 케이스
+- `SaveChaptersFile()`: 임시 디렉토리에 파일 쓰기 → 내용 검증
+
+### EFR2: 용어 사전 자동 확장 — 아키텍처
+
+**새 서비스:** `service/glossary.go`
+
+**새 테이블:** `007_glossary_suggestions.sql`
+
+```sql
+CREATE TABLE glossary_suggestions (
+    id            TEXT PRIMARY KEY,
+    project_id    TEXT NOT NULL,
+    term          TEXT NOT NULL,
+    pronunciation TEXT NOT NULL,
+    definition    TEXT,
+    category      TEXT,
+    status        TEXT NOT NULL CHECK(status IN ('pending','approved','rejected')),
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    UNIQUE(term, project_id)
+);
+
+CREATE INDEX idx_glossary_suggestions_status ON glossary_suggestions(status);
+CREATE INDEX idx_glossary_suggestions_project ON glossary_suggestions(project_id);
+```
+
+**서비스 인터페이스:**
+
+```go
+// service/glossary.go
+
+type GlossaryService struct {
+    store    store.Store
+    llm      llm.LLM
+    glossary *glossary.Glossary
+    logger   *slog.Logger
+}
+
+// SuggestTerms extracts SCP terms from scenario text via LLM,
+// diffs against existing glossary, and stores new suggestions.
+func (s *GlossaryService) SuggestTerms(ctx context.Context, projectID string, scenarioText string) ([]domain.GlossarySuggestion, error)
+
+// ApproveSuggestion approves a suggestion and adds it to glossary.json.
+func (s *GlossaryService) ApproveSuggestion(ctx context.Context, suggestionID string) error
+
+// RejectSuggestion marks a suggestion as rejected.
+func (s *GlossaryService) RejectSuggestion(ctx context.Context, suggestionID string) error
+
+// ListPendingSuggestions returns all pending suggestions for a project.
+func (s *GlossaryService) ListPendingSuggestions(ctx context.Context, projectID string) ([]domain.GlossarySuggestion, error)
+```
+
+**도메인 모델:** `domain/glossary_suggestion.go`
+
+```go
+type GlossarySuggestion struct {
+    ID            string
+    ProjectID     string
+    Term          string
+    Pronunciation string
+    Definition    string
+    Category      string
+    Status        string // pending, approved, rejected
+    CreatedAt     time.Time
+    UpdatedAt     time.Time
+}
+```
+
+**LLM 프롬프트 전략:**
+- 시나리오 텍스트 전체를 LLM에 전달
+- 출력: JSON 배열 `[{term, pronunciation, definition, category}]`
+- 기존 glossary 엔트리 목록을 컨텍스트에 포함하여 중복 방지
+
+**CLI:**
+```
+yt-pipe glossary suggest <scp-id>   # LLM 추출 → pending 저장 → 결과 출력
+yt-pipe glossary approve <scp-id>   # pending 항목 승인 → glossary.json 추가
+```
+
+**테스트 전략:**
+- `SuggestTerms()`: LLM mock → JSON 파싱 → 기존 glossary diff 검증
+- `ApproveSuggestion()`: pending → approved 전이 + glossary.json 쓰기 검증
+- 중복 term 제안 시 UNIQUE 제약 처리 검증
+- 빈 시나리오, LLM 에러, 잘못된 JSON 응답 엣지 케이스
+
+### EFR3: 멀티모달 LLM 이미지 품질 자동 검증 — 아키텍처
+
+**새 서비스:** `service/image_validator.go`
+
+**서비스 설계:**
+
+```go
+// service/image_validator.go
+
+type ImageValidatorService struct {
+    llm    llm.LLM    // CompleteWithVision() 사용
+    store  store.Store
+    logger *slog.Logger
+}
+
+// ValidationResult represents the quality assessment of a generated image.
+type ValidationResult struct {
+    Score           int      // 0~100
+    PromptMatch     int      // 프롬프트 대비 일치도 (0~100)
+    CharacterMatch  int      // 캐릭터 외형 일관성 (0~100, 캐릭터 없으면 -1)
+    TechnicalScore  int      // 기술적 결함 없음 (0~100)
+    Reasons         []string // 점수 사유
+    ShouldRegenerate bool    // Score < threshold
+}
+
+// ValidateImage evaluates a generated image against its prompt and character refs.
+func (s *ImageValidatorService) ValidateImage(
+    ctx context.Context,
+    imagePath string,
+    originalPrompt string,
+    characterRefs []imagegen.CharacterRef,
+) (*ValidationResult, error)
+
+// ValidateAndRegenerate runs validation loop: validate → regenerate if below threshold (max attempts).
+func (s *ImageValidatorService) ValidateAndRegenerate(
+    ctx context.Context,
+    projectID string,
+    sceneNum int,
+    shotNum int,
+    maxAttempts int,
+    threshold int,
+) (*ValidationResult, error)
+```
+
+**검증 프롬프트 구조:**
+```
+[System] You are an image quality evaluator for SCP content.
+Evaluate the image against the following criteria:
+1. Prompt consistency (0-100): Does the image match the visual description?
+2. Character appearance (0-100): Does the character match the ID card? (-1 if no character)
+3. Technical quality (0-100): Are there distortions, artifacts, or rendering errors?
+
+Return JSON: {"prompt_match": N, "character_match": N, "technical_score": N, "reasons": ["..."]}
+
+[User]
+Original prompt: {prompt}
+Character references: {character descriptions}
+[Image: {generated image}]
+```
+
+**설정:**
+```yaml
+image_validation:
+  enabled: false          # 기본 비활성 (EFR3 옵트인)
+  threshold: 70           # 이 점수 미만 시 재생성
+  max_attempts: 3         # 최대 재생성 횟수
+  model: "qwen-vl-max"   # Vision LLM 모델
+```
+
+**파이프라인 통합:**
+- `service/image_gen.go`의 `GenerateShotImage()` 후 검증 루프 호출
+- `image_validation.enabled == false`면 검증 스킵 (기존 동작 유지)
+- 검증 결과를 `scene_manifests`에 `validation_score` 컬럼으로 기록
+
+**새 테이블 컬럼:** `scene_manifests`에 `validation_score INTEGER` 추가 (마이그레이션 `008_validation_score.sql`)
+
+```sql
+ALTER TABLE scene_manifests ADD COLUMN validation_score INTEGER;
+```
+
+**테스트 전략:**
+- `ValidateImage()`: Vision LLM mock → JSON 파싱 → 점수 계산 검증
+- `ValidateAndRegenerate()`: threshold 미만 → 재생성 호출 검증, max attempts 초과 시 중단 검증
+- `ErrNotSupported` 반환 시 검증 스킵 + 경고 로그 검증
+- 캐릭터 없는 씬 (character_match = -1) → 가중 평균 계산 검증
+- 잘못된 JSON, 점수 범위 초과, 이미지 파일 미존재 엣지 케이스
+
+### EFR4: AI 품질 점수 기반 선택적 리뷰/자동 승인 — 아키텍처
+
+**위치:** `service/approval.go` 확장
+
+```go
+// service/approval.go — 추가
+
+// AutoApproveByScore auto-approves scenes with validation scores above threshold.
+// Returns lists of auto-approved and review-required scenes.
+func (s *ApprovalService) AutoApproveByScore(
+    ctx context.Context,
+    projectID string,
+    assetType string,
+    threshold int,
+) (autoApproved []int, reviewRequired []int, err error)
+```
+
+**동작 흐름:**
+1. 프로젝트의 모든 씬에 대해 `scene_manifests.validation_score` 조회
+2. `score >= threshold` → `ApproveScene()` 호출 + 로그 "auto-approved (score: N)"
+3. `score < threshold` → 리뷰 큐에 유지 (generated 상태)
+4. `validation_score == NULL` (검증 미실행) → 리뷰 큐에 유지
+
+**설정:**
+```yaml
+auto_approval:
+  enabled: false                # 기본 비활성 (EFR4 옵트인)
+  threshold: 80                 # 자동 승인 기준 점수
+  initial_threshold: 90         # 초기 보수적 설정 권장
+```
+
+**EFR3 선행 의존성:**
+- `auto_approval.enabled == true` && `image_validation.enabled == false` → 시작 시 경고 + 자동 승인 비활성화
+- 설정 검증을 `config/` 로딩 시점에 수행
+
+**테스트 전략:**
+- threshold 경계값 테스트 (79, 80, 81)
+- validation_score NULL 처리 검증
+- 자동 승인 로그 메시지 포맷 검증
+- EFR3 미활성 + EFR4 활성 시 경고 동작 검증
+- 전체 씬 자동 승인 시 다음 상태 전이 트리거 검증
+
+### EFR5: 배치 프리뷰 단일 승인 — 아키텍처
+
+**새 서비스 메서드:** `service/approval.go` 확장
+
+```go
+// service/approval.go — 추가
+
+// BatchPreviewItem contains preview data for a single scene.
+type BatchPreviewItem struct {
+    SceneNum        int
+    ImagePath       string
+    NarrationFirst  string   // 나레이션 첫 문장
+    Mood            string
+    ValidationScore *int     // EFR3 점수 (nil if not validated)
+    Status          string   // generated, auto-approved, etc.
+}
+
+// GetBatchPreview returns preview data for all scenes in a project.
+func (s *ApprovalService) GetBatchPreview(
+    ctx context.Context,
+    projectID string,
+    assetType string,
+) ([]BatchPreviewItem, error)
+
+// BatchApprove approves all scenes except flagged ones.
+// flaggedScenes: scene numbers that need rework.
+func (s *ApprovalService) BatchApprove(
+    ctx context.Context,
+    projectID string,
+    assetType string,
+    flaggedScenes []int,
+) (approved int, flagged int, err error)
+```
+
+**API 핸들러:**
+```
+GET  /api/projects/{projectId}/preview?asset_type=image   → BatchPreviewItem 목록
+POST /api/projects/{projectId}/batch-approve               → { "asset_type": "image", "flagged_scenes": [3, 7] }
+```
+
+**CLI:**
+```
+yt-pipe review batch <scp-id> --asset image   # 배치 프리뷰 → 씬 목록 출력 → 플래그 입력 → 일괄 승인
+```
+
+**효율 추적:**
+- 배치 승인 시 `total_scenes`, `flagged_count`, `auto_approved_count`를 slog에 기록
+- 시간 경과에 따른 플래그 비율 추세로 자동 승인 효율 측정
+
+**테스트 전략:**
+- `GetBatchPreview()`: 씬 데이터 조립 정확성 검증
+- `BatchApprove()`: 플래그 없는 씬 전부 승인, 플래그된 씬은 generated 유지 검증
+- 빈 flaggedScenes → 전체 승인 검증
+- 전체 씬 플래그 → 승인 0건 검증
+- 존재하지 않는 sceneNum 플래그 시 에러 검증
+
+### EFR6: FFmpeg 직접 영상 렌더링 — 아키텍처
+
+**새 구현체:** `plugin/output/ffmpeg/ffmpeg.go`
+
+기존 `output.Assembler` 인터페이스를 구현하는 새 구현체.
+
+```go
+// plugin/output/ffmpeg/ffmpeg.go
+
+type FFmpegAssembler struct {
+    ffmpegPath string     // FFmpeg 바이너리 경로
+    logger     *slog.Logger
+}
+
+// New creates a new FFmpegAssembler after verifying ffmpeg availability.
+func New(logger *slog.Logger) (*FFmpegAssembler, error)
+
+// Assemble implements output.Assembler.
+// Renders scene images + TTS audio + subtitles + BGM → MP4.
+func (a *FFmpegAssembler) Assemble(ctx context.Context, input output.AssembleInput) (*output.AssembleResult, error)
+
+// Validate implements output.Assembler.
+func (a *FFmpegAssembler) Validate(ctx context.Context, outputPath string) error
+```
+
+**렌더링 파이프라인:**
+
+```
+1. 이미지 목록 생성 → images.txt (FFmpeg concat demuxer 포맷)
+   file 'scene01_shot01.png'
+   duration 3.5
+   file 'scene01_shot02.png'
+   duration 2.1
+   ...
+
+2. 오디오 결합 → audio_concat.txt (FFmpeg concat protocol)
+   file 'scene01.wav'
+   file 'scene02.wav'
+   ...
+
+3. 자막 파일 → subtitles.srt (기존 SubtitleService 출력 활용)
+
+4. BGM 믹싱 → BGM 트랙 볼륨/페이드/덕킹 적용
+
+5. FFmpeg 최종 명령:
+   ffmpeg -f concat -safe 0 -i images.txt \
+          -f concat -safe 0 -i audio_concat.txt \
+          -i bgm_mixed.wav \
+          -vf "subtitles=subtitles.srt:force_style='FontSize=24'" \
+          -c:v libx264 -preset medium -crf 23 \
+          -c:a aac -b:a 192k \
+          -shortest -y output.mp4
+```
+
+**설정:**
+```yaml
+ffmpeg:
+  preset: "medium"          # libx264 preset (ultrafast~veryslow)
+  crf: 23                   # 품질 (0=무손실, 51=최저)
+  audio_bitrate: "192k"
+  resolution: "1920x1080"   # 출력 해상도
+  fps: 30
+  subtitle_font_size: 24
+```
+
+**플러그인 레지스트리 등록:**
+```go
+// plugin/registry.go init 또는 main.go
+registry.Register("output", "ffmpeg", ffmpegFactory)
+registry.Register("output", "capcut", capcutFactory)  // 기존
+```
+
+**출력 선택 설정:**
+```yaml
+output:
+  provider: "capcut"   # "capcut" | "ffmpeg" | "both"
+```
+
+`provider: "both"` → CapCut 프로젝트와 MP4를 모두 생성
+
+**파일 구조:**
+```
+plugin/output/
+├── interface.go          # 기존 Assembler 인터페이스
+├── capcut/
+│   ├── capcut.go         # 기존 CapCut 구현체
+│   └── types.go          # 기존 CapCut 타입
+└── ffmpeg/
+    ├── ffmpeg.go         # FFmpegAssembler 구현체
+    ├── concat.go         # 이미지/오디오 concat 파일 생성
+    ├── subtitle.go       # SRT 포맷 생성 (기존 데이터 → SRT 변환)
+    └── bgm.go            # BGM 믹싱 FFmpeg 필터 생성
+```
+
+**ENFR1 준수:** 10씬 기준 MP4 출력 3분 이내 (1080p, 2 vCPU, 4GB RAM)
+- `libx264 -preset medium -crf 23`은 이미지 슬라이드쇼 + 오디오에서 충분히 빠름
+- 병목: 이미지 스케일링 + 자막 렌더링. 필요 시 `-preset fast`로 조정
+
+**테스트 전략:**
+- `checkFFmpegAvailable()`: PATH에 ffmpeg 없을 때 에러 메시지 검증
+- `Assemble()`: 통합 테스트 — testdata 이미지/오디오로 실제 MP4 생성 (빌드 태그 `ffmpegtest`)
+- concat 파일 생성 단위 테스트: 이미지 순서, duration 정확성
+- SRT 변환 단위 테스트: 타이밍 포맷, 인코딩
+- BGM 믹싱 필터 생성 단위 테스트: 볼륨/페이드/덕킹 파라미터
+- `provider: "both"` 설정 시 두 구현체 모두 호출 검증
+- 빈 씬, BGM 없는 프로젝트, 자막 없는 프로젝트 엣지 케이스
+
+### New SQLite Tables & Migrations
+
+**`007_glossary_suggestions.sql`** (EFR2):
+```sql
+CREATE TABLE glossary_suggestions (
+    id            TEXT PRIMARY KEY,
+    project_id    TEXT NOT NULL,
+    term          TEXT NOT NULL,
+    pronunciation TEXT NOT NULL,
+    definition    TEXT,
+    category      TEXT,
+    status        TEXT NOT NULL CHECK(status IN ('pending','approved','rejected')),
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    UNIQUE(term, project_id)
+);
+
+CREATE INDEX idx_glossary_suggestions_status ON glossary_suggestions(status);
+CREATE INDEX idx_glossary_suggestions_project ON glossary_suggestions(project_id);
+```
+
+**`008_validation_score.sql`** (EFR3):
+```sql
+ALTER TABLE scene_manifests ADD COLUMN validation_score INTEGER;
+```
+
+### New & Modified Files
+
+**새 도메인 모델 (`domain/`):**
+```
+domain/
+└── glossary_suggestion.go   # GlossarySuggestion 모델 (term, pronunciation, status)
+```
+
+**새 저장소 (`store/`):**
+```
+store/
+├── glossary_suggestion.go   # 제안 CRUD + 상태 전이
+└── migrations/
+    ├── 007_glossary_suggestions.sql
+    └── 008_validation_score.sql
+```
+
+**새 서비스 (`service/`):**
+```
+service/
+├── glossary.go              # 용어 추출 + 제안 관리 (EFR2)
+└── image_validator.go       # 이미지 품질 검증 + 재생성 루프 (EFR3)
+```
+
+**새 플러그인 (`plugin/`):**
+```
+plugin/output/ffmpeg/
+├── ffmpeg.go                # FFmpegAssembler 구현체 (EFR6)
+├── concat.go                # 이미지/오디오 concat 파일 생성
+├── subtitle.go              # SRT 포맷 변환
+└── bgm.go                   # BGM 믹싱 필터
+```
+
+**새 CLI 커맨드 (`cli/`):**
+```
+cli/
+├── chapters.go              # yt-pipe chapters <scp-id> (EFR1)
+├── glossary_cmd.go          # yt-pipe glossary suggest/approve (EFR2)
+└── review.go                # yt-pipe review batch (EFR5)
+```
+
+**수정되는 기존 파일:**
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `plugin/llm/interface.go` | `VisionMessage`, `ContentPart` 타입 + `CompleteWithVision()` 메서드 추가 |
+| `plugin/llm/openai.go` | `CompleteWithVision()` 구현 — OpenAI multimodal format 요청 |
+| `plugin/llm/fallback.go` | `CompleteWithVision()` fallback chain 지원 |
+| `service/timing.go` | `GenerateChapters()`, `SaveChaptersFile()` 추가 (EFR1) |
+| `service/approval.go` | `AutoApproveByScore()`, `GetBatchPreview()`, `BatchApprove()` 추가 (EFR4, EFR5) |
+| `service/image_gen.go` | 검증 루프 통합 — `image_validation.enabled` 시 `ValidateAndRegenerate()` 호출 (EFR3) |
+| `config/types.go` | `ImageValidation`, `AutoApproval`, `FFmpeg` 설정 구조체 추가 |
+| `api/routes.go` | 배치 프리뷰/승인 엔드포인트 등록 (EFR5) |
+| `api/handlers/approval.go` | 배치 프리뷰/승인 핸들러 추가 (EFR5) |
+| `Dockerfile` | `scratch` → `alpine` + FFmpeg 설치 (EFR6) |
+| `plugin/registry.go` | `"output", "ffmpeg"` 팩토리 등록 |
+
+### Plugin Interface Changes Summary
+
+**LLM Interface (확장):**
+```go
+type LLM interface {
+    // 기존
+    Complete(ctx context.Context, messages []Message, opts CompletionOptions) (*CompletionResult, error)
+    GenerateScenario(ctx context.Context, ...) (*domain.ScenarioOutput, error)
+    RegenerateSection(ctx context.Context, ...) (*domain.SceneScript, error)
+
+    // 추가 (EFR3)
+    CompleteWithVision(ctx context.Context, messages []VisionMessage, opts CompletionOptions) (*CompletionResult, error)
+}
+```
+
+**OutputAssembler Interface — 변경 없음.** FFmpeg는 기존 인터페이스의 새 구현체.
+
+### Updated Config Structure
+
+```yaml
+# config.example.yaml — 추가 섹션
+
+# EFR3: Image Quality Validation
+image_validation:
+  enabled: false
+  threshold: 70
+  max_attempts: 3
+  model: "qwen-vl-max"
+
+# EFR4: Auto Approval
+auto_approval:
+  enabled: false
+  threshold: 80
+
+# EFR6: FFmpeg Rendering
+ffmpeg:
+  preset: "medium"
+  crf: 23
+  audio_bitrate: "192k"
+  resolution: "1920x1080"
+  fps: 30
+  subtitle_font_size: 24
+
+# Output provider selection
+output:
+  provider: "capcut"   # "capcut" | "ffmpeg" | "both"
+```
+
+### Updated Data Flow
+
+```
+SCP Data (filesystem) → workspace/scp_data.go
+    → service/scenario.go (+ plugin/llm/) → 시나리오 생성
+        → service/glossary.go (+ plugin/llm/) → 용어사전 자동 확장 제안 [EFR2]
+        → service/character.go → 씬별 캐릭터 매칭
+        → service/mood.go (+ plugin/llm/) → 씬별 분위기 자동 매핑
+        → service/approval.go [image_review]
+            → service/image_gen.go (+ plugin/imagegen/ + CharacterRefs) → 씬별 이미지 생성
+                → service/image_validator.go (+ plugin/llm/ Vision) → 품질 검증 [EFR3]
+                    → (score < threshold) → 재생성 (max 3회)
+            → service/approval.go → AutoApproveByScore() [EFR4]
+            → service/approval.go → GetBatchPreview() + BatchApprove() [EFR5]
+        → service/approval.go [tts_review]
+            → service/tts.go (+ plugin/tts/ + MoodPreset) → 씬별 TTS 생성-승인
+                → service/timing.go → 타이밍 해석
+                    → service/timing.go → GenerateChapters() [EFR1]
+                → service/subtitle.go → 자막 생성
+        → service/bgm.go (+ plugin/llm/) → BGM 자동 추천
+        → service/assembler.go → 출력 경로 선택:
+            ├→ plugin/output/capcut/ → CapCut 프로젝트 (기존)
+            └→ plugin/output/ffmpeg/ → MP4 직접 렌더링 [EFR6]
+```
+
+### Updated Dependencies
+
+**새 의존 관계 (기존 규칙 준수):**
+```
+service/glossary.go         → store/, domain/, plugin/llm/, glossary/
+service/image_validator.go  → store/, domain/, plugin/llm/ (Vision)
+plugin/output/ffmpeg/       → domain/ (씬 모델 참조)
+```
+
+모든 새 의존 관계는 기존 의존 방향(`service/` → `store/`, `domain/`, `plugin/`)을 준수한다.
+
+### TDD Implementation Strategy
+
+**테스트 우선 순서 (각 EFR별):**
+
+1. **도메인 모델 테스트** — 순수 구조체 + 유효성 검증
+2. **저장소 테스트** — SQLite `:memory:` 기반 CRUD
+3. **서비스 테스트** — 인터페이스 mock + 비즈니스 로직 검증
+4. **플러그인 테스트** — 외부 호출 mock + 직렬화/역직렬화 검증
+5. **CLI/API 테스트** — 통합 테스트 (서비스 mock)
+6. **E2E 테스트** — 빌드 태그 분리 (`liveapi`, `ffmpegtest`)
+
+**Mock 전략:**
+- `mockery`로 LLM, Store 인터페이스 mock 자동 생성
+- `CompleteWithVision()` mock: 고정 JSON 응답 반환
+- FFmpeg 테스트: 실제 바이너리 필요한 테스트는 `//go:build ffmpegtest` 태그로 분리
+
+**빌드 태그:**
+- `ffmpegtest` — FFmpeg 바이너리가 필요한 통합 테스트
+- `liveapi` — 실제 외부 API 호출 테스트 (기존)
+
+### EFR Requirements Coverage
+
+| EFR | 아키텍처 커버리지 | 상태 |
+|-----|------------------|------|
+| EFR1 YouTube Chapters | `service/timing.go` + `cli/chapters.go` | ✅ |
+| EFR2 용어사전 자동확장 | `service/glossary.go` + `store/glossary_suggestion.go` + `cli/glossary_cmd.go` | ✅ |
+| EFR3 이미지 품질 검증 | `service/image_validator.go` + `plugin/llm/` Vision 확장 | ✅ |
+| EFR4 자동 승인 | `service/approval.go` 확장 + `config/` | ✅ |
+| EFR5 배치 프리뷰 | `service/approval.go` + `api/handlers/approval.go` | ✅ |
+| EFR6 FFmpeg 렌더링 | `plugin/output/ffmpeg/` + `Dockerfile` 변경 | ✅ |
+
+| ENFR | 아키텍처 대응 | 상태 |
+|------|-------------|------|
+| ENFR1 10씬 MP4 3분 이내 | libx264 preset medium, CRF 23, 이미지 슬라이드쇼 최적화 | ✅ |
+| ENFR2 이미지 검증 5초/장 | LLM API 응답 시간, timeout 설정 | ✅ |
+| ENFR3 FFmpeg Docker 포함 | alpine + apk add ffmpeg, `checkFFmpegAvailable()` | ✅ |
+
+### Implementation Sequence (EFR)
+
+```
+Phase 1 (MVP 추가):
+  1. EFR1 YouTube Chapters — timing.go 확장 (독립, 최소 변경)
+  2. EFR2 용어사전 자동확장 — 새 서비스 + 테이블 (독립)
+
+Phase 2:
+  3. LLM Vision 확장 — CompleteWithVision() (EFR3 전제)
+  4. EFR3 이미지 품질 검증 — ImageValidatorService (3 의존)
+  5. EFR4 자동 승인 — ApprovalService 확장 (EFR3 의존)
+  6. EFR5 배치 프리뷰 — ApprovalService + API (EFR3 선택적 의존)
+  7. EFR6 FFmpeg 렌더링 — 새 Assembler + Dockerfile (독립)
+```
+
+### Deferred Decisions Update (EFR)
+
+기존 Deferred에 추가:
+- R1 SFX → Phase 2 (BGMService 패턴 복제, SFX 라이브러리 외부 구축 선행)
+- R2 동적 자막 → Phase 2 (CapCut TextMaterial 스타일 매핑)
+- R3 문장 단위 동기화 → Phase 2 (Shot 데이터 존재, 조립 로직 수정)
+- R4 썸네일 자동 생성 → Phase 2 (LLM + 이미지 합성)
+- R5 스타일 프리셋 → Phase 2 (Config 확장)
+- R6 Qwen 이미지 → Phase 2 (ImageGen 구현체 추가, DashScope API)
+- R7 에셋 레지스트리 → Phase 2 (SQLite + 파일시스템)
+- R8~R15 → Phase 3 (의존성 그래프는 PRD Enhancement 참조)
