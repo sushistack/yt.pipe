@@ -10,6 +10,7 @@ import (
 	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
 	"github.com/sushistack/yt.pipe/internal/plugin/output"
 	"github.com/sushistack/yt.pipe/internal/plugin/output/capcut"
+	ffmpegout "github.com/sushistack/yt.pipe/internal/plugin/output/ffmpeg"
 	"github.com/sushistack/yt.pipe/internal/service"
 	"github.com/sushistack/yt.pipe/internal/store"
 	"github.com/spf13/cobra"
@@ -67,7 +68,23 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("run: %w", err)
 	}
 
-	assembler := capcut.New()
+	// Create output assembler based on provider config
+	var assembler output.Assembler
+	provider := c.Output.Provider
+	if provider == "" {
+		provider = "capcut"
+	}
+	switch provider {
+	case "ffmpeg":
+		fa, err := ffmpegout.New(slog.Default(), c.Output.FFmpeg)
+		if err != nil {
+			cmd.SilenceUsage = true
+			return fmt.Errorf("run: create ffmpeg assembler: %w", err)
+		}
+		assembler = fa
+	default: // "capcut" or "both" — pipeline runner uses single assembler; "both" handled at service level
+		assembler = capcut.New()
+	}
 
 	// Load glossary if configured
 	var g *glossary.Glossary
@@ -93,15 +110,17 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 	characterSvc.SetImageGen(imgPlugin)
 
 	runner := pipeline.NewRunner(db, llmPlugin, imgPlugin, ttsPlugin, assembler, g, logger, pipeline.RunnerConfig{
-		SCPDataPath:   c.SCPDataPath,
-		WorkspacePath: c.WorkspacePath,
-		Voice:         c.TTS.Voice,
-		ImageOpts:     imagegen.GenerateOptions{},
-		Canvas:        canvas,
-		TemplatePath:  c.Output.TemplatePath,
-		MetaPath:      c.Output.MetaPath,
-		TemplatesPath: c.TemplatesPath,
-		CharacterSvc:  characterSvc,
+		SCPDataPath:           c.SCPDataPath,
+		WorkspacePath:         c.WorkspacePath,
+		Voice:                 c.TTS.Voice,
+		ImageOpts:             imagegen.GenerateOptions{},
+		Canvas:                canvas,
+		TemplatePath:          c.Output.TemplatePath,
+		MetaPath:              c.Output.MetaPath,
+		TemplatesPath:         c.TemplatesPath,
+		CharacterSvc:          characterSvc,
+		AutoApprovalEnabled:   c.AutoApproval.Enabled && c.ImageValidation.Enabled,
+		AutoApprovalThreshold: c.AutoApproval.Threshold,
 	})
 
 	// Set progress callback for stderr output

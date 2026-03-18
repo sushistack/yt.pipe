@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -55,6 +56,43 @@ func (fc *FallbackChain) Complete(ctx context.Context, messages []Message, opts 
 		Provider:   "fallback_chain",
 		StatusCode: 502,
 		Message:    fmt.Sprintf("all LLM providers failed: [%s]", strings.Join(errs, "; ")),
+	}
+}
+
+// CompleteWithVision tries each provider in order, skipping ErrNotSupported providers.
+func (fc *FallbackChain) CompleteWithVision(ctx context.Context, messages []VisionMessage, opts CompletionOptions) (*CompletionResult, error) {
+	var errs []string
+	for i, p := range fc.providers {
+		result, err := p.CompleteWithVision(ctx, messages, opts)
+		if err == nil {
+			if i > 0 {
+				slog.Info("llm vision fallback succeeded",
+					"provider", fc.names[i],
+					"attempts", i+1,
+				)
+			}
+			return result, nil
+		}
+		if errors.Is(err, ErrNotSupported) {
+			slog.Debug("llm provider does not support vision, skipping",
+				"provider", fc.names[i],
+			)
+			errs = append(errs, fmt.Sprintf("%s: %v", fc.names[i], err))
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %v", fc.names[i], err))
+		if i < len(fc.providers)-1 {
+			slog.Warn("llm vision provider failed, falling back",
+				"failed_provider", fc.names[i],
+				"next_provider", fc.names[i+1],
+				"err", err,
+			)
+		}
+	}
+	return nil, &APIError{
+		Provider:   "fallback_chain",
+		StatusCode: 502,
+		Message:    fmt.Sprintf("all LLM providers failed for vision: [%s]", strings.Join(errs, "; ")),
 	}
 }
 

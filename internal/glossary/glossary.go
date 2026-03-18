@@ -86,6 +86,13 @@ func (g *Glossary) Entries() []Entry {
 	return result
 }
 
+// AddEntry adds or updates an entry in the glossary.
+func (g *Glossary) AddEntry(e Entry) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.entries[normalizeKey(e.Term)] = e
+}
+
 // Len returns the number of entries.
 func (g *Glossary) Len() int {
 	g.mu.RLock()

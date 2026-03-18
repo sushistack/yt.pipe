@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sushistack/yt.pipe/internal/domain"
 	"github.com/sushistack/yt.pipe/internal/workspace"
@@ -194,6 +196,99 @@ func buildSubtitleSegments(words []domain.WordTiming, sceneOffset float64) []Sub
 	}
 
 	return segments
+}
+
+// ChapterEntry represents a single YouTube chapter.
+type ChapterEntry struct {
+	TimestampSec float64
+	Title        string
+}
+
+// GenerateChapters converts a Timeline and scene metadata into YouTube chapter entries.
+func (r *TimingResolver) GenerateChapters(timeline Timeline, scenes []domain.SceneScript) []ChapterEntry {
+	chapters := make([]ChapterEntry, 0, len(timeline.Scenes))
+
+	for i, st := range timeline.Scenes {
+		title := "Intro"
+		if i > 0 {
+			title = chapterTitle(st.SceneNum, scenes)
+		}
+		chapters = append(chapters, ChapterEntry{
+			TimestampSec: st.StartSec,
+			Title:        title,
+		})
+	}
+
+	return chapters
+}
+
+// chapterTitle builds a chapter title from scene metadata.
+func chapterTitle(sceneNum int, scenes []domain.SceneScript) string {
+	for _, s := range scenes {
+		if s.SceneNum == sceneNum {
+			mood := strings.TrimSpace(s.Mood)
+			desc := strings.TrimSpace(s.VisualDescription)
+
+			if mood != "" && desc != "" {
+				return mood + " - " + truncateRunes(desc, 30)
+			}
+			if desc != "" {
+				return truncateRunes(desc, 30)
+			}
+			if mood != "" {
+				return mood
+			}
+			break
+		}
+	}
+	return fmt.Sprintf("Scene %d", sceneNum)
+}
+
+// truncateRunes returns the first n runes of s, appending "…" if truncated.
+func truncateRunes(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "…"
+}
+
+// FormatChapters formats chapter entries into YouTube chapter text.
+func FormatChapters(chapters []ChapterEntry) string {
+	var b strings.Builder
+	for _, ch := range chapters {
+		b.WriteString(formatTimestamp(ch.TimestampSec))
+		b.WriteByte(' ')
+		b.WriteString(ch.Title)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// formatTimestamp converts seconds to M:SS or H:MM:SS format.
+func formatTimestamp(sec float64) string {
+	total := int(sec)
+	h := total / 3600
+	m := (total % 3600) / 60
+	s := total % 60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%d:%02d", m, s)
+}
+
+// SaveChaptersFile writes formatted chapters to {projectPath}/output/chapters.txt.
+func (r *TimingResolver) SaveChaptersFile(content string, projectPath string) error {
+	outputDir := filepath.Join(projectPath, "output")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return fmt.Errorf("chapters: create output dir: %w", err)
+	}
+	chaptersPath := filepath.Join(outputDir, "chapters.txt")
+	if err := workspace.WriteFileAtomic(chaptersPath, []byte(content)); err != nil {
+		return fmt.Errorf("chapters: save: %w", err)
+	}
+	r.logger.Info("chapters file saved", "path", chaptersPath)
+	return nil
 }
 
 func wordsToSegment(words []domain.WordTiming, offset float64) SubtitleSegment {

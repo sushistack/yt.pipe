@@ -7,13 +7,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sushistack/yt.pipe/internal/domain"
-	"github.com/sushistack/yt.pipe/internal/mocks"
-	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
-	"github.com/sushistack/yt.pipe/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/sushistack/yt.pipe/internal/domain"
+	"github.com/sushistack/yt.pipe/internal/mocks"
+	"github.com/sushistack/yt.pipe/internal/plugin/imagegen"
+	"github.com/sushistack/yt.pipe/internal/plugin/llm"
+	"github.com/sushistack/yt.pipe/internal/store"
 )
 
 func newTestImageGenService(t *testing.T, mockIG *mocks.MockImageGen) (*ImageGenService, *store.Store) {
@@ -181,4 +182,187 @@ func TestReadManualPrompt_NotExists(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists)
 	assert.Empty(t, prompt)
+}
+
+func TestSetValidator_And_SetValidationConfig(t *testing.T) {
+	mockIG := mocks.NewMockImageGen(t)
+	svc, _ := newTestImageGenService(t, mockIG)
+
+	assert.Nil(t, svc.validator)
+	assert.Nil(t, svc.validationConfig)
+
+	mockLLM := mocks.NewMockLLM(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	validator := NewImageValidatorService(mockLLM, nil, logger)
+
+	svc.SetValidator(validator)
+	assert.NotNil(t, svc.validator)
+
+	cfg := &ValidationConfig{Threshold: 70, MaxAttempts: 3}
+	svc.SetValidationConfig(cfg)
+	assert.NotNil(t, svc.validationConfig)
+	assert.Equal(t, 70, svc.validationConfig.Threshold)
+	assert.Equal(t, 3, svc.validationConfig.MaxAttempts)
+}
+
+func TestGenerateShotImage_NoValidator_BackwardCompat(t *testing.T) {
+	// When validator is nil, GenerateShotImage should work identically to before
+	mockIG := mocks.NewMockImageGen(t)
+	svc, st := newTestImageGenService(t, mockIG)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	projectID := "test-no-validator"
+	createTestProject(t, st, projectID)
+
+	mockIG.On("Generate", mock.Anything, "test prompt", mock.Anything).
+		Return(&imagegen.ImageResult{ImageData: []byte("fake-data"), Format: "png"}, nil)
+
+	// Ensure validator is nil (default)
+	assert.Nil(t, svc.validator)
+
+	shot, err := svc.GenerateShotImage(ctx, projectID, projectPath,
+		1, 1, 1, 1, 1, "test prompt", "", false, "SCP-TEST", imagegen.GenerateOptions{})
+	require.NoError(t, err)
+	assert.NotNil(t, shot)
+	assert.Contains(t, shot.ImagePath, "cut_1_1.png")
+}
+
+func TestGenerateShotImage_WithValidator_PassFirstAttempt(t *testing.T) {
+	mockIG := mocks.NewMockImageGen(t)
+	svc, st := newTestImageGenService(t, mockIG)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	projectID := "test-validate-pass"
+	createTestProject(t, st, projectID)
+
+	mockIG.On("Generate", mock.Anything, "test prompt", mock.Anything).
+		Return(&imagegen.ImageResult{ImageData: []byte("fake-data"), Format: "png"}, nil)
+
+	// Setup validator with mock LLM that returns high score
+	mockLLM := mocks.NewMockLLM(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	validator := NewImageValidatorService(mockLLM, st, logger)
+
+	mockLLM.On("CompleteWithVision", mock.Anything, mock.Anything, mock.Anything).
+		Return(&llm.CompletionResult{
+			Content: `{"prompt_match": 90, "character_match": -1, "technical_score": 85, "reasons": ["good"]}`,
+		}, nil)
+
+	svc.SetValidator(validator)
+	svc.SetValidationConfig(&ValidationConfig{Threshold: 70, MaxAttempts: 3})
+
+	shot, err := svc.GenerateShotImage(ctx, projectID, projectPath,
+		1, 1, 1, 1, 1, "test prompt", "", false, "SCP-TEST", imagegen.GenerateOptions{})
+	require.NoError(t, err)
+	assert.NotNil(t, shot)
+	assert.Contains(t, shot.ImagePath, "cut_1_1.png")
+
+	// Verify validation score was persisted
+	manifest, err := st.GetShotManifest(projectID, 1, 1, 1)
+	require.NoError(t, err)
+	assert.NotNil(t, manifest.ValidationScore)
+}
+
+func TestGenerateShotImage_WithValidator_RegenerationTriggered(t *testing.T) {
+	mockIG := mocks.NewMockImageGen(t)
+	svc, st := newTestImageGenService(t, mockIG)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	projectID := "test-validate-regen"
+	createTestProject(t, st, projectID)
+
+	// First Generate call (initial), second Generate call (regeneration)
+	mockIG.On("Generate", mock.Anything, "test prompt", mock.Anything).
+		Return(&imagegen.ImageResult{ImageData: []byte("fake-data"), Format: "png"}, nil)
+
+	// Setup validator
+	mockLLM := mocks.NewMockLLM(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	validator := NewImageValidatorService(mockLLM, st, logger)
+
+	// First validation: low score (triggers regen), second: high score
+	callCount := 0
+	mockLLM.On("CompleteWithVision", mock.Anything, mock.Anything, mock.Anything).
+		Return(func(ctx context.Context, msgs []llm.VisionMessage, opts llm.CompletionOptions) (*llm.CompletionResult, error) {
+			callCount++
+			if callCount == 1 {
+				return &llm.CompletionResult{
+					Content: `{"prompt_match": 30, "character_match": -1, "technical_score": 40, "reasons": ["poor quality"]}`,
+				}, nil
+			}
+			return &llm.CompletionResult{
+				Content: `{"prompt_match": 90, "character_match": -1, "technical_score": 85, "reasons": ["good"]}`,
+			}, nil
+		})
+
+	svc.SetValidator(validator)
+	svc.SetValidationConfig(&ValidationConfig{Threshold: 70, MaxAttempts: 3})
+
+	shot, err := svc.GenerateShotImage(ctx, projectID, projectPath,
+		1, 1, 1, 1, 1, "test prompt", "", false, "SCP-TEST", imagegen.GenerateOptions{})
+	require.NoError(t, err)
+	assert.NotNil(t, shot)
+
+	// Should have called Generate at least twice (initial + regeneration)
+	assert.GreaterOrEqual(t, len(mockIG.Calls), 2)
+}
+
+func TestGenerateShotImage_WithValidator_ValidationError_StillSucceeds(t *testing.T) {
+	mockIG := mocks.NewMockImageGen(t)
+	svc, st := newTestImageGenService(t, mockIG)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	projectID := "test-validate-err"
+	createTestProject(t, st, projectID)
+
+	mockIG.On("Generate", mock.Anything, "test prompt", mock.Anything).
+		Return(&imagegen.ImageResult{ImageData: []byte("fake-data"), Format: "png"}, nil)
+
+	// Setup validator with mock LLM that returns error
+	mockLLM := mocks.NewMockLLM(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	validator := NewImageValidatorService(mockLLM, st, logger)
+
+	mockLLM.On("CompleteWithVision", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, assert.AnError)
+
+	svc.SetValidator(validator)
+	svc.SetValidationConfig(&ValidationConfig{Threshold: 70, MaxAttempts: 3})
+
+	// Image generation should still succeed even if validation fails
+	shot, err := svc.GenerateShotImage(ctx, projectID, projectPath,
+		1, 1, 1, 1, 1, "test prompt", "", false, "SCP-TEST", imagegen.GenerateOptions{})
+	require.NoError(t, err)
+	assert.NotNil(t, shot)
+	assert.Contains(t, shot.ImagePath, "cut_1_1.png")
+}
+
+func TestGenerateShotImage_WithValidator_VisionNotSupported(t *testing.T) {
+	mockIG := mocks.NewMockImageGen(t)
+	svc, st := newTestImageGenService(t, mockIG)
+	ctx := context.Background()
+	projectPath := t.TempDir()
+	projectID := "test-validate-no-vision"
+	createTestProject(t, st, projectID)
+
+	mockIG.On("Generate", mock.Anything, "test prompt", mock.Anything).
+		Return(&imagegen.ImageResult{ImageData: []byte("fake-data"), Format: "png"}, nil)
+
+	// Setup validator with mock LLM that returns ErrNotSupported
+	mockLLM := mocks.NewMockLLM(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	validator := NewImageValidatorService(mockLLM, st, logger)
+
+	mockLLM.On("CompleteWithVision", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, llm.ErrNotSupported)
+
+	svc.SetValidator(validator)
+	svc.SetValidationConfig(&ValidationConfig{Threshold: 70, MaxAttempts: 3})
+
+	// Image generation should succeed, validation skipped
+	shot, err := svc.GenerateShotImage(ctx, projectID, projectPath,
+		1, 1, 1, 1, 1, "test prompt", "", false, "SCP-TEST", imagegen.GenerateOptions{})
+	require.NoError(t, err)
+	assert.NotNil(t, shot)
+	assert.Contains(t, shot.ImagePath, "cut_1_1.png")
 }

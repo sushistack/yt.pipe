@@ -131,6 +131,15 @@ func (f *fakeLLM) Complete(_ context.Context, msgs []llm.Message, _ llm.Completi
 	}, nil
 }
 
+func (f *fakeLLM) CompleteWithVision(_ context.Context, _ []llm.VisionMessage, _ llm.CompletionOptions) (*llm.CompletionResult, error) {
+	return &llm.CompletionResult{
+		Content:      `{"score": 0.85, "issues": [], "description": "Image matches the prompt well"}`,
+		InputTokens:  150,
+		OutputTokens: 50,
+		Model:        "fake-vision-model",
+	}, nil
+}
+
 func (f *fakeLLM) GenerateScenario(_ context.Context, scpID string, _ string, _ []domain.FactTag, _ map[string]string) (*domain.ScenarioOutput, error) {
 	return &domain.ScenarioOutput{
 		SCPID: scpID,

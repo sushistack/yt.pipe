@@ -30,6 +30,9 @@ var reviewScopedRoutes = map[string]bool{
 	"/api/v1/projects/{id}/approve": true,
 	// Bulk approve
 	"/api/v1/projects/{id}/approve-all": true,
+	// Batch preview & approve
+	"/api/v1/projects/{id}/preview":       true,
+	"/api/v1/projects/{id}/batch-approve": true,
 }
 
 // AuthMiddleware creates an authentication middleware using Bearer token.

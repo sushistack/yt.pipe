@@ -84,6 +84,36 @@ func (_c *MockLLM_Complete_Call) RunAndReturn(run func(context.Context, []llm.Me
 	return _c
 }
 
+// CompleteWithVision provides a mock function with given fields: ctx, messages, opts
+func (_m *MockLLM) CompleteWithVision(ctx context.Context, messages []llm.VisionMessage, opts llm.CompletionOptions) (*llm.CompletionResult, error) {
+	ret := _m.Called(ctx, messages, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompleteWithVision")
+	}
+
+	var r0 *llm.CompletionResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []llm.VisionMessage, llm.CompletionOptions) (*llm.CompletionResult, error)); ok {
+		return rf(ctx, messages, opts)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []llm.VisionMessage, llm.CompletionOptions) *llm.CompletionResult); ok {
+		r0 = rf(ctx, messages, opts)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*llm.CompletionResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []llm.VisionMessage, llm.CompletionOptions) error); ok {
+		r1 = rf(ctx, messages, opts)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // GenerateScenario provides a mock function with given fields: ctx, scpID, mainText, facts, metadata
 func (_m *MockLLM) GenerateScenario(ctx context.Context, scpID string, mainText string, facts []domain.FactTag, metadata map[string]string) (*domain.ScenarioOutput, error) {
 	ret := _m.Called(ctx, scpID, mainText, facts, metadata)

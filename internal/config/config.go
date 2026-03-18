@@ -177,6 +177,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("output.provider", "capcut")
 	v.SetDefault("output.default_scene_duration", 3.0)
 
+	v.SetDefault("image_validation.enabled", false)
+	v.SetDefault("image_validation.threshold", 70)
+	v.SetDefault("image_validation.max_attempts", 3)
+	v.SetDefault("image_validation.model", "qwen-vl-max")
+
+	v.SetDefault("auto_approval.enabled", false)
+	v.SetDefault("auto_approval.threshold", 80)
+
 	v.SetDefault("job_retention_days", 7)
 	v.SetDefault("glossary_path", "")
 	v.SetDefault("templates_path", "templates")
@@ -240,6 +248,11 @@ func Validate(cfg *Config) *ValidationResult {
 	validLogFormats := map[string]bool{"json": true, "text": true}
 	if cfg.LogFormat != "" && !validLogFormats[cfg.LogFormat] {
 		result.Errors = append(result.Errors, fmt.Sprintf("log_format must be json or text, got %q", cfg.LogFormat))
+	}
+
+	// Auto-approval requires image validation
+	if cfg.AutoApproval.Enabled && !cfg.ImageValidation.Enabled {
+		result.Warnings = append(result.Warnings, "auto_approval requires image_validation to be enabled; auto-approval will have no effect")
 	}
 
 	// Path existence warnings (not errors — paths may not exist before yt-pipe init)

@@ -47,6 +47,10 @@ type Runner struct {
 	selectedCharacterImagePath string
 	styleConfig                domain.StyleConfig
 
+	// Auto-approval configuration
+	autoApprovalEnabled bool
+	autoApprovalThreshold int
+
 	// ProgressFunc is called on stage transitions for real-time feedback.
 	ProgressFunc func(service.PipelineProgress)
 }
@@ -61,8 +65,10 @@ type RunnerConfig struct {
 	TemplatePath         string
 	MetaPath             string
 	TemplatesPath        string
-	DefaultSceneDuration float64
-	CharacterSvc         *service.CharacterService
+	DefaultSceneDuration  float64
+	CharacterSvc          *service.CharacterService
+	AutoApprovalEnabled   bool
+	AutoApprovalThreshold int
 }
 
 // NewRunner creates a new pipeline Runner.
@@ -92,8 +98,10 @@ func NewRunner(
 		templatePath:  cfg.TemplatePath,
 		metaPath:      cfg.MetaPath,
 		templatesPath:        cfg.TemplatesPath,
-		defaultSceneDuration: cfg.DefaultSceneDuration,
-		characterSvc:         cfg.CharacterSvc,
+		defaultSceneDuration:  cfg.DefaultSceneDuration,
+		characterSvc:          cfg.CharacterSvc,
+		autoApprovalEnabled:   cfg.AutoApprovalEnabled,
+		autoApprovalThreshold: cfg.AutoApprovalThreshold,
 	}
 }
 
@@ -408,13 +416,35 @@ func (r *Runner) runApprovalPath(ctx context.Context, project *domain.Project, s
 			_ = approvalSvc.MarkGenerated(project.ID, i, domain.AssetTypeImage)
 		}
 
-		// Pause for image approval
-		result.Status = "awaiting_image_approval"
-		result.PausedAt = "image_review"
-		result.TotalElapsed = time.Since(start)
-		r.logger.Info("pipeline paused for image approval",
-			"project_id", project.ID, "scene_count", sceneCount)
-		return result, nil
+		// Auto-approve high-scoring scenes if enabled
+		if r.autoApprovalEnabled {
+			autoApproved, _, autoErr := approvalSvc.AutoApproveByScore(ctx, project.ID, domain.AssetTypeImage, r.autoApprovalThreshold)
+			if autoErr != nil {
+				r.logger.Warn("auto-approval failed, falling back to manual review",
+					"project_id", project.ID, "error", autoErr)
+			} else if len(autoApproved) == sceneCount {
+				// All scenes auto-approved — skip pause
+				r.logger.Info("all scenes auto-approved, skipping image review pause",
+					"project_id", project.ID, "scene_count", sceneCount)
+				// Fall through to TTS generation below
+			}
+		}
+
+		// Check if all images are now approved (from auto-approval)
+		allAutoApproved, approvalErr := approvalSvc.AllApproved(project.ID, domain.AssetTypeImage)
+		if approvalErr != nil {
+			r.logger.Warn("failed to check approval status after auto-approval",
+				"project_id", project.ID, "error", approvalErr)
+		}
+		if !allAutoApproved {
+			// Pause for image approval
+			result.Status = "awaiting_image_approval"
+			result.PausedAt = "image_review"
+			result.TotalElapsed = time.Since(start)
+			r.logger.Info("pipeline paused for image approval",
+				"project_id", project.ID, "scene_count", sceneCount)
+			return result, nil
+		}
 	}
 
 	// Images exist — check if all images are approved before proceeding

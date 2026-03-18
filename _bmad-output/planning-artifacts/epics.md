@@ -16,10 +16,15 @@ stepsCompleted:
   - step-02-design-epics-epic18
   - step-03-create-stories-epic18
   - step-04-final-validation-epic18
+  - step-01-validate-prerequisites-efr
+  - step-02-design-epics-efr
+  - step-03-create-stories-efr
+  - step-04-final-validation-efr
 inputDocuments:
   - _bmad-output/planning-artifacts/prd.md
   - _bmad-output/planning-artifacts/architecture.md
   - _bmad-output/planning-artifacts/prd-validation-report.md
+  - _bmad-output/planning-artifacts/prd-enhancement.md
   - /mnt/work/projects/video.pipeline/assets/prompts/ (legacy prompt templates)
   - /mnt/data/raw/ (422 SCP structured data samples)
 ---
@@ -414,6 +419,89 @@ Creator can manage a mood-tagged BGM library, receive LLM-based auto-recommendat
 **Plugin prerequisite:** OutputAssembler interface extension (Story 17.1) — updates existing capcut.go + tests
 **Recommended execution order:** 4th (after Epic 15, before Epic 16)
 **Stories:** 17.1-17.6 (6 stories)
+
+### Epic 18: n8n-Ready API Execution Layer
+n8n 워크플로우 오케스트레이터가 REST API를 순차 호출하여 전체 파이프라인을 stage별로 제어하고 모니터링할 수 있도록 API 실행 로직을 완성한다.
+**FRs covered:** FR10, FR11, FR12, FR13, FR15, FR17, FR22, FR30, FR37, FR39, FR54, FR55, FR56
+**NFRs addressed:** NFR3, NFR9, NFR11, NFR22
+**Stories:** 18.1-18.7 (7 stories)
+
+### Epic 19: YouTube Optimization Quick Wins
+크리에이터가 YouTube 챕터를 자동 생성하고, SCP 용어 사전을 LLM 기반으로 자동 확장하여 콘텐츠 품질과 검색 최적화를 향상할 수 있다. 두 기능 모두 독립적이며 기존 파이프라인에 영향 없음.
+**EFRs covered:** EFR1, EFR2
+**Phase:** Phase 1 (MVP 추가)
+**Dependencies:** 없음 (즉시 착수 가능)
+**Recommended execution order:** 1st (독립, 최소 변경, 즉시 가치)
+
+### Epic 20: AI Image Quality Validation
+시스템이 멀티모달 LLM(Qwen-VL 등)을 활용하여 생성된 이미지의 품질을 자동 평가하고, 기준 미달 이미지를 자동 재생성하여 이미지 리뷰 부담을 대폭 줄일 수 있다. LLM Vision 확장(`CompleteWithVision()`)을 전제로 포함.
+**EFRs covered:** EFR3
+**ENFRs addressed:** ENFR2 (이미지 검증 5초/장 이내)
+**Phase:** Phase 2
+**Dependencies:** LLM Vision 확장 (첫 스토리로 포함)
+**Recommended execution order:** 2nd (Epic 22와 병렬 착수 가능)
+
+### Epic 21: Automated Approval & Batch Review
+크리에이터가 AI 검증 점수 기반 자동 승인으로 고품질 씬을 자동 통과시키고, 배치 프리뷰로 나머지를 효율적으로 일괄 리뷰하여 수동 개입을 20% → 10% 이하로 축소할 수 있다. 동일 ApprovalService 확장으로 EFR4/EFR5를 함께 구현.
+**EFRs covered:** EFR4, EFR5
+**Phase:** Phase 2
+**Dependencies:** Epic 20 (EFR3 검증 점수 필요). EFR5는 EFR3 없이도 배치 프리뷰/승인 가능 (점수 표시만 선택적)
+**Recommended execution order:** 3rd (Epic 20 완료 후)
+
+### Epic 22: FFmpeg Direct Video Rendering
+크리에이터가 CapCut 없이 FFmpeg로 MP4 영상을 직접 렌더링하여, CapCut 의존성에서 벗어나 자동화된 영상 출력 경로를 확보할 수 있다. Docker 베이스 이미지 변경(`scratch` → `alpine`)을 첫 스토리로 포함. Phase 3 기능(R8, R12, R13) 언블록.
+**EFRs covered:** EFR6
+**ENFRs addressed:** ENFR1 (10씬 MP4 3분 이내), ENFR3 (FFmpeg Docker 포함)
+**Phase:** Phase 2
+**Dependencies:** 없음 (Epic 20과 병렬 착수 가능)
+**Recommended execution order:** 2nd (Epic 20과 병렬)
+
+### EFR Coverage Map
+
+```
+EFR1 YouTube Chapters          → Epic 19 — service/timing.go + cli/chapters.go
+EFR2 용어사전 자동확장           → Epic 19 — service/glossary.go + store/ + cli/glossary_cmd.go
+EFR3 이미지 품질 자동 검증       → Epic 20 — service/image_validator.go + plugin/llm/ Vision
+EFR4 자동 승인                  → Epic 21 — service/approval.go 확장
+EFR5 배치 프리뷰                → Epic 21 — service/approval.go + api/handlers/approval.go
+EFR6 FFmpeg 렌더링             → Epic 22 — plugin/output/ffmpeg/ + Dockerfile
+
+ENFR1 MP4 3분 이내             → Epic 22
+ENFR2 검증 5초/장              → Epic 20
+ENFR3 FFmpeg Docker            → Epic 22
+```
+
+### EFR Implementation Sequence (Architecture Reference)
+
+```
+Phase 1 (MVP 추가) — Sprint N:
+  1. EFR1 YouTube Chapters — timing.go 확장 (독립, 최소 변경)
+  2. EFR2 용어사전 자동확장 — 새 서비스 + 테이블 (독립)
+
+Phase 2 — Sprint N+1 (병렬):
+  3. LLM Vision 확장 — CompleteWithVision() (EFR3 전제)
+  4. EFR3 이미지 품질 검증 — ImageValidatorService (3 의존)
+  7. EFR6 FFmpeg 렌더링 — 새 Assembler + Dockerfile (독립, Epic 20과 병렬)
+
+Phase 2 — Sprint N+2:
+  5. EFR4 자동 승인 — ApprovalService 확장 (EFR3 의존)
+  6. EFR5 배치 프리뷰 — ApprovalService + API (EFR3 선택적 의존)
+```
+
+### TDD Strategy (All EFR Epics)
+
+```
+Per EFR:
+  1. Domain model tests — pure structs + validation
+  2. Store tests — SQLite :memory: CRUD
+  3. Service tests — interface mocks + business logic
+  4. Plugin tests — external call mocks + serialization
+  5. CLI/API tests — integration (service mocks)
+  6. E2E tests — build tag separation (liveapi, ffmpegtest)
+
+Mock strategy: mockery v2 auto-generation
+Build tags: ffmpegtest (FFmpeg binary required), liveapi (live API calls)
+```
 
 ## Epic 1: Project Foundation & Configuration
 
@@ -3380,3 +3468,522 @@ So that I can poll a single endpoint to determine if all assets are approved and
 **When** the full reject → regenerate → approve cycle completes
 **Then** the scene's `image_approved` is `true`
 **And** aggregate flags are correctly recalculated at each step
+
+## Epic 19: YouTube Optimization Quick Wins
+
+**Goal:** 크리에이터가 YouTube 챕터를 자동 생성하고, SCP 용어 사전을 LLM 기반으로 자동 확장하여 콘텐츠 품질과 검색 최적화를 향상할 수 있다.
+
+**EFRs covered:** EFR1, EFR2
+**Phase:** Phase 1 (MVP 추가)
+**Dependencies:** 없음
+
+### Story 19.1: YouTube Chapters Generation from Scene Timings
+
+As a content creator,
+I want YouTube chapter timestamps auto-generated from scene timing data,
+So that I can paste them into video descriptions without manual timestamp calculation.
+
+**Acceptance Criteria:**
+
+**Given** a project with resolved timings (`timeline.json` exists)
+**When** `yt-pipe chapters <scp-id>` is executed
+**Then** a `chapters.txt` file is written to the project output directory
+**And** the first line is `0:00 Intro`
+**And** each subsequent scene maps to `M:SS Title` format (or `H:MM:SS` if >= 1 hour)
+**And** titles are derived from `Scene.Mood` + `Scene.VisualDesc` (first 30 chars)
+**And** this satisfies EFR1
+
+**Given** a project with only 1 scene
+**When** chapters are generated
+**Then** only `0:00 Intro` is output (single-scene edge case)
+
+**Given** a project without resolved timings
+**When** `yt-pipe chapters <scp-id>` is executed
+**Then** a clear error message is displayed indicating timings must be resolved first
+
+### Story 19.2: Glossary Suggestion Domain Model & Storage
+
+As a system,
+I want glossary suggestions stored in SQLite with proper state management,
+So that term suggestions can be tracked through pending → approved/rejected lifecycle.
+
+**Acceptance Criteria:**
+
+**Given** the database is initialized
+**When** migration `014_glossary_suggestions.sql` runs
+**Then** a `glossary_suggestions` table is created with columns: id, project_id, term, pronunciation, definition, category, status, created_at, updated_at
+**And** a UNIQUE constraint on (term, project_id) exists
+**And** a CHECK constraint on status IN ('pending', 'approved', 'rejected') exists
+**And** indexes on status and project_id exist
+
+**Given** a `GlossarySuggestion` domain model
+**When** CRUD operations are performed via store
+**Then** Create, Read (by project + status filter), Update (status transition), Delete all work correctly
+**And** duplicate term+project_id insertion returns a clear constraint violation error
+
+### Story 19.3: LLM-Based Glossary Term Extraction & Suggestion
+
+As a content creator,
+I want the system to auto-extract SCP terms from scenario text and suggest pronunciations,
+So that I don't have to manually identify new terms for the glossary.
+
+**Acceptance Criteria:**
+
+**Given** a project with an approved scenario
+**When** `yt-pipe glossary suggest <scp-id>` is executed
+**Then** the scenario text is sent to LLM with existing glossary entries as context
+**And** LLM returns JSON array of `[{term, pronunciation, definition, category}]`
+**And** results are diffed against existing glossary — only new terms are stored as `pending` suggestions
+**And** pending suggestions are displayed to the creator with term, pronunciation, and definition
+**And** this satisfies EFR2
+
+**Given** the LLM returns invalid JSON or an error
+**When** suggestion extraction runs
+**Then** a clear error message is displayed and no partial data is persisted
+
+**Given** an empty scenario or a scenario with no new terms
+**When** suggestion extraction runs
+**Then** a message "No new terms found" is displayed and no suggestions are created
+
+### Story 19.4: Glossary Suggestion Approval & Integration
+
+As a content creator,
+I want to approve or reject suggested terms and have approved terms auto-added to glossary.json,
+So that approved terms immediately improve TTS pronunciation accuracy.
+
+**Acceptance Criteria:**
+
+**Given** pending glossary suggestions exist for a project
+**When** `yt-pipe glossary approve <scp-id>` is executed
+**Then** all pending suggestions are listed with index numbers
+**And** the creator can select which suggestions to approve (comma-separated indices or `all`)
+**And** approved suggestions transition to `approved` status
+**And** approved terms are written to the project's `glossary.json` file
+**And** rejected suggestions transition to `rejected` status
+
+**Given** a suggestion is approved
+**When** the glossary file is written
+**Then** the existing glossary entries are preserved
+**And** the new term is appended with correct format (term, pronunciation, definition, category)
+**And** `Glossary.AddEntry()` method on the glossary package is used
+
+**Given** no pending suggestions exist
+**When** `yt-pipe glossary approve <scp-id>` is executed
+**Then** a message "No pending suggestions" is displayed
+
+## Epic 20: AI Image Quality Validation
+
+**Goal:** 시스템이 멀티모달 LLM(Qwen-VL 등)을 활용하여 생성된 이미지의 품질을 자동 평가하고, 기준 미달 이미지를 자동 재생성하여 이미지 리뷰 부담을 대폭 줄일 수 있다.
+
+**EFRs covered:** EFR3
+**ENFRs addressed:** ENFR2 (이미지 검증 5초/장 이내)
+**Phase:** Phase 2
+**Dependencies:** LLM Vision 확장 (첫 스토리로 포함)
+
+### Story 20.1: LLM Vision Interface Extension
+
+As a system,
+I want the LLM plugin interface to support multimodal (text + image) completions,
+So that vision-capable models can evaluate images alongside text prompts.
+
+**Acceptance Criteria:**
+
+**Given** the LLM interface in `plugin/llm/interface.go`
+**When** the `CompleteWithVision()` method is added
+**Then** it accepts `[]VisionMessage` (with `ContentPart` supporting `"text"` and `"image_url"` types) and `CompletionOptions`
+**And** returns `*CompletionResult` (same as `Complete()`)
+**And** `VisionMessage` and `ContentPart` types are defined
+
+**Given** `OpenAICompatibleProvider` in `openai.go`
+**When** `CompleteWithVision()` is called with text + image content parts
+**Then** the request is serialized in OpenAI multimodal format (`content: [{type: "text", text: "..."}, {type: "image_url", image_url: {url: "data:image/png;base64,..."}}]`)
+**And** the response is parsed using the existing `chatResponse` structure
+**And** retry logic from `Complete()` is reused
+
+**Given** `FallbackChain` in `fallback.go`
+**When** `CompleteWithVision()` is called
+**Then** it tries each provider in order, falling back on failure (same pattern as `Complete()`)
+
+**Given** a provider that does not support vision
+**When** `CompleteWithVision()` is called
+**Then** `ErrNotSupported` is returned (following existing `imagegen.Edit()` pattern)
+
+**Given** mockery `go generate` is run
+**When** the LLM interface now includes `CompleteWithVision()`
+**Then** `mock_LLM.go` is regenerated with the new method
+**And** all existing tests continue to pass without modification
+
+### Story 20.2: Image Validation Domain Model & Storage
+
+As a system,
+I want validation scores stored per-shot in the database,
+So that quality assessment results persist across pipeline runs and inform approval decisions.
+
+**Acceptance Criteria:**
+
+**Given** the database is initialized
+**When** migration `015_validation_score.sql` runs
+**Then** `shot_manifests` table gains a `validation_score INTEGER` column (nullable)
+
+**Given** a `ValidationResult` struct is defined
+**When** an image is validated
+**Then** the result includes: `Score` (0-100), `PromptMatch` (0-100), `CharacterMatch` (0-100 or -1), `TechnicalScore` (0-100), `Reasons` ([]string), `ShouldRegenerate` (bool)
+**And** the overall `Score` is a weighted average of sub-scores (character absent → weight redistributed)
+
+**Given** a `ValidationResult` with `Score` below threshold
+**When** `ShouldRegenerate` is evaluated
+**Then** it is `true`
+
+**Given** the store is updated
+**When** `UpdateValidationScore(projectID, sceneNum, cutNum, score)` is called
+**Then** the `validation_score` column is updated for the matching `shot_manifests` row
+
+### Story 20.3: Image Validator Service Core
+
+As a system,
+I want an `ImageValidatorService` that evaluates generated images via multimodal LLM,
+So that image quality can be automatically assessed against prompts and character references.
+
+**Acceptance Criteria:**
+
+**Given** an `ImageValidatorService` with a vision-capable LLM
+**When** `ValidateImage(ctx, imagePath, originalPrompt, characterRefs)` is called
+**Then** the image is read and base64-encoded
+**And** a structured evaluation prompt is sent via `CompleteWithVision()` requesting JSON scores
+**And** the LLM response is parsed into a `ValidationResult`
+**And** this satisfies EFR3 evaluation criteria: (1) prompt match, (2) character consistency, (3) technical defects
+
+**Given** the LLM returns `ErrNotSupported` (non-vision provider)
+**When** validation is attempted
+**Then** validation is skipped with a warning log
+**And** `ValidationResult` is nil (no score recorded)
+
+**Given** the LLM returns malformed JSON
+**When** the response is parsed
+**Then** an error is returned with the raw response for debugging
+
+**Given** a scene with no character references
+**When** validation runs
+**Then** `CharacterMatch` is -1 and the weighted average excludes it
+
+**Given** the image file does not exist
+**When** validation is attempted
+**Then** a clear error is returned without calling the LLM
+
+### Story 20.4: Validation-Regeneration Loop
+
+As a system,
+I want automatic regeneration when image quality falls below threshold,
+So that the pipeline can self-correct poor image generations without human intervention.
+
+**Acceptance Criteria:**
+
+**Given** `image_validation.enabled` is `true` and `threshold` is 70
+**When** `ValidateAndRegenerate(ctx, projectID, sceneNum, cutNum, maxAttempts, threshold, regenerateFn)` is called
+**Then** the regeneration function is accepted as a callback (`regenerateFn func(ctx, projectID, sceneNum, cutNum) error`) to avoid circular dependency between `ImageValidatorService` and `ImageGenService`
+**And** the image is validated via `ValidateImage()`
+**And** if score >= threshold, the result is returned (pass)
+**And** if score < threshold, `regenerateFn` is called to regenerate the image and re-validated
+**And** this repeats up to `maxAttempts` (default 3) times
+**And** each attempt's score and reason are logged
+**And** the final `validation_score` is persisted to `shot_manifests`
+
+**Given** all attempts fail (score remains below threshold after max attempts)
+**When** the loop completes
+**Then** the best-scoring image is kept
+**And** the result includes `ShouldRegenerate: false` (exhausted attempts)
+**And** a warning log records the failure with all attempt scores
+
+**Given** `image_validation.enabled` is `false`
+**When** image generation completes
+**Then** no validation occurs and the pipeline proceeds as before (zero impact on existing behavior)
+
+### Story 20.5: Image Generation Pipeline Integration & Config
+
+As a content creator,
+I want image quality validation optionally integrated into the image generation pipeline,
+So that I can enable AI-powered quality gates with configurable thresholds.
+
+**Acceptance Criteria:**
+
+**Given** `ImageGenService` with an optional `ImageValidatorService`
+**When** `SetValidator(validator)` is called (following existing `SetCharacterService()` pattern)
+**Then** the validator is injected as an optional dependency
+
+**Given** `image_validation.enabled: true` in config
+**When** `GenerateShotImage()` completes successfully
+**Then** `ValidateAndRegenerate()` is called with the generated image
+**And** the validation score is recorded in the shot manifest
+**And** if regeneration occurred, the final image replaces the original
+
+**Given** `image_validation.enabled: false` (default)
+**When** `GenerateShotImage()` completes
+**Then** no validation occurs — identical to pre-EFR3 behavior
+
+**Given** config `image_validation` section is added to `config/types.go`
+**When** the config is loaded
+**Then** `ImageValidation` struct contains: `Enabled` (bool), `Threshold` (int, default 70), `MaxAttempts` (int, default 3), `Model` (string, default "qwen-vl-max")
+
+**Given** the CLI `yt-pipe run` command initializes plugins
+**When** `image_validation.enabled` is true and the LLM provider supports vision
+**Then** `ImageValidatorService` is created and injected into `ImageGenService`
+**And** pipeline logs "Image validation enabled (threshold: N, max attempts: M)"
+
+## Epic 21: Automated Approval & Batch Review
+
+**Goal:** 크리에이터가 AI 검증 점수 기반 자동 승인으로 고품질 씬을 자동 통과시키고, 배치 프리뷰로 나머지를 효율적으로 일괄 리뷰하여 수동 개입을 20% → 10% 이하로 축소할 수 있다.
+
+**EFRs covered:** EFR4, EFR5
+**Phase:** Phase 2
+**Dependencies:** Epic 20 (EFR3 검증 점수 필요). EFR5는 EFR3 없이도 배치 프리뷰/승인 가능 (점수 표시만 선택적)
+
+### Story 21.1: Auto-Approve by Validation Score
+
+As a content creator,
+I want high-scoring scenes automatically approved after image validation,
+So that I only need to review scenes the AI flagged as potentially problematic.
+
+**Acceptance Criteria:**
+
+**Given** `auto_approval.enabled: true` and `threshold: 80` in config
+**When** `AutoApproveByScore(ctx, projectID, assetType, threshold)` is called
+**Then** all scenes with `validation_score >= threshold` are auto-approved via existing `ApproveScene()`
+**And** auto-approved scenes are logged as `"auto-approved (score: N)"`
+**And** the method returns two lists: `autoApproved []int` and `reviewRequired []int`
+
+**Given** a scene with `validation_score < threshold`
+**When** auto-approval runs
+**Then** the scene remains in `generated` status (review queue)
+
+**Given** a scene with `validation_score == NULL` (validation not run)
+**When** auto-approval runs
+**Then** the scene remains in `generated` status (review queue)
+
+**Given** `auto_approval.enabled: true` but `image_validation.enabled: false`
+**When** the config is loaded
+**Then** a warning is logged: "auto_approval requires image_validation to be enabled"
+**And** auto-approval is effectively disabled (no scores to evaluate)
+
+**Given** all scenes are auto-approved (all scores >= threshold)
+**When** auto-approval completes
+**Then** the next state transition is triggered (e.g., image_review → tts_review)
+
+**Given** config `auto_approval` section is added to `config/types.go`
+**When** loaded
+**Then** `AutoApproval` struct contains: `Enabled` (bool, default false), `Threshold` (int, default 80)
+
+### Story 21.2: Batch Preview Data Assembly
+
+As a content creator,
+I want a preview listing of all scenes with image, narration excerpt, mood, and AI score,
+So that I can quickly scan the entire project and decide which scenes need attention.
+
+**Acceptance Criteria:**
+
+**Given** a project with generated assets
+**When** `GetBatchPreview(ctx, projectID, assetType)` is called
+**Then** it returns `[]BatchPreviewItem` with each scene's:
+- `SceneNum` (int)
+- `ImagePath` (string)
+- `NarrationFirst` (string — first sentence of narration)
+- `Mood` (string)
+- `ValidationScore` (*int — nil if not validated)
+- `Status` (string — generated, auto-approved, approved, rejected)
+
+**Given** a project where EFR3 (image validation) was not enabled
+**When** batch preview is generated
+**Then** `ValidationScore` is nil for all scenes
+**And** the preview is still functional with all other fields populated
+
+**Given** a project with mixed scene statuses (some auto-approved, some generated, some rejected)
+**When** batch preview is generated
+**Then** all scenes are included with their current status
+**And** scenes are ordered by scene number
+
+### Story 21.3: Batch Approve with Selective Flagging (CLI)
+
+As a content creator,
+I want to review all scenes at once and flag only problematic ones for rework while approving the rest,
+So that I can complete scene approval in a single pass instead of one-by-one.
+
+**Acceptance Criteria:**
+
+**Given** a project with generated scenes
+**When** `yt-pipe review batch <scp-id> --asset image` is executed
+**Then** the batch preview is displayed as a table: scene number, mood, status, AI score (if available), image path
+**And** the creator is prompted to enter flagged scene numbers (comma-separated) or `none` for full approval
+
+**Given** the creator flags scenes 3 and 7
+**When** `BatchApprove(ctx, projectID, assetType, flaggedScenes)` is called
+**Then** all scenes except 3 and 7 are approved
+**And** scenes 3 and 7 remain in `generated` status for rework
+**And** the response shows: "Approved: 8, Flagged for review: 2"
+**And** `total_scenes`, `flagged_count`, `auto_approved_count` are logged via slog
+**And** this satisfies EFR5
+
+**Given** the creator enters `none` (no flags)
+**When** batch approve runs
+**Then** all scenes are approved
+
+**Given** the creator flags a non-existent scene number
+**When** batch approve runs
+**Then** an error is returned listing valid scene numbers
+
+### Story 21.4: Batch Preview & Approve API Endpoints
+
+As a n8n workflow orchestrator,
+I want REST API endpoints for batch preview and approval,
+So that external automation tools can perform bulk scene review and approval.
+
+**Acceptance Criteria:**
+
+**Given** the API server is running with initialized services
+**When** `GET /api/v1/projects/{id}/preview?asset_type=image` is called
+**Then** the response contains a JSON array of `BatchPreviewItem` objects
+**And** response time is under 1 second (NFR3)
+**And** the response conforms to n8n-compatible flat JSON structure (NFR11)
+
+**Given** a valid project with generated scenes
+**When** `POST /api/v1/projects/{id}/batch-approve` is called with `{ "asset_type": "image", "flagged_scenes": [3, 7] }`
+**Then** all non-flagged scenes are approved
+**And** the response includes `{ approved: N, flagged: M }`
+
+**Given** `flagged_scenes` is an empty array
+**When** batch approve is called via API
+**Then** all scenes are approved (same as CLI `none`)
+
+**Given** an invalid project ID
+**When** either endpoint is called
+**Then** `404 NOT_FOUND` is returned with consistent error structure (FR40)
+
+## Epic 22: FFmpeg Direct Video Rendering
+
+**Goal:** 크리에이터가 CapCut 없이 FFmpeg로 MP4 영상을 직접 렌더링하여, CapCut 의존성에서 벗어나 자동화된 영상 출력 경로를 확보할 수 있다.
+
+**EFRs covered:** EFR6
+**ENFRs addressed:** ENFR1 (10씬 MP4 3분 이내), ENFR3 (FFmpeg Docker 포함)
+**Phase:** Phase 2
+**Dependencies:** 없음 (Epic 20과 병렬 착수 가능)
+
+### Story 22.1: Docker Base Image Migration & FFmpeg Availability Check
+
+As a system operator,
+I want the Docker runtime image to include FFmpeg,
+So that the FFmpeg rendering pipeline can execute in containerized environments.
+
+**Acceptance Criteria:**
+
+**Given** the Dockerfile runtime stage
+**When** the base image is changed from `scratch` to `alpine:3.21`
+**Then** `ffmpeg`, `ca-certificates`, and `tzdata` are installed via `apk add --no-cache`
+**And** a non-root user `appuser` (UID 65534) is created
+**And** the binary, templates, and entrypoint remain unchanged
+**And** `docker build` succeeds and `docker run` starts the server
+
+**Given** the `checkFFmpegAvailable()` function in `plugin/output/ffmpeg/ffmpeg.go`
+**When** FFmpeg is not installed on the system
+**Then** a clear error is returned: `"ffmpeg binary not found in PATH: install ffmpeg or use Docker image with ffmpeg included"`
+**And** this satisfies ENFR3
+
+**Given** FFmpeg is installed
+**When** `checkFFmpegAvailable()` is called
+**Then** no error is returned and the FFmpeg path is stored for later use
+
+### Story 22.2: FFmpeg Concat & Subtitle File Generation
+
+As a system,
+I want image concat lists, audio concat lists, and SRT subtitle files generated from scene data,
+So that FFmpeg can consume them as input for the final rendering command.
+
+**Acceptance Criteria:**
+
+**Given** a list of scenes with image paths and durations
+**When** `generateImageConcat(scenes)` is called
+**Then** an `images.txt` file is generated in FFmpeg concat demuxer format:
+```
+file 'scene01_cut01.png'
+duration 3.5
+file 'scene01_cut02.png'
+duration 2.1
+```
+**And** images are ordered by scene number then cut number
+**And** duration is derived from the corresponding audio segment timing
+
+**Given** a list of scenes with audio file paths
+**When** `generateAudioConcat(scenes)` is called
+**Then** an `audio_concat.txt` file is generated in FFmpeg concat protocol format
+**And** audio files are ordered by scene number
+
+**Given** subtitle data from existing `SubtitleService` output
+**When** `generateSRT(subtitleSegments)` is called
+**Then** a standard SRT file is generated with sequential numbering, `HH:MM:SS,mmm` timing format, and UTF-8 encoding
+
+**Given** an empty scene list
+**When** any generator is called
+**Then** an error is returned indicating no scenes to render
+
+### Story 22.3: BGM Mixing Filter Generation
+
+As a system,
+I want FFmpeg audio filter expressions generated for BGM mixing with volume control, fade, and ducking,
+So that background music is properly integrated into the rendered video.
+
+**Acceptance Criteria:**
+
+**Given** BGM assignments with volume, fade-in, fade-out, and ducking parameters
+**When** `generateBGMFilter(bgmAssignments, totalDuration)` is called
+**Then** an FFmpeg complex filter string is generated with:
+- Volume adjustment per BGM track (default from config)
+- Fade-in at track start (default 2s, configurable)
+- Fade-out at track end (default 2s, configurable)
+- Ducking during narration segments (default -12dB, configurable)
+
+**Given** no BGM assignments (empty list)
+**When** BGM filter generation is called
+**Then** no BGM filter is applied and the audio stream contains only narration
+
+**Given** multiple BGM tracks with overlapping ranges
+**When** BGM filter generation is called
+**Then** tracks are mixed using FFmpeg `amix` filter with proper timing
+
+### Story 22.4: FFmpegAssembler Integration, Registry & Output Selection
+
+As a content creator,
+I want to render MP4 videos directly via FFmpeg as an alternative to CapCut project output,
+So that I can produce finished videos without manual CapCut assembly.
+
+**Acceptance Criteria:**
+
+**Given** `FFmpegAssembler` implementing `output.Assembler` interface
+**When** `Assemble(ctx, input)` is called with valid `AssembleInput`
+**Then** concat files, SRT, and BGM filters are generated (Stories 22.2/22.3)
+**And** a single FFmpeg command is executed combining all inputs
+**And** the output is a 1920x1080 MP4 with libx264 video and AAC audio
+**And** `AssembleResult` is returned with output path, scene count, total duration
+**And** ENFR1 is met: 10 scenes render in under 3 minutes (2 vCPU, 4GB RAM)
+
+**Given** `output.provider: "ffmpeg"` in config
+**When** the pipeline assembles output
+**Then** only FFmpegAssembler is invoked
+
+**Given** `output.provider: "both"` in config
+**When** the assembler service initializes
+**Then** `service/assembler.go`의 `Assemble()` 메서드가 config에 따라 1개 또는 2개의 `output.Assembler` 구현체를 순차 호출
+**And** both CapCut project and MP4 are generated to the project directory
+**And** the modification to `assembler.go` is ~10 lines in the existing `Assemble()` call site
+
+**Given** `output.provider: "capcut"` (default, existing behavior)
+**When** the pipeline assembles output
+**Then** only CapCut Assembler is invoked — identical to pre-EFR6 behavior
+
+**Given** `FFmpegAssembler` is registered in plugin registry
+**When** `registry.Create(PluginTypeOutput, "ffmpeg", cfg)` is called
+**Then** a new `FFmpegAssembler` is returned after verifying FFmpeg availability
+
+**Given** config `ffmpeg` section is added to `config/types.go`
+**When** loaded
+**Then** `FFmpegConfig` struct contains: `Preset` (string, default "medium"), `CRF` (int, default 23), `AudioBitrate` (string, default "192k"), `Resolution` (string, default "1920x1080"), `FPS` (int, default 30), `SubtitleFontSize` (int, default 24)
+
+**Given** a project with no subtitles or no BGM
+**When** FFmpeg rendering runs
+**Then** the corresponding input is omitted from the FFmpeg command (graceful degradation)

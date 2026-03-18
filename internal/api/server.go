@@ -230,6 +230,8 @@ func (s *Server) setupRouter() {
 		r.Post("/projects/{id}/scenes", s.handleAddScene)
 		r.Delete("/projects/{id}/scenes/{num}", s.handleDeleteScene)
 		r.Post("/projects/{id}/approve-all", s.handleApproveAll)
+		r.Get("/projects/{id}/preview", s.handleBatchPreview)
+		r.Post("/projects/{id}/batch-approve", s.handleBatchApprove)
 
 		// Token rotation (Bearer auth only, NOT review-token accessible)
 		r.Post("/projects/{id}/review-token/rotate", s.handleRotateReviewToken)

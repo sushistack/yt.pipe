@@ -153,6 +153,43 @@ func (s *Store) DeleteSceneApprovals(projectID string, sceneNum int) error {
 	return nil
 }
 
+// ListAllSceneValidationScores returns the minimum validation score per scene for ALL scenes
+// regardless of approval status. Used by batch preview which shows all scenes.
+func (s *Store) ListAllSceneValidationScores(projectID, assetType string) ([]SceneValidationScore, error) {
+	rows, err := s.db.Query(
+		`SELECT sa.scene_num,
+		        CASE WHEN COUNT(sm.id) = 0 THEN NULL
+		             WHEN COUNT(sm.validation_score) < COUNT(sm.id) THEN NULL
+		             ELSE MIN(sm.validation_score)
+		        END AS min_score
+		 FROM scene_approvals sa
+		 LEFT JOIN shot_manifests sm ON sa.project_id = sm.project_id AND sa.scene_num = sm.scene_num
+		 WHERE sa.project_id = ? AND sa.asset_type = ?
+		 GROUP BY sa.scene_num
+		 ORDER BY sa.scene_num`,
+		projectID, assetType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list all scene validation scores: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SceneValidationScore
+	for rows.Next() {
+		var svs SceneValidationScore
+		var score sql.NullInt64
+		if err := rows.Scan(&svs.SceneNum, &score); err != nil {
+			return nil, fmt.Errorf("scan scene validation score: %w", err)
+		}
+		if score.Valid {
+			v := int(score.Int64)
+			svs.ValidationScore = &v
+		}
+		results = append(results, svs)
+	}
+	return results, rows.Err()
+}
+
 // DeleteSceneManifest deletes the manifest record for a specific scene.
 func (s *Store) DeleteSceneManifest(projectID string, sceneNum int) error {
 	_, err := s.db.Exec(
@@ -240,6 +277,50 @@ func RenumberSceneManifestsTx(tx *sql.Tx, projectID string, afterNum int, delta 
 		return fmt.Errorf("renumber scene manifests (pass 2): %w", err)
 	}
 	return nil
+}
+
+// SceneValidationScore holds a scene number and its minimum validation score across all shots.
+type SceneValidationScore struct {
+	SceneNum        int
+	ValidationScore *int // nil if any shot has NULL score or no shots exist
+}
+
+// ListSceneValidationScores returns the minimum validation score per scene for all scenes
+// with "generated" approval status. A scene's score is the minimum across all its shots.
+// If any shot in a scene has NULL validation_score, the scene score is nil.
+func (s *Store) ListSceneValidationScores(projectID, assetType string) ([]SceneValidationScore, error) {
+	rows, err := s.db.Query(
+		`SELECT sa.scene_num,
+		        CASE WHEN COUNT(sm.id) = 0 THEN NULL
+		             WHEN COUNT(sm.validation_score) < COUNT(sm.id) THEN NULL
+		             ELSE MIN(sm.validation_score)
+		        END AS min_score
+		 FROM scene_approvals sa
+		 LEFT JOIN shot_manifests sm ON sa.project_id = sm.project_id AND sa.scene_num = sm.scene_num
+		 WHERE sa.project_id = ? AND sa.asset_type = ? AND sa.status = ?
+		 GROUP BY sa.scene_num
+		 ORDER BY sa.scene_num`,
+		projectID, assetType, domain.ApprovalGenerated,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list scene validation scores: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SceneValidationScore
+	for rows.Next() {
+		var svs SceneValidationScore
+		var score sql.NullInt64
+		if err := rows.Scan(&svs.SceneNum, &score); err != nil {
+			return nil, fmt.Errorf("scan scene validation score: %w", err)
+		}
+		if score.Valid {
+			v := int(score.Int64)
+			svs.ValidationScore = &v
+		}
+		results = append(results, svs)
+	}
+	return results, rows.Err()
 }
 
 // BulkApproveAll sets all scene approvals for a project+assetType to "approved".

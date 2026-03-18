@@ -134,6 +134,10 @@ func runServeCmd(cmd *cobra.Command, _ []string) error {
 		canvas.FPS = float64(c.Output.FPS)
 	}
 	assemblerSvc.WithConfig(c.Output.TemplatePath, c.Output.MetaPath, canvas)
+	// Wire extra assemblers for "both" output mode
+	if len(plugins.Outputs) > 1 {
+		assemblerSvc.WithExtraAssemblers(plugins.Outputs[1:]...)
+	}
 	opts = append(opts, api.WithAssemblerService(assemblerSvc))
 
 	// Create pipeline runner (fixes existing gap where executeFullPipeline always fails)
@@ -153,8 +157,10 @@ func runServeCmd(cmd *cobra.Command, _ []string) error {
 		TemplatePath:         c.Output.TemplatePath,
 		MetaPath:             c.Output.MetaPath,
 		TemplatesPath:        tplPath,
-		DefaultSceneDuration: c.Output.DefaultSceneDuration,
-		CharacterSvc:         characterSvc,
+		DefaultSceneDuration:  c.Output.DefaultSceneDuration,
+		CharacterSvc:          characterSvc,
+		AutoApprovalEnabled:   c.AutoApproval.Enabled && c.ImageValidation.Enabled,
+		AutoApprovalThreshold: c.AutoApproval.Threshold,
 	})
 	opts = append(opts, api.WithPipelineRunner(runner))
 

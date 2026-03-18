@@ -12,6 +12,8 @@ type Config struct {
 	ImageGen      ImageGenConfig `mapstructure:"imagegen"`
 	TTS           TTSConfig      `mapstructure:"tts"`
 	Output        OutputConfig   `mapstructure:"output"`
+	ImageValidation ImageValidation `mapstructure:"image_validation"`
+	AutoApproval    AutoApproval    `mapstructure:"auto_approval"`
 	Webhooks      WebhookConfig  `mapstructure:"webhooks"`
 	JobRetentionDays int            `mapstructure:"job_retention_days"`
 	GlossaryPath     string         `mapstructure:"glossary_path"`
@@ -98,11 +100,36 @@ type TTSCloneConfig struct {
 
 // OutputConfig holds output assembler plugin settings.
 type OutputConfig struct {
-	Provider             string  `mapstructure:"provider"`
-	TemplatePath         string  `mapstructure:"template_path"`          // Path to CapCut draft template JSON
-	MetaPath             string  `mapstructure:"meta_path"`              // Path to CapCut draft meta info JSON
-	CanvasWidth          int     `mapstructure:"canvas_width"`           // Output canvas width (default: 1920)
-	CanvasHeight         int     `mapstructure:"canvas_height"`          // Output canvas height (default: 1080)
-	FPS                  int     `mapstructure:"fps"`                    // Frames per second (default: 30)
-	DefaultSceneDuration float64 `mapstructure:"default_scene_duration"` // Default duration (sec) for scenes without narration (default: 3.0)
+	Provider             string       `mapstructure:"provider"`               // "capcut" (default), "ffmpeg", or "both"
+	TemplatePath         string       `mapstructure:"template_path"`          // Path to CapCut draft template JSON
+	MetaPath             string       `mapstructure:"meta_path"`              // Path to CapCut draft meta info JSON
+	CanvasWidth          int          `mapstructure:"canvas_width"`           // Output canvas width (default: 1920)
+	CanvasHeight         int          `mapstructure:"canvas_height"`          // Output canvas height (default: 1080)
+	FPS                  int          `mapstructure:"fps"`                    // Frames per second (default: 30)
+	DefaultSceneDuration float64      `mapstructure:"default_scene_duration"` // Default duration (sec) for scenes without narration (default: 3.0)
+	FFmpeg               FFmpegConfig `mapstructure:"ffmpeg"`                 // FFmpeg rendering settings
+}
+
+// ImageValidation holds AI image quality validation settings.
+type ImageValidation struct {
+	Enabled     bool   `mapstructure:"enabled"`
+	Threshold   int    `mapstructure:"threshold"`
+	MaxAttempts int    `mapstructure:"max_attempts"`
+	Model       string `mapstructure:"model"`
+}
+
+// AutoApproval holds auto-approval settings for AI-validated scenes.
+type AutoApproval struct {
+	Enabled   bool `mapstructure:"enabled"`
+	Threshold int  `mapstructure:"threshold"`
+}
+
+// FFmpegConfig holds FFmpeg direct rendering settings.
+type FFmpegConfig struct {
+	Preset         string `mapstructure:"preset"`          // x264 preset (default: "medium")
+	CRF            int    `mapstructure:"crf"`             // Constant Rate Factor (default: 23)
+	AudioBitrate   string `mapstructure:"audio_bitrate"`   // AAC bitrate (default: "192k")
+	Resolution     string `mapstructure:"resolution"`      // Output resolution (default: "1920x1080")
+	FPS            int    `mapstructure:"fps"`             // Frames per second (default: 30)
+	SubtitleFontSize int  `mapstructure:"subtitle_font_size"` // Subtitle font size (default: 24)
 }

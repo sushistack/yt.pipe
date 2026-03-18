@@ -18,6 +18,10 @@ type stubLLM struct {
 	regenOK    bool
 }
 
+func (s *stubLLM) CompleteWithVision(ctx context.Context, messages []VisionMessage, opts CompletionOptions) (*CompletionResult, error) {
+	return nil, ErrNotSupported
+}
+
 func (s *stubLLM) Complete(ctx context.Context, messages []Message, opts CompletionOptions) (*CompletionResult, error) {
 	if s.completeOK {
 		return &CompletionResult{Content: "response from " + s.name, Model: s.name}, nil
@@ -89,6 +93,76 @@ func TestFallbackChain_GenerateScenario_FallsBack(t *testing.T) {
 	result, err := chain.GenerateScenario(context.Background(), "SCP-173", "", nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "from qwen", result.Title)
+}
+
+// visionStubLLM supports vision for fallback chain testing.
+type visionStubLLM struct {
+	stubLLM
+	visionOK bool
+}
+
+func (s *visionStubLLM) CompleteWithVision(ctx context.Context, messages []VisionMessage, opts CompletionOptions) (*CompletionResult, error) {
+	if s.visionOK {
+		return &CompletionResult{Content: "vision from " + s.name, Model: s.name}, nil
+	}
+	return nil, &APIError{Provider: s.name, StatusCode: 500, Message: "vision error"}
+}
+
+func TestFallbackChain_CompleteWithVision_Success(t *testing.T) {
+	primary := &visionStubLLM{stubLLM: stubLLM{name: "qwen-vl"}, visionOK: true}
+	fallback := &visionStubLLM{stubLLM: stubLLM{name: "gpt4v"}, visionOK: true}
+
+	chain, err := NewFallbackChain([]LLM{primary, fallback}, []string{"qwen-vl", "gpt4v"})
+	require.NoError(t, err)
+
+	result, err := chain.CompleteWithVision(context.Background(), []VisionMessage{
+		{Role: "user", Content: []ContentPart{{Type: "text", Text: "test"}}},
+	}, CompletionOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "vision from qwen-vl", result.Content)
+}
+
+func TestFallbackChain_CompleteWithVision_SkipsUnsupported(t *testing.T) {
+	// Primary returns ErrNotSupported, fallback supports vision
+	primary := &stubLLM{name: "gemini"}                                       // returns ErrNotSupported from default stub
+	fallback := &visionStubLLM{stubLLM: stubLLM{name: "qwen-vl"}, visionOK: true}
+
+	chain, err := NewFallbackChain([]LLM{primary, fallback}, []string{"gemini", "qwen-vl"})
+	require.NoError(t, err)
+
+	result, err := chain.CompleteWithVision(context.Background(), []VisionMessage{
+		{Role: "user", Content: []ContentPart{{Type: "text", Text: "test"}}},
+	}, CompletionOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "vision from qwen-vl", result.Content)
+}
+
+func TestFallbackChain_CompleteWithVision_FallsBackOnError(t *testing.T) {
+	primary := &visionStubLLM{stubLLM: stubLLM{name: "qwen-vl"}, visionOK: false}
+	fallback := &visionStubLLM{stubLLM: stubLLM{name: "gpt4v"}, visionOK: true}
+
+	chain, err := NewFallbackChain([]LLM{primary, fallback}, []string{"qwen-vl", "gpt4v"})
+	require.NoError(t, err)
+
+	result, err := chain.CompleteWithVision(context.Background(), []VisionMessage{
+		{Role: "user", Content: []ContentPart{{Type: "text", Text: "test"}}},
+	}, CompletionOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "vision from gpt4v", result.Content)
+}
+
+func TestFallbackChain_CompleteWithVision_AllFail(t *testing.T) {
+	p1 := &stubLLM{name: "gemini"}                                          // ErrNotSupported
+	p2 := &visionStubLLM{stubLLM: stubLLM{name: "qwen-vl"}, visionOK: false} // API error
+
+	chain, err := NewFallbackChain([]LLM{p1, p2}, []string{"gemini", "qwen-vl"})
+	require.NoError(t, err)
+
+	_, err = chain.CompleteWithVision(context.Background(), []VisionMessage{
+		{Role: "user", Content: []ContentPart{{Type: "text", Text: "test"}}},
+	}, CompletionOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "all LLM providers failed for vision")
 }
 
 func TestFallbackChain_EmptyProviders(t *testing.T) {

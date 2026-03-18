@@ -27,6 +27,10 @@ func (m *mockLLMForBGM) Complete(ctx context.Context, messages []llm.Message, op
 	return args.Get(0).(*llm.CompletionResult), args.Error(1)
 }
 
+func (m *mockLLMForBGM) CompleteWithVision(ctx context.Context, messages []llm.VisionMessage, opts llm.CompletionOptions) (*llm.CompletionResult, error) {
+	return nil, llm.ErrNotSupported
+}
+
 func (m *mockLLMForBGM) GenerateScenario(ctx context.Context, scpID string, mainText string, facts []domain.FactTag, metadata map[string]string) (*domain.ScenarioOutput, error) {
 	return nil, nil
 }

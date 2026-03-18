@@ -19,13 +19,21 @@ import (
 	"github.com/sushistack/yt.pipe/internal/workspace"
 )
 
+// ValidationConfig holds image validation parameters for the generation pipeline.
+type ValidationConfig struct {
+	Threshold   int
+	MaxAttempts int
+}
+
 // ImageGenService handles image generation for scenes.
 type ImageGenService struct {
-	imageGen              imagegen.ImageGen
-	store                 *store.Store
-	logger                *slog.Logger
-	characterSvc          *CharacterService // optional: enables character auto-reference
-	selectedCharacterImage []byte           // loaded reference image for image-edit
+	imageGen               imagegen.ImageGen
+	store                  *store.Store
+	logger                 *slog.Logger
+	characterSvc           *CharacterService        // optional: enables character auto-reference
+	selectedCharacterImage []byte                    // loaded reference image for image-edit
+	validator              *ImageValidatorService    // optional: enables post-generation validation
+	validationConfig       *ValidationConfig         // optional: validation threshold and max attempts
 }
 
 // NewImageGenService creates a new ImageGenService.
@@ -53,6 +61,16 @@ func (s *ImageGenService) SetSelectedCharacterImage(imagePath string) error {
 		"size_bytes", len(data),
 	)
 	return nil
+}
+
+// SetValidator enables post-generation image quality validation.
+func (s *ImageGenService) SetValidator(v *ImageValidatorService) {
+	s.validator = v
+}
+
+// SetValidationConfig sets the validation threshold and max attempts.
+func (s *ImageGenService) SetValidationConfig(cfg *ValidationConfig) {
+	s.validationConfig = cfg
 }
 
 // GenerateShotImage generates an image for a single cut and saves it to the scene directory.
@@ -164,6 +182,61 @@ func (s *ImageGenService) GenerateShotImage(
 		"duration_ms", elapsed,
 		"image_hash", imgHash[:16],
 	)
+
+	// Post-generation validation (optional — only when validator and config are set)
+	if s.validator != nil && s.validationConfig != nil {
+		regenerateFn := func(ctx context.Context) error {
+			var regenResult *imagegen.ImageResult
+			regenErr := retry.Do(ctx, 3, 1*time.Second, func() error {
+				var err error
+				regenResult, err = s.imageGen.Generate(ctx, prompt, opts)
+				return err
+			})
+			if regenErr != nil {
+				return fmt.Errorf("regenerate image: %w", regenErr)
+			}
+			if err := workspace.WriteFileAtomic(imagePath, regenResult.ImageData); err != nil {
+				return fmt.Errorf("save regenerated image: %w", err)
+			}
+			// Update manifest with new image hash
+			newImgHash := hashBytes(regenResult.ImageData)
+			s.updateCutManifestImageHash(projectID, sceneNum, sentenceStart, sentenceEnd, cutNum, shotNum, contentHash, newImgHash, genMethod)
+			return nil
+		}
+
+		valResult, valErr := s.validator.ValidateAndRegenerate(
+			ctx, imagePath, prompt, opts.CharacterRefs,
+			s.validationConfig.Threshold, s.validationConfig.MaxAttempts,
+			projectID, sceneNum, sentenceStart, cutNum,
+			regenerateFn,
+		)
+		if valErr != nil {
+			s.logger.Warn("image validation failed, keeping generated image",
+				"err", valErr,
+				"project_id", projectID,
+				"scene_num", sceneNum,
+				"sentence_start", sentenceStart,
+				"cut_num", cutNum,
+			)
+		} else if valResult != nil {
+			s.logger.Info("image validated",
+				"score", valResult.Score,
+				"should_regenerate", valResult.ShouldRegenerate,
+				"project_id", projectID,
+				"scene_num", sceneNum,
+				"sentence_start", sentenceStart,
+				"cut_num", cutNum,
+			)
+		} else {
+			// valResult == nil means vision not supported — already logged by validator
+			s.logger.Warn("image validation skipped (vision not supported)",
+				"project_id", projectID,
+				"scene_num", sceneNum,
+				"sentence_start", sentenceStart,
+				"cut_num", cutNum,
+			)
+		}
+	}
 
 	return &domain.Shot{
 		SentenceStart: sentenceStart,

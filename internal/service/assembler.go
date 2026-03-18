@@ -15,12 +15,13 @@ import (
 
 // AssemblerService handles output assembly and copyright generation.
 type AssemblerService struct {
-	assembler    output.Assembler
-	projectSvc   *ProjectService
-	bgmSvc       *BGMService
-	templatePath string
-	metaPath     string
-	canvas       output.CanvasConfig
+	assembler       output.Assembler
+	extraAssemblers []output.Assembler // additional assemblers for "both" mode
+	projectSvc      *ProjectService
+	bgmSvc          *BGMService
+	templatePath    string
+	metaPath        string
+	canvas          output.CanvasConfig
 }
 
 // NewAssemblerService creates a new AssemblerService.
@@ -42,6 +43,12 @@ func (s *AssemblerService) WithConfig(templatePath, metaPath string, canvas outp
 	s.templatePath = templatePath
 	s.metaPath = metaPath
 	s.canvas = canvas
+}
+
+// WithExtraAssemblers sets additional assemblers for "both" output mode.
+// The primary assembler runs first; extra assemblers run sequentially after.
+func (s *AssemblerService) WithExtraAssemblers(assemblers ...output.Assembler) {
+	s.extraAssemblers = assemblers
 }
 
 // Assemble creates the final output project from all scene assets.
@@ -112,6 +119,18 @@ func (s *AssemblerService) Assemble(ctx context.Context, projectID string, scene
 	// Validate assembled output
 	if err := s.assembler.Validate(ctx, result.OutputPath); err != nil {
 		return nil, fmt.Errorf("assembler validation: %w", err)
+	}
+
+	// Run extra assemblers (for "both" mode: e.g., capcut + ffmpeg)
+	for _, extra := range s.extraAssemblers {
+		extraResult, err := extra.Assemble(ctx, input)
+		if err != nil {
+			slog.Warn("extra assembler failed", "error", err)
+			continue
+		}
+		if err := extra.Validate(ctx, extraResult.OutputPath); err != nil {
+			slog.Warn("extra assembler validation failed", "error", err, "output", extraResult.OutputPath)
+		}
 	}
 
 	// Set stage to complete

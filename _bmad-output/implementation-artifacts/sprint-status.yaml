@@ -1,4 +1,4 @@
-# generated: 2026-03-08
+# generated: 2026-03-18
 # project: youtube.pipeline
 # project_key: NOKEY
 # tracking_system: file-system
@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-03-09 (epic-18 added)
+generated: 2026-03-18
 project: youtube.pipeline
 project_key: NOKEY
 tracking_system: file-system
@@ -220,3 +220,48 @@ development_status:
   18-6-pipeline-run-handler-with-stage-based-execution: done
   18-7-scene-dashboard-enhancement-for-n8n-polling: done
   epic-18-retrospective: done
+
+  # ============================================================
+  # Enhancement Epics (EFR1-EFR6) — PRD Enhancement 기반
+  # ============================================================
+
+  # Epic 19: YouTube Optimization Quick Wins (EFR1, EFR2)
+  # Phase: Phase 1 (MVP 추가)
+  # Dependencies: 없음 (즉시 착수 가능)
+  epic-19: done
+  19-1-youtube-chapters-generation-from-scene-timings: done
+  19-2-glossary-suggestion-domain-model-storage: done
+  19-3-llm-based-glossary-term-extraction-suggestion: done
+  19-4-glossary-suggestion-approval-integration: done
+  epic-19-retrospective: done
+
+  # Epic 20: AI Image Quality Validation (EFR3)
+  # Phase: Phase 2
+  # Dependencies: LLM Vision 확장 (첫 스토리로 포함)
+  epic-20: done
+  20-1-llm-vision-interface-extension: done
+  20-2-image-validation-domain-model-storage: done
+  20-3-image-validator-service-core: done
+  20-4-validation-regeneration-loop: done
+  20-5-image-generation-pipeline-integration-config: done
+  epic-20-retrospective: done
+
+  # Epic 21: Automated Approval & Batch Review (EFR4, EFR5)
+  # Phase: Phase 2
+  # Dependencies: Epic 20 (EFR3 검증 점수 필요)
+  epic-21: done
+  21-1-auto-approve-by-validation-score: done
+  21-2-batch-preview-data-assembly: done
+  21-3-batch-approve-with-selective-flagging-cli: done
+  21-4-batch-preview-approve-api-endpoints: done
+  epic-21-retrospective: done
+
+  # Epic 22: FFmpeg Direct Video Rendering (EFR6)
+  # Phase: Phase 2
+  # Dependencies: 없음 (Epic 20과 병렬 착수 가능)
+  epic-22: done
+  22-1-docker-base-image-migration-ffmpeg-availability-check: done
+  22-2-ffmpeg-concat-subtitle-file-generation: done
+  22-3-bgm-mixing-filter-generation: done
+  22-4-ffmpegassembler-integration-registry-output-selection: done
+  epic-22-retrospective: done

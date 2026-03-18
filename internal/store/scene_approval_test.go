@@ -159,6 +159,85 @@ func TestAllApproved_NoRecords(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestListSceneValidationScores_WithScores(t *testing.T) {
+	s := setupApprovalTestStore(t)
+	// Scene 1: one shot with score 90
+	require.NoError(t, s.InitApproval("p1", 1, domain.AssetTypeImage))
+	require.NoError(t, s.MarkGenerated("p1", 1, domain.AssetTypeImage))
+	require.NoError(t, s.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "p1", SceneNum: 1, ShotNum: 1, SentenceStart: 1, SentenceEnd: 1, CutNum: 1, Status: "generated",
+	}))
+	require.NoError(t, s.UpdateValidationScore("p1", 1, 1, 1, 90))
+
+	// Scene 2: two shots with scores 85, 70 → min=70
+	require.NoError(t, s.InitApproval("p1", 2, domain.AssetTypeImage))
+	require.NoError(t, s.MarkGenerated("p1", 2, domain.AssetTypeImage))
+	require.NoError(t, s.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "p1", SceneNum: 2, ShotNum: 1, SentenceStart: 1, SentenceEnd: 1, CutNum: 1, Status: "generated",
+	}))
+	require.NoError(t, s.UpdateValidationScore("p1", 2, 1, 1, 85))
+	require.NoError(t, s.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "p1", SceneNum: 2, ShotNum: 2, SentenceStart: 2, SentenceEnd: 2, CutNum: 1, Status: "generated",
+	}))
+	require.NoError(t, s.UpdateValidationScore("p1", 2, 2, 1, 70))
+
+	results, err := s.ListSceneValidationScores("p1", domain.AssetTypeImage)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	assert.Equal(t, 1, results[0].SceneNum)
+	require.NotNil(t, results[0].ValidationScore)
+	assert.Equal(t, 90, *results[0].ValidationScore)
+
+	assert.Equal(t, 2, results[1].SceneNum)
+	require.NotNil(t, results[1].ValidationScore)
+	assert.Equal(t, 70, *results[1].ValidationScore)
+}
+
+func TestListSceneValidationScores_NullScore(t *testing.T) {
+	s := setupApprovalTestStore(t)
+	// Scene with shot but no validation score
+	require.NoError(t, s.InitApproval("p1", 1, domain.AssetTypeImage))
+	require.NoError(t, s.MarkGenerated("p1", 1, domain.AssetTypeImage))
+	require.NoError(t, s.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "p1", SceneNum: 1, ShotNum: 1, SentenceStart: 1, SentenceEnd: 1, CutNum: 1, Status: "generated",
+	}))
+
+	results, err := s.ListSceneValidationScores("p1", domain.AssetTypeImage)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Nil(t, results[0].ValidationScore)
+}
+
+func TestListSceneValidationScores_NoShots(t *testing.T) {
+	s := setupApprovalTestStore(t)
+	// Scene with approval but no shot manifests at all
+	require.NoError(t, s.InitApproval("p1", 1, domain.AssetTypeImage))
+	require.NoError(t, s.MarkGenerated("p1", 1, domain.AssetTypeImage))
+
+	results, err := s.ListSceneValidationScores("p1", domain.AssetTypeImage)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Nil(t, results[0].ValidationScore) // No shots → NULL
+}
+
+func TestListSceneValidationScores_OnlyGeneratedScenes(t *testing.T) {
+	s := setupApprovalTestStore(t)
+	// Scene 1: approved (should be excluded)
+	require.NoError(t, s.InitApproval("p1", 1, domain.AssetTypeImage))
+	require.NoError(t, s.MarkGenerated("p1", 1, domain.AssetTypeImage))
+	require.NoError(t, s.ApproveScene("p1", 1, domain.AssetTypeImage))
+
+	// Scene 2: generated (should be included)
+	require.NoError(t, s.InitApproval("p1", 2, domain.AssetTypeImage))
+	require.NoError(t, s.MarkGenerated("p1", 2, domain.AssetTypeImage))
+
+	results, err := s.ListSceneValidationScores("p1", domain.AssetTypeImage)
+	require.NoError(t, err)
+	require.Len(t, results, 1) // Only scene 2
+	assert.Equal(t, 2, results[0].SceneNum)
+}
+
 func TestBulkApproveAll_Success(t *testing.T) {
 	s := setupApprovalTestStore(t)
 	require.NoError(t, s.InitApproval("p1", 1, domain.AssetTypeImage))

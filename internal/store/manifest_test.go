@@ -93,6 +93,94 @@ func TestUpdateManifest_PartialUpdate(t *testing.T) {
 	assert.Empty(t, got.AudioHash)
 }
 
+// --- Shot Manifest Validation Score Tests ---
+
+func TestUpdateValidationScore_RoundTrip(t *testing.T) {
+	s := setupTestStore(t)
+	require.NoError(t, s.CreateProject(&domain.Project{ID: "p1", SCPID: "SCP-1", Status: "pending", WorkspacePath: "/w"}))
+	require.NoError(t, s.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "p1", SceneNum: 1, ShotNum: 1, SentenceStart: 1, SentenceEnd: 1, CutNum: 1,
+		ContentHash: "h1", ImageHash: "ih1", GenMethod: "text_to_image", Status: "generated",
+	}))
+
+	// Update validation score
+	err := s.UpdateValidationScore("p1", 1, 1, 1, 85)
+	require.NoError(t, err)
+
+	// Read it back
+	score, err := s.GetValidationScore("p1", 1, 1, 1)
+	require.NoError(t, err)
+	require.NotNil(t, score)
+	assert.Equal(t, 85, *score)
+}
+
+func TestGetValidationScore_NilForUnvalidated(t *testing.T) {
+	s := setupTestStore(t)
+	require.NoError(t, s.CreateProject(&domain.Project{ID: "p1", SCPID: "SCP-1", Status: "pending", WorkspacePath: "/w"}))
+	require.NoError(t, s.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "p1", SceneNum: 1, ShotNum: 1, SentenceStart: 1, SentenceEnd: 1, CutNum: 1,
+		ContentHash: "h1", ImageHash: "ih1", GenMethod: "text_to_image", Status: "generated",
+	}))
+
+	score, err := s.GetValidationScore("p1", 1, 1, 1)
+	require.NoError(t, err)
+	assert.Nil(t, score)
+}
+
+func TestUpdateValidationScore_NotFound(t *testing.T) {
+	s := setupTestStore(t)
+	require.NoError(t, s.CreateProject(&domain.Project{ID: "p1", SCPID: "SCP-1", Status: "pending", WorkspacePath: "/w"}))
+
+	err := s.UpdateValidationScore("p1", 99, 1, 1, 85)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestGetShotManifest_IncludesValidationScore(t *testing.T) {
+	s := setupTestStore(t)
+	require.NoError(t, s.CreateProject(&domain.Project{ID: "p1", SCPID: "SCP-1", Status: "pending", WorkspacePath: "/w"}))
+	require.NoError(t, s.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "p1", SceneNum: 1, ShotNum: 1, SentenceStart: 1, SentenceEnd: 1, CutNum: 1,
+		ContentHash: "h1", ImageHash: "ih1", GenMethod: "text_to_image", Status: "generated",
+	}))
+
+	// Before validation: nil
+	m, err := s.GetShotManifest("p1", 1, 1, 1)
+	require.NoError(t, err)
+	assert.Nil(t, m.ValidationScore)
+
+	// After validation: populated
+	require.NoError(t, s.UpdateValidationScore("p1", 1, 1, 1, 72))
+	m, err = s.GetShotManifest("p1", 1, 1, 1)
+	require.NoError(t, err)
+	require.NotNil(t, m.ValidationScore)
+	assert.Equal(t, 72, *m.ValidationScore)
+}
+
+func TestListShotManifestsByScene_IncludesValidationScore(t *testing.T) {
+	s := setupTestStore(t)
+	require.NoError(t, s.CreateProject(&domain.Project{ID: "p1", SCPID: "SCP-1", Status: "pending", WorkspacePath: "/w"}))
+	require.NoError(t, s.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "p1", SceneNum: 1, ShotNum: 1, SentenceStart: 1, SentenceEnd: 1, CutNum: 1,
+		ContentHash: "h1", ImageHash: "ih1", GenMethod: "text_to_image", Status: "generated",
+	}))
+	require.NoError(t, s.CreateShotManifest(&domain.ShotManifest{
+		ProjectID: "p1", SceneNum: 1, ShotNum: 2, SentenceStart: 2, SentenceEnd: 2, CutNum: 1,
+		ContentHash: "h2", ImageHash: "ih2", GenMethod: "text_to_image", Status: "generated",
+	}))
+
+	// Validate only first shot
+	require.NoError(t, s.UpdateValidationScore("p1", 1, 1, 1, 90))
+
+	manifests, err := s.ListShotManifestsByScene("p1", 1)
+	require.NoError(t, err)
+	require.Len(t, manifests, 2)
+
+	require.NotNil(t, manifests[0].ValidationScore)
+	assert.Equal(t, 90, *manifests[0].ValidationScore)
+	assert.Nil(t, manifests[1].ValidationScore)
+}
+
 func TestGetManifest_TimestampParsed(t *testing.T) {
 	s := setupTestStore(t)
 	require.NoError(t, s.CreateProject(&domain.Project{ID: "p1", SCPID: "SCP-1", Status: "pending", WorkspacePath: "/w"}))

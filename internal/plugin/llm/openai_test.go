@@ -218,3 +218,133 @@ func TestProviderName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "gemini", provider.ProviderName())
 }
+
+func TestCompleteWithVision_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/chat/completions", r.URL.Path)
+		assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
+
+		// Verify multimodal request format
+		var raw map[string]interface{}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&raw))
+
+		msgs := raw["messages"].([]interface{})
+		require.Len(t, msgs, 1)
+
+		msg := msgs[0].(map[string]interface{})
+		assert.Equal(t, "user", msg["role"])
+
+		content := msg["content"].([]interface{})
+		require.Len(t, content, 2)
+
+		textPart := content[0].(map[string]interface{})
+		assert.Equal(t, "text", textPart["type"])
+		assert.Equal(t, "Evaluate this image", textPart["text"])
+
+		imagePart := content[1].(map[string]interface{})
+		assert.Equal(t, "image_url", imagePart["type"])
+		imageURL := imagePart["image_url"].(map[string]interface{})
+		assert.Equal(t, "data:image/png;base64,abc123", imageURL["url"])
+
+		resp := chatResponse{
+			ID: "vision-id",
+			Choices: []chatChoice{
+				{Message: chatMessage{Role: "assistant", Content: `{"score": 85}`}},
+			},
+			Usage: chatUsage{PromptTokens: 100, CompletionTokens: 20},
+			Model: "qwen-vl-max",
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider, err := NewOpenAICompatibleProvider(OpenAIConfig{
+		ProviderName: "qwen",
+		Endpoint:     server.URL,
+		APIKey:       "test-key",
+		Model:        "qwen-vl-max",
+	})
+	require.NoError(t, err)
+
+	result, err := provider.CompleteWithVision(context.Background(), []VisionMessage{
+		{
+			Role: "user",
+			Content: []ContentPart{
+				{Type: "text", Text: "Evaluate this image"},
+				{Type: "image_url", ImageURL: "data:image/png;base64,abc123"},
+			},
+		},
+	}, CompletionOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, `{"score": 85}`, result.Content)
+	assert.Equal(t, 100, result.InputTokens)
+	assert.Equal(t, 20, result.OutputTokens)
+	assert.Equal(t, "qwen-vl-max", result.Model)
+}
+
+func TestCompleteWithVision_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(errorResponse{
+			Error: struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+				Code    string `json:"code"`
+			}{Message: "Invalid image format"},
+		})
+	}))
+	defer server.Close()
+
+	provider, err := NewOpenAICompatibleProvider(OpenAIConfig{
+		ProviderName: "test",
+		Endpoint:     server.URL,
+		APIKey:       "test-key",
+		Model:        "test-model",
+	})
+	require.NoError(t, err)
+
+	_, err = provider.CompleteWithVision(context.Background(), []VisionMessage{
+		{Role: "user", Content: []ContentPart{{Type: "text", Text: "test"}}},
+	}, CompletionOptions{})
+	require.Error(t, err)
+
+	var apiErr *APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 400, apiErr.StatusCode)
+}
+
+func TestCompleteWithVision_ModelOverride(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var raw map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&raw)
+		assert.Equal(t, "override-model", raw["model"])
+
+		resp := chatResponse{
+			Choices: []chatChoice{{Message: chatMessage{Content: "ok"}}},
+			Usage:   chatUsage{PromptTokens: 1, CompletionTokens: 1},
+			Model:   "override-model",
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	provider, err := NewOpenAICompatibleProvider(OpenAIConfig{
+		ProviderName: "test",
+		Endpoint:     server.URL,
+		APIKey:       "test-key",
+		Model:        "default-model",
+	})
+	require.NoError(t, err)
+
+	result, err := provider.CompleteWithVision(context.Background(), []VisionMessage{
+		{Role: "user", Content: []ContentPart{{Type: "text", Text: "test"}}},
+	}, CompletionOptions{Model: "override-model"})
+	require.NoError(t, err)
+	assert.Equal(t, "override-model", result.Model)
+}
+
+func TestErrNotSupported(t *testing.T) {
+	assert.ErrorIs(t, ErrNotSupported, ErrNotSupported)
+	assert.Contains(t, ErrNotSupported.Error(), "not supported")
+}

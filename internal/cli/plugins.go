@@ -10,6 +10,7 @@ import (
 	"github.com/sushistack/yt.pipe/internal/plugin/llm"
 	"github.com/sushistack/yt.pipe/internal/plugin/output"
 	"github.com/sushistack/yt.pipe/internal/plugin/output/capcut"
+	ffmpegout "github.com/sushistack/yt.pipe/internal/plugin/output/ffmpeg"
 	"github.com/sushistack/yt.pipe/internal/plugin/tts"
 )
 
@@ -27,6 +28,10 @@ func init() {
 
 	// Register TTS providers
 	_ = pluginRegistry.Register(plugin.PluginTypeTTS, "dashscope", tts.DashScopeFactory)
+
+	// Register Output providers
+	_ = pluginRegistry.Register(plugin.PluginTypeOutput, "capcut", capcut.Factory)
+	_ = pluginRegistry.Register(plugin.PluginTypeOutput, "ffmpeg", ffmpegout.Factory)
 }
 
 // PluginRegistry returns the global plugin registry for registering providers.
@@ -96,8 +101,9 @@ type PluginSet struct {
 	LLM      llm.LLM
 	ImageGen imagegen.ImageGen
 	TTS      tts.TTS
-	Output   output.Assembler
-	Status   map[string]bool // plugin type -> available
+	Output   output.Assembler   // primary output assembler
+	Outputs  []output.Assembler // all output assemblers (for "both" mode)
+	Status   map[string]bool    // plugin type -> available
 }
 
 // createPluginsGraceful creates plugin instances with graceful degradation.
@@ -177,9 +183,40 @@ func createPluginsGraceful(cfg *config.LoadResult) *PluginSet {
 		slog.Warn("TTS provider not configured")
 	}
 
-	// Create Output (CapCut assembler) plugin — always available as built-in
-	ps.Output = capcut.New()
-	ps.Status["output"] = true
+	// Create Output assembler(s) based on provider config: "capcut" (default), "ffmpeg", or "both"
+	provider := c.Output.Provider
+	if provider == "" {
+		provider = "capcut"
+	}
+
+	switch provider {
+	case "ffmpeg":
+		fa, err := ffmpegout.New(slog.Default(), c.Output.FFmpeg)
+		if err != nil {
+			slog.Warn("failed to initialize FFmpeg output plugin", "error", err)
+		} else {
+			ps.Output = fa
+			ps.Outputs = []output.Assembler{fa}
+			ps.Status["output"] = true
+		}
+	case "both":
+		capcutAsm := capcut.New()
+		ps.Output = capcutAsm // primary = capcut
+		ps.Outputs = []output.Assembler{capcutAsm}
+		ps.Status["output"] = true
+
+		fa, err := ffmpegout.New(slog.Default(), c.Output.FFmpeg)
+		if err != nil {
+			slog.Warn("failed to initialize FFmpeg output plugin for 'both' mode", "error", err)
+		} else {
+			ps.Outputs = append(ps.Outputs, fa)
+		}
+	default: // "capcut"
+		capcutAsm := capcut.New()
+		ps.Output = capcutAsm
+		ps.Outputs = []output.Assembler{capcutAsm}
+		ps.Status["output"] = true
+	}
 
 	return ps
 }

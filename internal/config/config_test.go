@@ -513,6 +513,49 @@ api:
 	assert.Equal(t, "default", result.Sources["log_level"])
 }
 
+func TestLoad_AutoApprovalDefaults(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	_ = os.Chdir(dir)
+	defer func() { _ = os.Chdir(origDir) }()
+	t.Setenv("HOME", dir)
+
+	result, err := Load("")
+	require.NoError(t, err)
+	assert.False(t, result.Config.AutoApproval.Enabled)
+	assert.Equal(t, 80, result.Config.AutoApproval.Threshold)
+}
+
+func TestValidate_AutoApprovalWithoutImageValidation(t *testing.T) {
+	cfg := &Config{
+		API:             APIConfig{Port: 8080},
+		AutoApproval:    AutoApproval{Enabled: true, Threshold: 80},
+		ImageValidation: ImageValidation{Enabled: false},
+	}
+	result := Validate(cfg)
+	assert.True(t, result.IsValid()) // warning, not error
+	require.NotEmpty(t, result.Warnings)
+	assert.Contains(t, result.Warnings[0], "auto_approval requires image_validation")
+}
+
+func TestValidate_AutoApprovalWithImageValidation(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{
+		SCPDataPath:     dir,
+		WorkspacePath:   dir,
+		DBPath:          dir + "/test.db",
+		API:             APIConfig{Port: 8080},
+		AutoApproval:    AutoApproval{Enabled: true, Threshold: 80},
+		ImageValidation: ImageValidation{Enabled: true, Threshold: 70, MaxAttempts: 3},
+	}
+	result := Validate(cfg)
+	assert.True(t, result.IsValid())
+	// No auto_approval warning when image_validation is enabled
+	for _, w := range result.Warnings {
+		assert.NotContains(t, w, "auto_approval")
+	}
+}
+
 func TestLoad_SourceTracking_EnvOverride(t *testing.T) {
 	dir := t.TempDir()
 	origDir, _ := os.Getwd()

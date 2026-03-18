@@ -110,6 +110,29 @@ type chatUsage struct {
 	CompletionTokens int `json:"completion_tokens"`
 }
 
+// Vision-specific request types for OpenAI multimodal format.
+type visionChatRequest struct {
+	Model       string              `json:"model"`
+	Messages    []visionChatMessage `json:"messages"`
+	Temperature float64             `json:"temperature,omitempty"`
+	MaxTokens   int                 `json:"max_tokens,omitempty"`
+}
+
+type visionChatMessage struct {
+	Role    string              `json:"role"`
+	Content []visionContentPart `json:"content"`
+}
+
+type visionContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *visionImageURL `json:"image_url,omitempty"`
+}
+
+type visionImageURL struct {
+	URL string `json:"url"`
+}
+
 type errorResponse struct {
 	Error struct {
 		Message string `json:"message"`
@@ -177,6 +200,146 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, messages []Mess
 	)
 
 	return result, nil
+}
+
+// CompleteWithVision sends multimodal messages to a vision-capable LLM.
+func (p *OpenAICompatibleProvider) CompleteWithVision(ctx context.Context, messages []VisionMessage, opts CompletionOptions) (*CompletionResult, error) {
+	model := p.model
+	if opts.Model != "" {
+		model = opts.Model
+	}
+	temp := p.temperature
+	if opts.Temperature > 0 {
+		temp = opts.Temperature
+	}
+	maxTokens := p.maxTokens
+	if opts.MaxTokens > 0 {
+		maxTokens = opts.MaxTokens
+	}
+
+	visionMsgs := make([]visionChatMessage, len(messages))
+	for i, m := range messages {
+		parts := make([]visionContentPart, 0, len(m.Content))
+		for _, cp := range m.Content {
+			switch cp.Type {
+			case "text":
+				parts = append(parts, visionContentPart{Type: "text", Text: cp.Text})
+			case "image_url":
+				parts = append(parts, visionContentPart{Type: "image_url", ImageURL: &visionImageURL{URL: cp.ImageURL}})
+			default:
+				slog.Warn("unknown vision content part type, skipping",
+					"type", cp.Type,
+					"provider", p.providerName,
+				)
+			}
+		}
+		visionMsgs[i] = visionChatMessage{Role: m.Role, Content: parts}
+	}
+
+	reqBody := visionChatRequest{
+		Model:       model,
+		Messages:    visionMsgs,
+		Temperature: temp,
+		MaxTokens:   maxTokens,
+	}
+
+	var result *CompletionResult
+	start := time.Now()
+
+	err := retry.Do(ctx, p.pluginCfg.MaxRetries, p.pluginCfg.BaseDelay, func() error {
+		resp, err := p.doVisionRequest(ctx, reqBody)
+		if err != nil {
+			return err
+		}
+		result = resp
+		return nil
+	})
+
+	elapsed := time.Since(start)
+	if err != nil {
+		slog.Error("llm vision completion failed",
+			"provider", p.providerName,
+			"model", model,
+			"duration_ms", elapsed.Milliseconds(),
+			"err", err,
+		)
+		return nil, err
+	}
+
+	slog.Info("llm vision completion succeeded",
+		"provider", p.providerName,
+		"model", result.Model,
+		"input_tokens", result.InputTokens,
+		"output_tokens", result.OutputTokens,
+		"duration_ms", elapsed.Milliseconds(),
+	)
+
+	return result, nil
+}
+
+func (p *OpenAICompatibleProvider) doVisionRequest(ctx context.Context, reqBody visionChatRequest) (*CompletionResult, error) {
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal vision request: %w", err)
+	}
+
+	url := p.endpoint + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, &APIError{
+			Provider:   p.providerName,
+			StatusCode: 0,
+			Message:    "network error",
+			Err:        err,
+		}
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp errorResponse
+		_ = json.Unmarshal(respBody, &errResp)
+		msg := errResp.Error.Message
+		if msg == "" {
+			msg = string(respBody)
+		}
+		return nil, &APIError{
+			Provider:   p.providerName,
+			StatusCode: resp.StatusCode,
+			Message:    msg,
+		}
+	}
+
+	var chatResp chatResponse
+	if err := json.Unmarshal(respBody, &chatResp); err != nil {
+		return nil, fmt.Errorf("unmarshal response: %w", err)
+	}
+
+	if len(chatResp.Choices) == 0 {
+		return nil, &APIError{
+			Provider:   p.providerName,
+			StatusCode: 200,
+			Message:    "empty response: no choices returned",
+		}
+	}
+
+	return &CompletionResult{
+		Content:      chatResp.Choices[0].Message.Content,
+		InputTokens:  chatResp.Usage.PromptTokens,
+		OutputTokens: chatResp.Usage.CompletionTokens,
+		Model:        chatResp.Model,
+	}, nil
 }
 
 func (p *OpenAICompatibleProvider) doRequest(ctx context.Context, reqBody chatRequest) (*CompletionResult, error) {

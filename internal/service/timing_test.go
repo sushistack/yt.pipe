@@ -213,6 +213,178 @@ func TestWithDefaultSceneDuration_IgnoresInvalid(t *testing.T) {
 	assert.Equal(t, DefaultSceneDurationSec, timings[0].DurationSec)
 }
 
+// --- YouTube Chapters Tests ---
+
+func TestGenerateChapters_MultiScene(t *testing.T) {
+	resolver := newTestTimingResolver(t)
+	timeline := Timeline{
+		TotalDurationSec: 180,
+		SceneCount:       3,
+		Scenes: []SceneTiming{
+			{SceneNum: 1, StartSec: 0, EndSec: 60},
+			{SceneNum: 2, StartSec: 60, EndSec: 120},
+			{SceneNum: 3, StartSec: 120, EndSec: 180},
+		},
+	}
+	scenes := []domain.SceneScript{
+		{SceneNum: 1, Mood: "Eerie", VisualDescription: "A dark corridor stretching endlessly into the void"},
+		{SceneNum: 2, Mood: "Tense", VisualDescription: "Guards patrolling the facility"},
+		{SceneNum: 3, Mood: "Calm", VisualDescription: "Morning light"},
+	}
+
+	chapters := resolver.GenerateChapters(timeline, scenes)
+	assert.Len(t, chapters, 3)
+	assert.Equal(t, "Intro", chapters[0].Title)
+	assert.Equal(t, 0.0, chapters[0].TimestampSec)
+	assert.Equal(t, "Tense - Guards patrolling the facility", chapters[1].Title)
+	assert.Equal(t, 60.0, chapters[1].TimestampSec)
+	assert.Equal(t, "Calm - Morning light", chapters[2].Title)
+
+	// Verify format output
+	content := FormatChapters(chapters)
+	assert.Contains(t, content, "0:00 Intro\n")
+	assert.Contains(t, content, "1:00 Tense - Guards patrolling the facility\n")
+	assert.Contains(t, content, "2:00 Calm - Morning light\n")
+}
+
+func TestGenerateChapters_SingleScene(t *testing.T) {
+	resolver := newTestTimingResolver(t)
+	timeline := Timeline{
+		TotalDurationSec: 30,
+		SceneCount:       1,
+		Scenes: []SceneTiming{
+			{SceneNum: 1, StartSec: 0, EndSec: 30},
+		},
+	}
+	scenes := []domain.SceneScript{
+		{SceneNum: 1, Mood: "Eerie", VisualDescription: "A dark room"},
+	}
+
+	chapters := resolver.GenerateChapters(timeline, scenes)
+	assert.Len(t, chapters, 1)
+	assert.Equal(t, "Intro", chapters[0].Title)
+
+	content := FormatChapters(chapters)
+	assert.Equal(t, "0:00 Intro\n", content)
+}
+
+func TestGenerateChapters_HourPlusTimestamp(t *testing.T) {
+	resolver := newTestTimingResolver(t)
+	timeline := Timeline{
+		TotalDurationSec: 4000,
+		SceneCount:       2,
+		Scenes: []SceneTiming{
+			{SceneNum: 1, StartSec: 0, EndSec: 3661},
+			{SceneNum: 2, StartSec: 3661, EndSec: 4000},
+		},
+	}
+	scenes := []domain.SceneScript{
+		{SceneNum: 1, Mood: "Intro Mood"},
+		{SceneNum: 2, Mood: "Finale", VisualDescription: "End scene"},
+	}
+
+	chapters := resolver.GenerateChapters(timeline, scenes)
+	content := FormatChapters(chapters)
+	// 3661 sec = 1h 1m 1s
+	assert.Contains(t, content, "1:01:01 Finale - End scene\n")
+}
+
+func TestGenerateChapters_TitleTruncation(t *testing.T) {
+	resolver := newTestTimingResolver(t)
+	timeline := Timeline{
+		TotalDurationSec: 20,
+		SceneCount:       2,
+		Scenes: []SceneTiming{
+			{SceneNum: 1, StartSec: 0, EndSec: 10},
+			{SceneNum: 2, StartSec: 10, EndSec: 20},
+		},
+	}
+	longDesc := "This is a very long visual description that exceeds thirty characters limit"
+	scenes := []domain.SceneScript{
+		{SceneNum: 1},
+		{SceneNum: 2, Mood: "Dark", VisualDescription: longDesc},
+	}
+
+	chapters := resolver.GenerateChapters(timeline, scenes)
+	// Mood + " - " + first 30 chars of VisualDesc + "…"
+	assert.Equal(t, "Dark - This is a very long visual des…", chapters[1].Title)
+}
+
+func TestGenerateChapters_EmptyMood(t *testing.T) {
+	resolver := newTestTimingResolver(t)
+	timeline := Timeline{
+		TotalDurationSec: 20,
+		SceneCount:       2,
+		Scenes: []SceneTiming{
+			{SceneNum: 1, StartSec: 0, EndSec: 10},
+			{SceneNum: 2, StartSec: 10, EndSec: 20},
+		},
+	}
+	scenes := []domain.SceneScript{
+		{SceneNum: 1},
+		{SceneNum: 2, VisualDescription: "A quiet room"},
+	}
+
+	chapters := resolver.GenerateChapters(timeline, scenes)
+	assert.Equal(t, "A quiet room", chapters[1].Title)
+}
+
+func TestGenerateChapters_EmptyMoodAndDesc(t *testing.T) {
+	resolver := newTestTimingResolver(t)
+	timeline := Timeline{
+		TotalDurationSec: 20,
+		SceneCount:       2,
+		Scenes: []SceneTiming{
+			{SceneNum: 1, StartSec: 0, EndSec: 10},
+			{SceneNum: 2, StartSec: 10, EndSec: 20},
+		},
+	}
+	scenes := []domain.SceneScript{
+		{SceneNum: 1},
+		{SceneNum: 2},
+	}
+
+	chapters := resolver.GenerateChapters(timeline, scenes)
+	assert.Equal(t, "Scene 2", chapters[1].Title)
+}
+
+func TestSaveChaptersFile(t *testing.T) {
+	resolver := newTestTimingResolver(t)
+	projectPath := t.TempDir()
+
+	content := "0:00 Intro\n1:23 Second scene\n"
+	err := resolver.SaveChaptersFile(content, projectPath)
+	require.NoError(t, err)
+
+	outputPath := filepath.Join(projectPath, "output", "chapters.txt")
+	assert.FileExists(t, outputPath)
+
+	data, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+	assert.Equal(t, content, string(data))
+}
+
+func TestFormatTimestamp(t *testing.T) {
+	tests := []struct {
+		sec      float64
+		expected string
+	}{
+		{0, "0:00"},
+		{5, "0:05"},
+		{65, "1:05"},
+		{600, "10:00"},
+		{3599, "59:59"},
+		{3600, "1:00:00"},
+		{3661, "1:01:01"},
+		{7325, "2:02:05"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			assert.Equal(t, tt.expected, formatTimestamp(tt.sec))
+		})
+	}
+}
+
 // countWords counts space-separated words in text.
 func countWords(text string) int {
 	count := 0

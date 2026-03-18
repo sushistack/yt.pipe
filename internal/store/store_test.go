@@ -20,7 +20,7 @@ func TestNew_MigrationApplied(t *testing.T) {
 	s := setupTestStore(t)
 	version, err := s.SchemaVersion()
 	require.NoError(t, err)
-	assert.Equal(t, 13, version)
+	assert.Equal(t, 15, version)
 }
 
 func TestNew_SceneApprovalsTableCreated(t *testing.T) {

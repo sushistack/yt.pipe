@@ -330,5 +330,99 @@ func TestSceneApproval_FullWorkflow(t *testing.T) {
 	assert.Equal(t, "approved", data["status"])
 }
 
-// Suppress unused import warning — bytes is used for potential POST body tests
-var _ = bytes.NewBufferString
+// --- GET /api/v1/projects/{id}/preview ---
+
+func TestBatchPreview_Success(t *testing.T) {
+	srv, st, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	createProjectAndApprovals(t, st, "p1", "SCP-173", 3, domain.AssetTypeImage, true)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/p1/preview?asset_type=image", nil)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp api.Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.True(t, resp.Success)
+
+	// Data should be an array
+	items, ok := resp.Data.([]interface{})
+	require.True(t, ok)
+	assert.Len(t, items, 3)
+}
+
+func TestBatchPreview_ProjectNotFound(t *testing.T) {
+	srv, _, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/nonexistent/preview?asset_type=image", nil)
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// --- POST /api/v1/projects/{id}/batch-approve ---
+
+func TestBatchApprove_Success(t *testing.T) {
+	srv, st, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	createProjectAndApprovals(t, st, "p1", "SCP-173", 4, domain.AssetTypeImage, true)
+
+	body := `{"asset_type": "image", "flagged_scenes": [2, 4]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p1/batch-approve",
+		bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp api.Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.True(t, resp.Success)
+
+	data := resp.Data.(map[string]interface{})
+	assert.Equal(t, float64(2), data["approved_count"])
+	assert.Equal(t, float64(2), data["flagged_count"])
+}
+
+func TestBatchApprove_EmptyFlags(t *testing.T) {
+	srv, st, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	createProjectAndApprovals(t, st, "p1", "SCP-173", 3, domain.AssetTypeImage, true)
+
+	body := `{"asset_type": "image", "flagged_scenes": []}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p1/batch-approve",
+		bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp api.Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp.Data.(map[string]interface{})
+	assert.Equal(t, float64(3), data["approved_count"])
+	assert.Equal(t, float64(0), data["flagged_count"])
+}
+
+func TestBatchApprove_ProjectNotFound(t *testing.T) {
+	srv, _, cleanup := setupTestServerWithStore(t)
+	defer cleanup()
+
+	body := `{"asset_type": "image", "flagged_scenes": []}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/nonexistent/batch-approve",
+		bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Router().ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}

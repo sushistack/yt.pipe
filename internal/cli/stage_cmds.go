@@ -217,8 +217,10 @@ func buildRunner(cmd *cobra.Command) (*pipeline.Runner, func(), error) {
 		TemplatePath:         c.Output.TemplatePath,
 		MetaPath:             c.Output.MetaPath,
 		TemplatesPath:        c.TemplatesPath,
-		DefaultSceneDuration: c.Output.DefaultSceneDuration,
-		CharacterSvc:         characterSvc,
+		DefaultSceneDuration:  c.Output.DefaultSceneDuration,
+		CharacterSvc:          characterSvc,
+		AutoApprovalEnabled:   c.AutoApproval.Enabled && c.ImageValidation.Enabled,
+		AutoApprovalThreshold: c.AutoApproval.Threshold,
 	})
 
 	cleanup := func() { db.Close() }

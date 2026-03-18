@@ -829,3 +829,72 @@ func requireReviewAuth(s *Server, w http.ResponseWriter, r *http.Request, projec
 	// Review token present — validate it
 	return validateReviewToken(s, w, r, projectID)
 }
+
+// --- Batch Preview & Approve Endpoints ---
+
+// handleBatchPreview returns a flat JSON array of BatchPreviewItem for n8n compatibility.
+// GET /api/v1/projects/{id}/preview?asset_type=image
+func (s *Server) handleBatchPreview(w http.ResponseWriter, r *http.Request) {
+	if !checkReadRateLimit(w, r) {
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	project, ok := requireReviewAuth(s, w, r, projectID)
+	if !ok {
+		return
+	}
+	_ = project
+
+	assetType := r.URL.Query().Get("asset_type")
+	if assetType == "" {
+		assetType = domain.AssetTypeImage
+	}
+
+	approvalSvc := service.NewApprovalService(s.store, slog.Default())
+	items, err := approvalSvc.GetBatchPreview(r.Context(), projectID, assetType)
+	if err != nil {
+		writeServiceError(w, r, err)
+		return
+	}
+
+	WriteJSON(w, r, http.StatusOK, items)
+}
+
+// batchApproveRequest is the request body for POST /api/v1/projects/{id}/batch-approve.
+type batchApproveRequest struct {
+	AssetType    string `json:"asset_type"`
+	FlaggedScenes []int `json:"flagged_scenes"`
+}
+
+// handleBatchApprove approves all non-flagged scenes in a single operation.
+// POST /api/v1/projects/{id}/batch-approve
+func (s *Server) handleBatchApprove(w http.ResponseWriter, r *http.Request) {
+	if !checkMutationRateLimit(w, r) {
+		return
+	}
+	projectID := chi.URLParam(r, "id")
+	project, ok := requireReviewAuth(s, w, r, projectID)
+	if !ok {
+		return
+	}
+	_ = project
+
+	var req batchApproveRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		WriteError(w, r, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
+		return
+	}
+
+	if req.AssetType == "" {
+		req.AssetType = domain.AssetTypeImage
+	}
+
+	approvalSvc := service.NewApprovalService(s.store, slog.Default())
+	result, err := approvalSvc.BatchApprove(r.Context(), projectID, req.AssetType, req.FlaggedScenes)
+	if err != nil {
+		writeServiceError(w, r, err)
+		return
+	}
+
+	WriteJSON(w, r, http.StatusOK, result)
+}
