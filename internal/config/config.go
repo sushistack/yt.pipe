@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 )
 
@@ -92,7 +93,12 @@ func Load(configPath string) (*LoadResult, error) {
 		cs.recordChanged(v, "project config", beforeProject)
 	}
 
-	// 4. Environment variables: YTP_ prefix
+	// 4. Load .env file (if present) before reading environment variables
+	if err := godotenv.Load(); err == nil {
+		// .env loaded successfully — values are now in os.Environ
+	}
+
+	// 5. Environment variables: YTP_ prefix
 	v.SetEnvPrefix("YTP")
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
